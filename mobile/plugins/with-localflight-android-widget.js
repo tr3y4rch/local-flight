@@ -73,6 +73,7 @@ function withLocalFlightAndroidWidget(config) {
         "widget"
       );
       const resRoot = path.join(androidRoot, "app", "src", "main", "res");
+      const assetRoot = path.join(androidRoot, "app", "src", "main", "assets", "localflight-font-licenses");
 
       fs.mkdirSync(javaRoot, { recursive: true });
       const kotlinTemplate = fs.readFileSync(
@@ -84,6 +85,7 @@ function withLocalFlightAndroidWidget(config) {
         kotlinTemplate.replaceAll("__PACKAGE_NAME__", packageName)
       );
       copyTree(path.join(sourceRoot, "res"), resRoot);
+      copyTree(path.join(sourceRoot, "assets", "licenses"), assetRoot);
       return nextConfig;
     }
   ]);

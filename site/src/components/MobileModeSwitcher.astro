@@ -1,0 +1,58 @@
+<div class="mode-switcher" data-mode-switcher data-reveal>
+  <div class="mode-tabs" role="tablist" aria-label="Local Flight Mobile modes">
+    <button class="mode-tab" type="button" role="tab" id="tab-companion" aria-controls="panel-companion" aria-selected="true" tabindex="0" data-mode-tab="companion">Companion</button>
+    <button class="mode-tab" type="button" role="tab" id="tab-standalone" aria-controls="panel-standalone" aria-selected="false" tabindex="-1" data-mode-tab="standalone">Standalone</button>
+  </div>
+  <section class="mode-panel" id="panel-companion" role="tabpanel" aria-labelledby="tab-companion" data-mode-panel="companion">
+    <div class="mode-panel-intro">
+      <span class="mode-code">MODE / 01</span>
+      <h3>Connect to the Local Flight setup you already run.</h3>
+      <p>Pair the phone with the computer running Local Flight over your home or local network (LAN). Companion then shows that setup’s board, radar, history, and display information.</p>
+    </div>
+    <dl class="mode-facts">
+      <div><dt>At home</dt><dd>The phone connects directly to your own Local Flight setup over Wi-Fi or LAN.</dd></div>
+      <div><dt>Away from home</dt><dd>Optional Remote Companion sends end-to-end encrypted messages while your Local Flight computer stays online.</dd></div>
+      <div><dt>History</dt><dd>Shows the movement history saved by your Local Flight setup.</dd></div>
+      <div><dt>Best for</dt><dd>An existing Windows, macOS, Linux, or Raspberry Pi installation.</dd></div>
+    </dl>
+  </section>
+  <section class="mode-panel" id="panel-standalone" role="tabpanel" aria-labelledby="tab-standalone" data-mode-panel="standalone" hidden>
+    <div class="mode-panel-intro">
+      <span class="mode-code">MODE / 02</span>
+      <h3>Run a flight board directly on this phone.</h3>
+      <p>Standalone connects to Beacon Tools’ shared online service (Community Relay), so you do not need to keep a computer or Raspberry Pi running.</p>
+    </div>
+    <dl class="mode-facts">
+      <div><dt>Connection</dt><dd>The phone connects to Community Relay over the internet.</dd></div>
+      <div><dt>Update limits</dt><dd>Three-hour boards and five-minute visible radar updates keep shared use sustainable.</dd></div>
+      <div><dt>History</dt><dd>Recent movement history stays on the phone.</dd></div>
+      <div><dt>Best for</dt><dd>A mobile flight board without another Local Flight device.</dd></div>
+    </dl>
+  </section>
+</div>
+
+<script>
+  const switcher = document.querySelector<HTMLElement>("[data-mode-switcher]");
+  if (switcher) {
+    const tabs = [...switcher.querySelectorAll<HTMLButtonElement>("[data-mode-tab]")];
+    const panels = [...switcher.querySelectorAll<HTMLElement>("[data-mode-panel]")];
+    const select = (mode: string, focus = false) => {
+      tabs.forEach((tab) => {
+        const selected = tab.dataset.modeTab === mode;
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        if (selected && focus) tab.focus();
+      });
+      panels.forEach((panel) => { panel.hidden = panel.dataset.modePanel !== mode; });
+    };
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => select(tab.dataset.modeTab || "companion"));
+      tab.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : event.key === "ArrowRight" ? (index + 1) % tabs.length : (index - 1 + tabs.length) % tabs.length;
+        select(tabs[nextIndex]?.dataset.modeTab || "companion", true);
+      });
+    });
+  }
+</script>

@@ -1,0 +1,74 @@
+---
+import SiteLayout from "../../../layouts/SiteLayout.astro";
+import SectionHeading from "../../../components/SectionHeading.astro";
+---
+
+<SiteLayout
+  title="Privacy Choices"
+  description="Change what Local Flight sends, stop automatic crash reports, revoke Remote Companion, reset setup, erase local data, or make a privacy request."
+  active="privacy"
+>
+  <header class="document-hero terminal-frame">
+    <div class="eyebrow">Privacy / Controls</div>
+    <h1>Change what gets sent—or remove what is stored.</h1>
+    <p>Choose the result you want: change crash-report settings, update setup, remove a paired phone, erase local data, or ask Beacon Tools to locate an online service record.</p>
+    <div class="hero-actions" style="margin-top: 34px">
+      <a class="action-button action-button--primary" href="#actions">Find an action <span aria-hidden="true">↓</span></a>
+      <a class="action-link" href="/privacy/">Read the full policy</a>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="terminal-frame">
+      <SectionHeading index="01 / CRASH REPORTS" title="Choose how crash reports work." description="Manual reports leave your device only when you press Send. Automatic crash reports remain off unless you choose one of the automatic options." />
+      <div class="feature-run" data-reveal>
+        <article class="feature"><span class="feature-index">OFF</span><h3>Don’t send crash reports</h3><p>Crashes stay on your device. App label: <strong>Manual reports only</strong> on desktop or Pi, and <strong>Ask me first</strong> on mobile.</p></article>
+        <article class="feature"><span class="feature-index">AUTO</span><h3>Send cleaned crash reports</h3><p>A crash can send cleaned error details and broad device context. App label: <strong>Auto crash reports</strong> on desktop or Pi, and <strong>Send crash reports</strong> on mobile.</p></article>
+        <article class="feature"><span class="feature-index">AUTO + LOG</span><h3>Include a short cleaned log excerpt</h3><p>The stronger option can add a short cleaned excerpt from the latest text log. App label: <strong>Auto crash reports + logs</strong> on desktop or Pi, and <strong>Crash reports + context</strong> on mobile.</p></article>
+        <article class="feature"><span class="feature-index">MANUAL</span><h3>Send a report yourself</h3><p>App and website reports remain user-triggered. They are cleaned before delivery and send only when you choose Submit or Send.</p></article>
+      </div>
+      <p class="hero-footnote" style="margin-top: 28px">Manual app reports and enabled automatic diagnostics are cleaned on your device. Website bug reports pass through Beacon Tools, are size-limited, and are cleaned before reaching the developer’s Linear report inbox. <a href="https://linear.app/privacy">Read Linear’s privacy information.</a></p>
+    </div>
+  </section>
+
+  <section class="section section--raised section--ruled" id="actions">
+    <div class="terminal-frame">
+      <SectionHeading index="02 / RESET AND ERASE" title="Choose how much you want to change." description="Changing setup, removing a paired phone, resetting an app, and completely erasing an installation are separate actions." />
+      <ol class="action-checklist" data-reveal>
+        <li><span class="step">01 / SETUP</span><strong>Change setup without deleting everything</strong><p>Use <strong>Reset Setup</strong> in Local Flight Settings. This keeps the installation identity and Community Relay link while letting you change the airport, data source, or setup path.</p></li>
+        <li><span class="step">02 / PHONE</span><strong>Remove a paired phone</strong><p>Revoke Remote Companion in the Local Flight computer’s Settings before choosing <strong>Forget</strong> on the phone. Forgetting only on the phone does not cancel the computer’s remote-access permission.</p></li>
+        <li><span class="step">03 / MOBILE</span><strong>Reset the mobile app</strong><p>Use the in-app reset to choose Companion or Standalone again. For a complete mobile erase, revoke Remote Companion first, then remove the app from the phone.</p></li>
+        <li><span class="step">04 / DESKTOP</span><strong>Completely erase desktop or Pi data</strong><p>Stop Local Flight, then remove <code>~/.localflight/</code> and <code>~/.localflight_identity.json</code>. The next launch is treated as a new installation.</p></li>
+        <li><span class="step">05 / SERVER</span><strong>Completely erase Linux server data</strong><p>Remove the server package, then explicitly delete <code>/var/lib/localflight</code> and <code>/etc/localflight</code>. Normal package removal preserves these folders for an upgrade or reinstall.</p></li>
+        <li><span class="step">06 / KEYS</span><strong>Remove saved aviation-data keys</strong><p>Your own aviation-data API keys stay in the Local Flight installation. A complete local erase removes Local Flight’s saved copy.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="terminal-frame terminal-grid split-story">
+      <div class="split-story-copy" data-reveal>
+        <span class="section-index">03 / SHARED RECORDS</span>
+        <h2>Online features may leave a small service record—not a personal profile.</h2>
+        <p>A random service ID, usage counts, broad app and device details, encrypted-message routing details, last-connected times, and short-lived shared data can be used to run and protect the online features you select.</p>
+      </div>
+      <div class="split-story-media" data-reveal>
+        <ul class="data-list">
+          <li><b>Not intended</b><span>Raw IP addresses, names or emails from normal use, your aviation-data keys, readable Remote Companion messages, histories, full logs, screenshots, recordings, or account profiles.</span></li>
+          <li><b>Requests</b><span>Include the public Support ID, report reference, approximate time, or reply email you supplied so a record can be located.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--quiet section--ruled">
+    <div class="terminal-frame">
+      <SectionHeading index="04 / CONTACT" title="Send privacy requests here." description="Local Flight does not require an account or email address. Provide only the identifiers needed to locate the record you are asking about." />
+      <div class="summary-lines" data-reveal>
+        <div class="summary-line"><span>PRV</span><strong>Privacy and diagnostics</strong><p><a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a></p></div>
+        <div class="summary-line"><span>SUP</span><strong>General support</strong><p><a href="/support/#message">Use the support message box</a></p></div>
+        <div class="summary-line"><span>POL</span><strong>Full policy</strong><p><a href="/privacy/">Read how local, hosted, report, and purchase data are handled.</a></p></div>
+      </div>
+    </div>
+  </section>
+</SiteLayout>

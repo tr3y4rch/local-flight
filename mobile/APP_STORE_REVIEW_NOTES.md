@@ -16,17 +16,17 @@ Run `npm run appstore:contract` before copying it into App Store Connect.
 - Marketing URL: `https://beacontools.cc/local-flight/mobile`
 - Support URL: `https://beacontools.cc/support`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
-- Recommended review path: choose **Standalone** on first launch so the app can be tested without a desktop, Linux server, or Raspberry Pi host.
-- Standalone setup needs an airport, a mobile diagnostics choice, and relay activation through `https://relay.beacontools.cc`. It does not open LAN WebSockets, Matrix controls, scheduler controls, or server-control panels.
-- Standalone daily surfaces are **Board**, **Radar**, **History**, and **Settings**.
+- Recommended review path: choose **Use without a Local Flight host** on first launch so the app can be tested without a desktop, Linux server, or Raspberry Pi host. The app explains that this is Standalone mode after the choice.
+- First run has four stages: Welcome, connection choice, pair or choose airport, then privacy and review. Standalone activation and diagnostics choice are included in those stages through `https://relay.beacontools.cc`.
+- Standalone daily surfaces are **Board**, **Radar**, **History**, and **More**.
 - Companion is also included. It pairs with a Local Flight desktop, Linux server, or Pi host over the same local network by QR code or manual URL.
-- Remote Companion is part of Companion mode. After explicit host-side grant pairing, Companion uses LAN first and can fall back to encrypted relay routing when the phone is away from Wi-Fi and the host is online.
-- Companion daily surfaces are **Board**, **Radar**, **History**, and **Control**. Help & Reports is inside Control.
+- Remote Companion is part of Companion mode. After explicit host-side grant pairing, Companion uses the nearby host first and can fall back to encrypted relay routing when this device is away from the same Wi-Fi and the host is online.
+- Companion daily surfaces are **Board**, **Radar**, **History**, and **More**. Host/display controls and diagnostics are progressively disclosed inside More.
 
 ## Permission Rationale
 
 - Camera: used only to scan Local Flight pairing QR codes. Manual URL entry remains available if camera access is denied.
-- Local Network: used only by Companion to connect to the user's own Local Flight server on Wi-Fi/LAN and to complete trusted pairing before optional Remote Companion.
+- Local Network: used only by Companion to connect to the user's own Local Flight host on the same Wi-Fi and to complete trusted pairing before optional Remote Companion.
 - App Transport Security: the app enables cleartext transport because a user-owned Local Flight host can be reached by a private IPv4 address or mDNS name that cannot be enumerated in an ATS domain list. This is used for user-entered/self-scanned LAN Companion URLs. Remote Companion, Standalone, support, and Beacon Tools relay traffic use HTTPS.
 
 ## Privacy Summary
@@ -50,19 +50,19 @@ The bundled iOS privacy manifest declares required-reason APIs and conservative 
 
 ## Optional In-App Support
 
-- Settings/Control includes three optional consumable support products: `cc.beacontools.localflight.support.small`, `.medium`, and `.large`.
+- More includes three optional consumable support products: `cc.beacontools.localflight.support.small`, `.medium`, and `.large`.
 - Every product unlocks nothing and creates no entitlement. The sheet states this before purchase and displays only App Store-owned localized prices.
 - Local Flight sends the transaction ID to the Beacon Tools relay, which verifies it through Apple's App Store Server API. The app finishes the consumable only after verification.
 - The relay stores a keyed transaction hash, short reference, product ID, store environment, status, and timestamps. It does not retain the signed transaction, payment-card data, or Apple account identity.
 - No external Buy Me a Coffee or other external purchase call-to-action appears in App Store builds.
 - External project website, source, and release-note links are informational/support links only, not purchase links. The app should route users to `https://beacontools.cc/local-flight/mobile` first; GitHub remains available from that public project page for source/issues.
 
-## Home-Screen Widget
+## Widgets And Live Activity
 
-- Build `7` includes small and medium iOS home-screen widgets through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
+- Build `8` includes small and medium iOS home-screen widgets and a capability-gated pinned-flight Live Activity through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
 - The app writes a bounded local board snapshot into the shared App Group. The widget does not make LAN, relay, provider, analytics, or advertising requests.
 - The small widget shows the pinned flight or a clear open-app prompt. The medium widget shows a bounded airport-board glance with stale labeling.
-- Dynamic Island and Live Activities are not enabled in this build.
+- On supported iPhones, **Pin & show on Lock Screen** explicitly starts a best-effort local Live Activity for the selected flight. It reads the same snapshot, adds no push notification infrastructure, keeps missing data stale instead of switching flights, and ends on unpin, dismissal, or two hours after a terminal state. Unsupported devices retain ordinary pinning and widgets.
 
 ## Safety Copy
 
@@ -72,11 +72,12 @@ Local Flight flight, weather, radar, and surface data are informational display 
 
 - Fresh install: Standalone setup completes without LAN server hardware.
 - Fresh install: Companion setup still works by manual URL if camera access is denied.
-- Remote Companion: pair on LAN, block LAN, confirm `REMOTE` state loads Board/Radar/History/Control, then revoke and confirm remote access stops.
+- Remote Companion: pair on the same Wi-Fi, block the nearby route, confirm **Connected remotely** loads Board/Radar/History/More, then revoke and confirm remote access stops.
 - Denied local network: app explains LAN pairing cannot reach the server and Standalone remains usable.
 - Bad QR/fingerprint mismatch: app rejects the wrong LAN server.
 - Offline relay: Standalone shows a useful retry/error state.
-- Purchase surface: open Standalone **Settings** or Companion **Control**, choose **Support Local Flight**, confirm all three localized products load, complete one sandbox purchase, and confirm the thank-you state. Interrupt relay access after store approval to verify the unfinished transaction is retained and safely retried before consumption.
+- Purchase surface: open **More → Advanced diagnostics**, choose **Support Local Flight**, confirm all three localized products load, complete one sandbox purchase, and confirm the thank-you state. Interrupt relay access after store approval to verify the unfinished transaction is retained and safely retried before consumption.
 - Widget: add small and medium Local Flight widgets, confirm empty/stale states, pin a flight in the app, and confirm the widget updates without requesting new permissions.
-- Bottom navigation: Standalone shows Board/Radar/History/Settings; Companion shows Board/Radar/History/Control.
+- Live Activity: on a supported iPhone, choose **Pin & show on Lock Screen**, confirm the selected flight appears and becomes stale rather than switching; verify ordinary pinning on an unsupported device.
+- Navigation: both modes show Board/Radar/History/More. Compact widths use bottom tabs; iPad and compatible Apple-silicon Mac windows use the adaptive rail. Display is entered explicitly and always has an exit control.
 - Accessibility labels: only claim App Store Accessibility Nutrition Labels after real common-task testing.

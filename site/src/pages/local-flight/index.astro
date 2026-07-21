@@ -1,0 +1,122 @@
+---
+import SiteLayout from "../../layouts/SiteLayout.astro";
+import SectionHeading from "../../components/SectionHeading.astro";
+import MediaStage from "../../components/MediaStage.astro";
+import DownloadBoard from "../../components/DownloadBoard.astro";
+import SafetyNotice from "../../components/SafetyNotice.astro";
+import { currentRelease, releaseUrl } from "../../data/site";
+import fidsImage from "../../assets/screens/shell/fids-0.5.1.png";
+import radarImage from "../../assets/screens/shell/radar-0.5.1.png";
+import matrixImage from "../../assets/screens/shell/matrix.png";
+import historyImage from "../../assets/screens/shell/history-0.5.1.png";
+---
+
+<SiteLayout
+  title="Local Flight"
+  description="Download free, open-source Local Flight software for airport-style arrivals and departures, nearby-aircraft radar, history, kiosks, phones, and LED displays."
+  active="product"
+  image="/assets/localflight-lockup.png"
+>
+  <header class="terminal-hero">
+    <div class="terminal-frame terminal-grid hero-grid">
+      <div class="hero-copy hero-copy--narrow">
+        <div class="eyebrow">Local Flight / Release {currentRelease}</div>
+        <h1 class="hero-title">Build your own <span class="accent-word">airport-style flight board.</span></h1>
+        <p class="hero-lede">Local Flight is free, open-source software for arrivals, departures, nearby aircraft, movement history, kiosks, phones, and LED displays. Run it on a computer or Raspberry Pi you control.</p>
+        <div class="hero-actions">
+          <a class="action-button action-button--primary" href="#downloads">Choose a download <span aria-hidden="true">↓</span></a>
+          <a class="action-link" href="#capabilities">See what it can display</a>
+        </div>
+        <p class="hero-footnote">Free to download · No subscription · No account required · Windows · macOS · Linux · Raspberry Pi</p>
+      </div>
+      <div class="hero-visual hero-visual--wide">
+        <MediaStage src={fidsImage} alt="Local Flight departures board in the desktop application" label="FIDS / DEPARTURES" meta={`0.5.1 capture · interface unchanged in ${currentRelease}`} loading="eager" widths={[720, 1100, 1500]} sizes="(max-width: 920px) 90vw, 55vw" />
+      </div>
+    </div>
+  </header>
+
+  <div class="terminal-frame release-signal" aria-label="Current release">
+    <i aria-hidden="true"></i>
+    <div><strong>Current version: {currentRelease}.</strong><br /><span>Each direct download appears after its package and verification file pass the release checks.</span></div>
+    <a class="action-link" href={releaseUrl}>Release notes</a>
+  </div>
+
+  <section class="section" id="capabilities">
+    <div class="terminal-frame">
+      <SectionHeading index="01 / THE BOARD" title="The information you expect at a glance." description="Local Flight turns a screen into an airport-style arrivals and departures board (FIDS), with airport-local time, weather, flight status, and gate information when the data source supplies it." />
+      <div class="feature-run" data-reveal>
+        <article class="feature"><span class="feature-index">FIDS</span><h3>Arrivals and departures</h3><p>Follow operating flight numbers, local times, weather, pinned flights, and several board styles.</p></article>
+        <article class="feature"><span class="feature-index">SHARED</span><h3>Codeshares kept together</h3><p>When airlines sell the same flight under different numbers, Local Flight combines them into a clearer row.</p></article>
+        <article class="feature"><span class="feature-index">DETAIL</span><h3>Useful flight detail</h3><p>See status, gate, route, aircraft, and timing details when your chosen flight-data source provides them.</p></article>
+        <article class="feature"><span class="feature-index">HISTORY</span><h3>Recent movements</h3><p>Local Flight counts recent arrivals and departures as movements and saves the history on your computer.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--raised section--ruled">
+    <div class="terminal-frame">
+      <div class="terminal-grid split-story">
+        <div class="split-story-copy" data-reveal>
+          <span class="section-index">02 / RADAR</span>
+          <h2>See nearby aircraft around the airport.</h2>
+          <p>Add live aircraft position data (ADS-B) to see nearby traffic with runway, map, weather, and aircraft context. The radar uses the same deliberate 15-second sweep across desktop, browser, and mobile views.</p>
+          <ul class="data-list">
+            <li><b>Range</b><span>Choose 1–20 nautical mile views where the selected data path supports them.</span></li>
+            <li><b>Flight phase</b><span>Live radar movement remains separate from the status shown on the passenger board.</span></li>
+            <li><b>Data sources</b><span>Use ADS-B Exchange when configured, with OpenSky available as a fallback.</span></li>
+          </ul>
+        </div>
+        <div class="split-story-media">
+          <MediaStage src={radarImage} alt="Local Flight radar with nearby aircraft, runway, and airport ground context" label="RADAR / AIRPORT CONTEXT" meta={`0.5.1 capture · interface unchanged in ${currentRelease}`} />
+        </div>
+      </div>
+
+      <div class="terminal-grid split-story split-story--reverse">
+        <div class="split-story-copy" data-reveal>
+          <span class="section-index">03 / OUTPUTS</span>
+          <h2>Start with one screen. Add more when you want.</h2>
+          <p>The computer running Local Flight can power its own desktop window, browsers on your home or local network (LAN), Raspberry Pi kiosks, paired phones, and supported HUB75 LED matrix panels.</p>
+          <ul class="data-list">
+            <li><b>Desktop</b><span>Use the native Windows, macOS, or Linux app as your first display.</span></li>
+            <li><b>Browsers and phones</b><span>Open the board, radar, history, settings, and controls on other devices you own.</span></li>
+            <li><b>LED matrix</b><span>Preview the layout and generate MicroPython files for supported Interstate 75 W panels.</span></li>
+          </ul>
+        </div>
+        <div class="split-story-media">
+          <MediaStage src={matrixImage} alt="Local Flight LED matrix configuration and preview" label="MATRIX / LIVE PREVIEW" meta="Shared display contract" />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="terminal-frame terminal-grid split-story">
+      <div class="split-story-copy" data-reveal>
+        <span class="section-index">04 / FLIGHT DATA</span>
+        <h2>Choose where your flight data comes from.</h2>
+        <p>Pick the route that suits your setup: Beacon Tools’ shared online service (Community Relay), your own aviation-data API keys, or public VATSIM virtual traffic. Local Flight shows the choice during setup.</p>
+        <ul class="data-list">
+          <li><b>Shared Service</b><span>Get shared airport boards through Community Relay without managing aviation-data keys yourself.</span></li>
+          <li><b>Own Provider Account</b><span>Your keys stay on the computer running Local Flight and go only to the provider you select.</span></li>
+          <li><b>VATSIM Virtual Traffic</b><span>Use public VATSIM callsigns and flight plans while excluding pilot and controller identities.</span></li>
+        </ul>
+        <div class="inline-actions" style="margin-top: 30px">
+          <a class="action-link" href="/network/">See how every connection works</a>
+          <a class="action-link" href="/privacy/">Read the privacy model</a>
+        </div>
+      </div>
+      <div class="split-story-media">
+        <MediaStage src={historyImage} alt="Local Flight movement history and statistics" label="HISTORY / MOVEMENTS" meta="0.5.1 capture · saved on your computer" />
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--raised section--ruled" id="downloads">
+    <div class="terminal-frame">
+      <SectionHeading index="05 / DOWNLOADS" title="Download Local Flight for your computer." description="Choose your device first, then the processor only when needed. Beacon Tools links a package after both it and its SHA-256 verification file are present in the official GitHub release." />
+      <DownloadBoard />
+    </div>
+  </section>
+
+  <SafetyNotice subject="Local Flight board, radar, weather, map, history, and shared-service data" />
+</SiteLayout>

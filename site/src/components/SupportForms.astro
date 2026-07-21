@@ -1,0 +1,108 @@
+<section class="section" id="message">
+  <div class="terminal-frame form-shell" data-reveal>
+    <div class="form-context">
+      <span class="form-code">SUP / MESSAGE</span>
+      <h2>Send a question.</h2>
+      <p>Use this for guidance, mobile testing requests, or anything you can describe without a detailed issue report.</p>
+    </div>
+    <form class="support-form" data-support-form="contact">
+      <input type="text" name="company" class="honeypot" autocomplete="off" tabindex="-1" aria-hidden="true" />
+      <div class="form-grid">
+        <label>Topic
+          <select name="category">
+            <option value="general">General support</option>
+            <option value="mobile_testing">Mobile app</option>
+            <option value="relay">Shared service / network</option>
+            <option value="privacy">Privacy or diagnostics</option>
+          </select>
+        </label>
+        <label>Name <span class="optional">Optional</span>
+          <input name="name" type="text" maxlength="120" autocomplete="name" />
+        </label>
+        <label>Reply email <span class="optional">Optional</span>
+          <input name="reply_email" type="email" maxlength="240" autocomplete="email" />
+        </label>
+        <label>Subject
+          <input name="subject" type="text" maxlength="180" required placeholder="What would you like help with?" />
+        </label>
+      </div>
+      <label>Message
+        <textarea name="message" rows="7" maxlength="4000" required placeholder="Tell us what you are trying to do. Include the device, airport, or app mode if they matter."></textarea>
+      </label>
+      <input name="website_context" type="hidden" value="/support/" />
+      <div class="form-actions">
+        <button class="action-button action-button--primary" type="submit">Send question <span aria-hidden="true">→</span></button>
+        <span class="form-status" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+  </div>
+</section>
+
+<section class="section section--raised" id="bug-report">
+  <div class="terminal-frame form-shell" data-reveal>
+    <div class="form-context">
+      <span class="form-code">SUP / BUG REPORT</span>
+      <h2>Report something that isn’t working.</h2>
+      <p>Use this when device details, steps, an approximate time, or optional cleaned text logs could help us understand the problem.</p>
+    </div>
+    <form class="support-form" data-support-form="bug" enctype="multipart/form-data">
+      <input type="text" name="company" class="honeypot" autocomplete="off" tabindex="-1" aria-hidden="true" />
+      <div class="form-grid">
+        <label>Where are you seeing the problem?
+          <select name="surface">
+            <option value="unknown">Not sure</option>
+            <option value="windows">Windows</option>
+            <option value="macos">macOS</option>
+            <option value="linux-desktop">Linux desktop</option>
+            <option value="linux-server">Linux server</option>
+            <option value="raspberry-pi">Raspberry Pi</option>
+            <option value="mobile">Mobile app</option>
+            <option value="matrix">LED Matrix</option>
+            <option value="relay">Shared service / Standalone</option>
+            <option value="website">Website</option>
+          </select>
+        </label>
+        <label>App version <span class="optional">Optional</span>
+          <input name="app_version" type="text" maxlength="80" placeholder="0.5.2" />
+        </label>
+        <label>Platform <span class="optional">Optional</span>
+          <input name="platform" type="text" maxlength="160" placeholder="For example: Windows 11, Raspberry Pi 5, iPhone 15, or Pixel 9" />
+        </label>
+        <label>Reply email <span class="optional">Optional</span>
+          <input name="reply_email" type="email" maxlength="240" autocomplete="email" />
+        </label>
+      </div>
+      <input name="product" type="hidden" value="local-flight" />
+      <input name="website_context" type="hidden" value="/support/" />
+      <label>Title
+        <input name="title" type="text" maxlength="180" required placeholder="Short summary of the problem" />
+      </label>
+      <label>What happened?
+        <textarea name="description" rows="6" maxlength="4000" required placeholder="Describe what you saw. Include the airport, app mode, and approximate time when relevant."></textarea>
+      </label>
+      <div class="form-grid">
+        <label>Can you make it happen again? <span class="optional">Optional</span>
+          <textarea name="steps" rows="4" maxlength="1200" placeholder="List what you did before the problem appeared."></textarea>
+        </label>
+        <label>What did you expect? <span class="optional">Optional</span>
+          <textarea name="expected" rows="4" maxlength="800" placeholder="What should Local Flight have shown or done?"></textarea>
+        </label>
+        <label>What happened instead? <span class="optional">Optional</span>
+          <textarea name="actual" rows="4" maxlength="800" placeholder="What was different from what you expected?"></textarea>
+        </label>
+        <label>Log files <span class="optional">Optional · text/log only</span>
+          <input name="logs" type="file" multiple accept=".txt,.log,.json,.csv,.md,.yaml,.yml,.toml,.ini,.cfg,.conf,text/plain,application/json" />
+        </label>
+      </div>
+      <p class="form-note">Do not upload screenshots, recordings, aviation-data API keys, activation tokens, or other private credentials. Beacon Tools checks submitted text for common secret patterns before sending the report to the developer. Text and log files keep the existing size limits and are sent only with this report.</p>
+      <div class="form-actions">
+        <button class="action-button action-button--primary" type="submit">Send issue report <span aria-hidden="true">→</span></button>
+        <span class="form-status" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+  </div>
+</section>
+
+<script>
+  import "../scripts/support";
+</script>

@@ -1,6 +1,25 @@
 export type FlightView = "departures" | "arrivals";
 export type HistoryDirection = "both" | "dep" | "arr";
 
+export type StandalonePolicy = {
+  board_refresh_seconds: number;
+  radar_refresh_seconds: number;
+  rows_per_direction: number;
+  display_page_seconds: number;
+  schedule_access_limit: number;
+  radar_access_limit: number;
+};
+
+export type MobileBoardResponse = {
+  schema_version: "mobile-board-v2" | string;
+  generated_at: string;
+  cache_state: string;
+  refresh_after_s: number;
+  rows_per_direction: number;
+  departures: FidsRow[];
+  arrivals: FidsRow[];
+};
+
 export type ClientNotice = {
   code: string;
   tone: "info" | "success" | "warning" | "error";
@@ -748,6 +767,7 @@ export type RadarBlip = {
 };
 
 export type RadarResponse = {
+  generated_at?: string;
   center: RadarCenter;
   radius_nm: number;
   source: string;
@@ -799,6 +819,8 @@ export type RadarMapResponse = {
   };
   radius_nm: number;
   coverage_radius_nm?: number;
+  maximum_radius_nm?: number;
+  queued_refresh?: boolean;
   schema_version?: string;
   runways?: RadarMapFeature[];
   surface_features?: RadarMapFeature[];
@@ -828,6 +850,12 @@ export type RadarMapResponse = {
     map_cache_state?: string;
     terrain?: string;
     terrain_cache_state?: string;
+  };
+  layer_readiness?: {
+    runways?: "ready" | "estimated" | "loading" | "unavailable" | string;
+    surface?: "ready" | "estimated" | "loading" | "unavailable" | string;
+    map?: "ready" | "loading" | "unavailable" | string;
+    terrain?: "ready" | "loading" | "off" | "unavailable" | string;
   };
   confidence?: Record<string, unknown>;
 };
@@ -1077,5 +1105,6 @@ export type DashboardSnapshot = {
   budget: Budget | null;
   scheduler: SchedulerStatus | null;
   metar: Metar | null;
+  standalone_policy?: StandalonePolicy;
   notices?: ClientNotice[];
 };

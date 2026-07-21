@@ -63,8 +63,20 @@ python -m pip check
 python -m pip_audit --strict .
 python -m pip_audit --strict -r relay/requirements.txt
 python scripts/security_preflight.py
-node scripts/site_downloads_contract.mjs
 git diff --check
+```
+
+Run the Beacon Tools static-site checks with the supported Node 24 line:
+
+```bash
+cd site
+npm ci
+npm run verify
+npm audit --audit-level=high
+npx playwright install chromium
+npm run test:e2e
+cd ..
+node scripts/site_downloads_contract.mjs
 ```
 
 Run the mobile checks with the supported Node 24 line:
@@ -82,6 +94,7 @@ Run a Cloudflare build preview from the repository root, but do not deploy the
 0.5.2 Worker minimum while the complete public release is still missing:
 
 ```bash
+npm --prefix site run build
 npx wrangler deploy --dry-run
 ```
 
@@ -108,7 +121,7 @@ store build at this stage.
    LAN health, Linux desktop/server behavior, Raspberry Pi modes, and Matrix on
    the required native and physical systems. Publish the GitHub release only
    after those gates pass.
-6. Build and submit iOS `0.5.2 (8)` to TestFlight and Android `0.5.2 (11)` to
+6. Build and submit iOS `0.5.2 (9)` to TestFlight and Android `0.5.2 (12)` to
    Google Play internal testing. Complete real-device checks before the public
    site describes those builds as available.
 7. Deploy the Cloudflare Worker and site only after the complete GitHub release

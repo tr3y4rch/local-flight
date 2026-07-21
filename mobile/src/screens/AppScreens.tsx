@@ -268,7 +268,7 @@ function pairingUrlFromQrPayload(rawValue: string): PairingLinkResult | { error:
   const trimmed = String(rawValue || "").trim();
   const parsed = parsePairingLink(rawValue);
   if (!parsed && !/^https?:\/\//i.test(trimmed)) {
-    return { error: "QR did not contain a Local Flight pairing link or LAN server URL." };
+    return { error: "The QR did not contain a Local Flight pairing link or host address." };
   }
   const serverUrl = parsed?.serverUrl || normalizeServerUrl(trimmed);
   const problem = pairingServerUrlProblem(serverUrl);
@@ -300,7 +300,7 @@ function PairingScannerSheet({
   const ensurePermission = useCallback(async () => {
     const result = await requestPermission();
     if (!result.granted) {
-      setMessage("Camera access is needed only to scan the Local Flight pairing QR. You can still enter the server URL manually.");
+      setMessage("Camera access is used only to scan the Local Flight pairing QR. You can still enter the host address manually.");
     }
   }, [requestPermission]);
 
@@ -335,7 +335,7 @@ function PairingScannerSheet({
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
             <View style={styles.sheetHeaderText}>
-              <Text style={styles.sheetEyebrow}>PAIR MOBILE</Text>
+              <Text style={styles.sheetEyebrow}>Pair this device</Text>
               <Text style={styles.sheetTitle}>Scan Local Flight QR</Text>
             </View>
             <Pressable
@@ -344,7 +344,7 @@ function PairingScannerSheet({
               hitSlop={tapTargetHitSlop}
               {...accessibleButton({ label: "Close pairing scanner" })}
             >
-              <Text style={styles.sheetActionText}>CLOSE</Text>
+              <Text style={styles.sheetActionText}>Close</Text>
             </Pressable>
           </View>
 
@@ -367,7 +367,7 @@ function PairingScannerSheet({
                 <LocalFlightIcon name={SETUP_ICONS.scan} size={28} color={palette.blue2} />
                 <Text style={styles.pairingPermissionTitle}>Camera permission</Text>
                 <Text style={styles.pairingPermissionBody}>
-                  Scan the QR shown by your Local Flight host, or close this sheet and enter the LAN URL manually.
+                  Scan the QR shown by your Local Flight host, or close this sheet and enter the host address manually.
                 </Text>
                 <Pressable
                   style={styles.connectButton}
@@ -377,13 +377,13 @@ function PairingScannerSheet({
                     hint: "Requests camera permission to scan Local Flight pairing QR codes."
                   })}
                 >
-                  <Text style={styles.connectButtonText}>ALLOW CAMERA</Text>
+                  <Text style={styles.connectButtonText}>Allow camera</Text>
                 </Pressable>
               </View>
             )}
 
             <Text style={styles.pairingScannerHint}>
-              Point the camera at the Local Flight pairing QR. The QR should contain a localflight:// pairing link or a plain LAN server URL.
+              Point the camera at the pairing QR shown by your Local Flight host.
             </Text>
             {message ? <Text style={[styles.feedbackMessage, styles.feedbackMessageError]}>{message}</Text> : null}
           </View>
@@ -399,12 +399,10 @@ type CompanionSetupStep =
   | "welcome"
   | "mode"
   | "pairing"
-  | "server"
   | "airport"
-  | "policy"
-  | "diagnostics"
-  | "ready";
+  | "review";
 type SetupUrlCheckState = "idle" | "checking" | "ok" | "error" | "invalid";
+type AirportSearchState = "idle" | "loading" | "results" | "empty" | "error";
 type DocHeading = {
   id: string;
   level: 1 | 2;
@@ -472,7 +470,9 @@ function radarBlipKey(row: RadarBlip, index: number): string {
 
 function radarTargetKey(row: RadarBlip, index: number): string {
   const identity = row.callsign || row.icao24 || row.flight_number;
-  return identity ? `radar-target:${keyedPart(identity)}` : radarBlipKey(row, index);
+  return identity
+    ? `radar-target:${keyedPart(identity)}:${keyedPart(row.icao24)}:${index}`
+    : radarBlipKey(row, index);
 }
 
 function detailHistoryKey(
@@ -603,15 +603,15 @@ type WeatherDisplayOption = { id: MobileWeatherDisplayMode; label: string; meta:
 
 const PASSENGER_WEATHER_DISPLAY_OPTION: WeatherDisplayOption = {
   id: "passenger",
-  label: "PAX",
-  meta: "Friendly",
-  detail: "Decoded weather for passengers and boards."
+  label: "Plain language",
+  meta: "Everyday",
+  detail: "A short, everyday summary of airport weather."
 };
 
 const WEATHER_DISPLAY_OPTIONS: WeatherDisplayOption[] = [
   PASSENGER_WEATHER_DISPLAY_OPTION,
-  { id: "pilot", label: "PILOT", meta: "Brief", detail: "Wind, visibility, cloud, temp, and QNH chips." },
-  { id: "vatsim", label: "METAR", meta: "Raw", detail: "Raw METAR text where space allows." }
+  { id: "pilot", label: "Aviation details", meta: "Decoded", detail: "Wind, visibility, clouds, temperature, and QNH." },
+  { id: "vatsim", label: "Raw METAR", meta: "Original", detail: "The original coded airport weather observation." }
 ];
 
 function weatherModeOption(mode: MobileWeatherDisplayMode): WeatherDisplayOption {
@@ -649,16 +649,17 @@ function metarDewpoint(metar: Metar | null | undefined): string {
 function metarWind(metar: Metar | null | undefined): string {
   if (metar?.wind_display || metar?.wind) return metar.wind_display || metar.wind || "--";
   if (typeof metar?.wind_speed_kt !== "number") return "--";
+  if (metar.wind_speed_kt === 0) return "Calm";
   const direction = typeof metar.wind_dir_deg === "number" ? `${Math.round(metar.wind_dir_deg)}°` : "VRB";
-  const gust = typeof metar.wind_gust_kt === "number" ? ` G${Math.round(metar.wind_gust_kt)}` : "";
-  return `${direction} ${Math.round(metar.wind_speed_kt)}${gust} kt`;
+  const gust = typeof metar.wind_gust_kt === "number" ? `, gusting ${Math.round(metar.wind_gust_kt)} kt` : "";
+  return `${direction} at ${Math.round(metar.wind_speed_kt)} kt${gust}`;
 }
 
 function metarVisibility(metar: Metar | null | undefined): string {
+  if (typeof metar?.visibility_sm === "number") return `${Number.isInteger(metar.visibility_sm) ? metar.visibility_sm : metar.visibility_sm.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")} SM`;
   if (typeof metar?.visibility_m === "number") {
     return metar.visibility_m >= 10_000 ? "10+ km" : `${(metar.visibility_m / 1000).toFixed(metar.visibility_m < 1000 ? 1 : 0)} km`;
   }
-  if (typeof metar?.visibility_sm === "number") return `${metar.visibility_sm} sm`;
   return weatherChips(metar).find((chip) => chip.label === "VIS")?.value || "--";
 }
 
@@ -725,13 +726,19 @@ function weatherSummaryForMode(metar: Metar | null | undefined, mode: MobileWeat
 }
 
 function weatherChips(metar: Metar | null | undefined): Array<{ label: string; value: string }> {
-  if (metar?.weather_chips?.length) {
-    return metar.weather_chips;
+  const chips: Array<{ label: string; value: string }> = [];
+  const merge = (items: Array<{ label: string; value: string }> | undefined) => {
+    for (const chip of items || []) {
+      if (!chip?.label || !chip?.value || chips.some((item) => item.label === chip.label)) continue;
+      chips.push(chip);
+    }
+  };
+  merge(metar?.weather_chips);
+  merge(metar?.weather?.chips);
+  merge(parseMetarChips(metar?.raw_text || ""));
+  if (!chips.some((chip) => chip.label === "VIS") && typeof metar?.visibility_sm === "number") {
+    chips.push({ label: "VIS", value: `${metar.visibility_sm} SM` });
   }
-  if (metar?.weather?.chips?.length) {
-    return metar.weather.chips;
-  }
-  const chips = parseMetarChips(metar?.raw_text || "");
   if (!chips.some((chip) => chip.label === "TMP")) {
     const temp = metarTemperature(metar);
     if (temp !== "--") chips.push({ label: "TMP", value: temp });
@@ -938,7 +945,7 @@ export function Header({
           hitSlop={tapTargetHitSlop}
           {...accessibleButton({
             label: `${airportName}. ${airportLocation || "Airport location unavailable"}`,
-            hint: "Opens airport and server configuration."
+            hint: "Opens airport and Local Flight host settings."
           })}
         >
           <Text
@@ -1526,7 +1533,7 @@ export function FullscreenFidsDisplay({
     ? "LOADING FLIGHTS"
     : live
       ? "NO FLIGHTS ON BOARD"
-      : "LOCAL SERVER OFFLINE";
+      : "LOCAL FLIGHT HOST OFFLINE";
   const emptyDetail = error || "Rows will appear here after the next Local Flight snapshot.";
   const autoScrollEnabled = displayRows.length > targetVisibleRows;
 
@@ -2121,7 +2128,8 @@ export function HistoryScreen({
 
               {(summary.top_airlines?.length ?? 0) > 0 ? (
                 <View style={styles.historyPanel}>
-                  <Text style={styles.historyPanelTitle}>AIRLINE PERFORMANCE</Text>
+                  <Text style={styles.historyPanelTitle}>AIRLINES IN THIS LOCAL HISTORY</Text>
+                  <Text style={styles.historyPanelHint}>Incomplete local observations, not an airline ranking.</Text>
                   {summary.top_airlines.slice(0, 8).map((a) => (
                     <HistoryBarRow
                       key={a.code}
@@ -2675,8 +2683,8 @@ function MatrixScreen({
           <Text style={styles.settingsTitle}>BOARD STATUS</Text>
           <Text style={styles.moduleIntro}>
             {matrixEnabled
-              ? "Matrix output is enabled on the server."
-              : "Matrix output is not selected in server outputs yet. You can still prepare the board style here."}
+              ? "Matrix output is enabled on the Local Flight host."
+              : "Matrix output is not selected in Local Flight host outputs yet. You can still prepare the board style here."}
           </Text>
           <InfoLine label="Last ping" value={matrixLastSeen ? formatRelative(matrixLastSeen) : "Never pinged"} />
           <InfoLine label="Current draft" value={`${selectedPalette.label} · ${animationMode.replace("_", " ")} · ${brightnessPct}%`} />
@@ -2742,7 +2750,7 @@ function MatrixScreen({
         <View style={styles.settingsCard}>
           <Text style={styles.settingsTitle}>BOARD STYLE</Text>
           <Text style={styles.moduleIntro}>
-            Pick the LED color language. This follows the cleaner web kiosk palette set, not the phone theme.
+            Pick the LED color language. This follows the cleaner web kiosk palette set, not this device’s appearance.
           </Text>
           <FilterSection title="BOARD STYLE">
             <View style={styles.filterWrap}>
@@ -2911,12 +2919,12 @@ function MatrixSavePanel({
           }}
           disabled={saving}
           {...accessibleButton({
-            label: "Save Matrix settings to server",
+            label: "Save Matrix settings to Local Flight host",
             disabled: saving,
             busy: saving
           })}
         >
-          {saving ? <ActivityIndicator size="small" color={blueButtonInk()} /> : <Text style={styles.matrixActionPrimaryText}>SAVE TO SERVER</Text>}
+          {saving ? <ActivityIndicator size="small" color={blueButtonInk()} /> : <Text style={styles.matrixActionPrimaryText}>SAVE TO HOST</Text>}
         </Pressable>
       </View>
 
@@ -3339,7 +3347,7 @@ function RadarBlipRow({ blip, onOpenDetail }: { blip: RadarBlip; onOpenDetail: (
   );
 }
 
-function RadarScope({
+export function RadarScope({
   data,
   groundData,
   groundError,
@@ -3383,8 +3391,8 @@ function RadarScope({
     .map((item, index) => {
       const key = radarTargetKey(item.blip, index);
       const focused = key === selectedTargetKey;
-      const opacity = radarSweepOpacity(item.angleDeg, sweepDeg, focused);
-      const flash = radarAngularAge(sweepDeg, item.angleDeg) <= RADAR_FLASH_DEGREES && opacity > 0;
+      const opacity = reduceMotion ? 1 : radarSweepOpacity(item.angleDeg, sweepDeg, focused);
+      const flash = !reduceMotion && radarAngularAge(sweepDeg, item.angleDeg) <= RADAR_FLASH_DEGREES && opacity > 0;
       return { item, key, focused, flash, opacity };
     })
     .sort((a, b) => a.item.distanceNm - b.item.distanceNm);
@@ -3398,6 +3406,10 @@ function RadarScope({
   }, [selectedTargetPresent]);
 
   useEffect(() => {
+    if (reduceMotion) {
+      setSweepDeg(0);
+      return;
+    }
     let active = NativeAppState.currentState === "active";
     let previous = radarPresentationNow();
     const timer = setInterval(() => {
@@ -3415,7 +3427,7 @@ function RadarScope({
       clearInterval(timer);
       appStateSubscription.remove();
     };
-  }, []);
+  }, [reduceMotion]);
 
   const setMeasuredSize = useCallback((width: number) => {
     const next = Math.max(220, Math.min(width - 28, compact ? 320 : 440));
@@ -3572,11 +3584,12 @@ function RadarScope({
 }
 
 function RadarSweepLayer({ scopeSize, sweepDeg, reducedMotion }: { scopeSize: number; sweepDeg: number; reducedMotion: boolean }) {
+  if (reducedMotion) return null;
   const center = scopeSize / 2;
   const radius = scopeSize * 0.44;
-  const sweepFillOpacity = reducedMotion ? 0.07 : 0.15;
-  const sweepSheenOpacity = reducedMotion ? 0.018 : 0.035;
-  const sweepLineOpacity = reducedMotion ? 0.34 : 0.58;
+  const sweepFillOpacity = 0.15;
+  const sweepSheenOpacity = 0.035;
+  const sweepLineOpacity = 0.58;
   const sliceCount = 18;
 
   return (
@@ -4418,7 +4431,9 @@ export function FlightActionSheet({
   isPinned,
   onClose,
   onOpenDetail,
-  onTogglePin
+  onTogglePin,
+  onPinAndShow,
+  canShowLiveActivity = false
 }: {
   row: FidsRow | null;
   visible: boolean;
@@ -4426,6 +4441,8 @@ export function FlightActionSheet({
   onClose: () => void;
   onOpenDetail: (callsign: string) => void;
   onTogglePin: (row: FidsRow) => void;
+  onPinAndShow?: (row: FidsRow) => void;
+  canShowLiveActivity?: boolean;
 }) {
   if (!row) return null;
 
@@ -4439,7 +4456,7 @@ export function FlightActionSheet({
         />
         <View style={styles.actionSheetCard}>
           <View style={styles.sheetHandle} />
-          <Text style={styles.sheetEyebrow}>FLIGHT ACTIONS</Text>
+          <Text style={styles.sheetEyebrow}>Flight actions</Text>
           <Text style={styles.actionSheetTitle}>{row.flight_display || row.callsign || "Tracked flight"}</Text>
           <Text style={styles.actionSheetSubtitle} numberOfLines={1}>
             {routeName(row.route_display)} - {row.display_time || "--:--"}
@@ -4459,8 +4476,21 @@ export function FlightActionSheet({
                 size={18}
                 color={isPinned ? palette.amber : palette.blue}
               />
-              <Text style={styles.actionButtonText}>{isPinned ? "UNPIN FLIGHT" : "PIN TO TOP"}</Text>
+              <Text style={styles.actionButtonText}>{isPinned ? "Unpin flight" : "Pin flight"}</Text>
             </Pressable>
+            {canShowLiveActivity && onPinAndShow ? (
+              <Pressable
+                style={styles.actionButton}
+                onPress={() => onPinAndShow(row)}
+                {...accessibleButton({
+                  label: "Pin and show on Lock Screen",
+                  hint: "Pins this flight and starts a best-effort local Live Activity."
+                })}
+              >
+                <LocalFlightIcon name="cellphone-lock" size={18} color={palette.blue} />
+                <Text style={styles.actionButtonText}>Pin &amp; show on Lock Screen</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               style={styles.actionButton}
               onPress={() => onOpenDetail(row.callsign)}
@@ -4470,7 +4500,7 @@ export function FlightActionSheet({
               })}
             >
               <LocalFlightIcon name={ACTION_ICONS.search} size={18} color={palette.blue} />
-              <Text style={styles.actionButtonText}>OPEN DETAIL</Text>
+              <Text style={styles.actionButtonText}>Open details</Text>
             </Pressable>
           </View>
         </View>
@@ -4631,7 +4661,7 @@ function AdminScreen({
       <HiddenToolHeader
         icon={TOOL_ICONS.admin}
         title="Admin"
-        detail="Server health, Linear reports, and diagnostics"
+        detail="Local Flight host health, reports, and diagnostics"
         onBack={onBackSettings}
       />
 
@@ -4654,12 +4684,12 @@ function AdminScreen({
 
       {section === "health" ? (
       <View style={styles.settingsCard}>
-        <Text style={styles.settingsTitle}>SERVER HEALTH</Text>
+        <Text style={styles.settingsTitle}>HOST HEALTH</Text>
         <Text style={styles.moduleIntro}>
-          Quick operational pulse for the connected Local Flight server.
+          Current status from the connected Local Flight host.
         </Text>
         <View style={styles.metricRow}>
-          <InfoCard label="SERVER" value={connected ? "ONLINE" : "CHECK"} tone={connected ? "green" : "red"} />
+          <InfoCard label="HOST" value={connected ? "ONLINE" : "CHECK"} tone={connected ? "green" : "red"} />
           <InfoCard label="VERSION" value={snapshot.system?.version || APP_VERSION} />
           <InfoCard label="UPDATE" value={updateValue} tone={snapshot.updates?.update_available ? "amber" : "blue"} />
         </View>
@@ -4889,6 +4919,9 @@ export function CompanionSetupScreen({
   const [airportInput, setAirportInput] = useState("");
   const [airportResults, setAirportResults] = useState<AirportResult[]>([]);
   const [selectedStandaloneAirport, setSelectedStandaloneAirport] = useState<AirportResolved | null>(null);
+  const [airportSearchState, setAirportSearchState] = useState<AirportSearchState>("idle");
+  const [airportSearchRetryNonce, setAirportSearchRetryNonce] = useState(0);
+  const [resolvingAirport, setResolvingAirport] = useState(false);
   const [diagnosticsMode, setDiagnosticsMode] = useState<MobileDiagnosticsMode>(
     initialDiagnosticsMode === "unset" ? "manual" : initialDiagnosticsMode
   );
@@ -4897,19 +4930,19 @@ export function CompanionSetupScreen({
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupProgress, setSetupProgress] = useState<string | null>(null);
   const [urlCheckState, setUrlCheckState] = useState<SetupUrlCheckState>("idle");
-  const [urlCheckMessage, setUrlCheckMessage] = useState("Enter the LAN address shown by your Local Flight host.");
+  const [urlCheckMessage, setUrlCheckMessage] = useState("Enter the address shown by your Local Flight host.");
   const [serverSummary, setServerSummary] = useState<CompanionSetupResult | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const stepAnim = useRef(new Animated.Value(1)).current;
   const railAnim = useRef(new Animated.Value(0)).current;
-  const progressAnim = useRef(new Animated.Value(1 / 6)).current;
+  const progressAnim = useRef(new Animated.Value(1 / 4)).current;
   const stepDirectionRef = useRef<1 | -1>(1);
   const lastStepRef = useRef<CompanionSetupStep>("welcome");
   const reduceMotion = useReducedMotionPreference();
   const routeSteps: CompanionSetupStep[] = setupMode === "standalone"
-    ? ["welcome", "mode", "airport", "policy", "diagnostics", "ready"]
-    : ["welcome", "mode", "pairing", "server", "diagnostics", "ready"];
+    ? ["welcome", "mode", "airport", "review"]
+    : ["welcome", "mode", "pairing", "review"];
   const activeStepIndex = setupStepRank(step);
   const setupProgressRatio = Math.min(1, (activeStepIndex + 1) / routeSteps.length);
 
@@ -4974,12 +5007,12 @@ export function CompanionSetupScreen({
   }, []);
 
   useEffect(() => {
-    if (step !== "server") return;
+    if (step !== "pairing") return;
 
     const input = serverInput.trim();
     if (!input) {
       setUrlCheckState("idle");
-      setUrlCheckMessage("Enter the LAN address shown by your Local Flight host.");
+      setUrlCheckMessage("Enter the address shown by your Local Flight host.");
       return;
     }
 
@@ -4994,7 +5027,7 @@ export function CompanionSetupScreen({
     const timer = setTimeout(() => {
       const normalizedUrl = normalizeServerUrl(input);
       setUrlCheckState("checking");
-      setUrlCheckMessage("Checking the Local Flight host on your LAN...");
+      setUrlCheckMessage("Checking the Local Flight host on the same Wi-Fi...");
       void getHealth(normalizedUrl)
         .then(() => {
           if (cancelled) return;
@@ -5016,26 +5049,38 @@ export function CompanionSetupScreen({
 
   useEffect(() => {
     if (step !== "airport") return;
+    if (selectedStandaloneAirport) {
+      setAirportResults([]);
+      setAirportSearchState("idle");
+      return;
+    }
     const text = airportInput.trim();
     if (text.length < 2) {
       setAirportResults([]);
+      setAirportSearchState("idle");
       return;
     }
+    setAirportResults([]);
+    setAirportSearchState("loading");
     let cancelled = false;
     const timer = setTimeout(() => {
       void searchStandaloneAirports(text, 8)
         .then((items) => {
-          if (!cancelled) setAirportResults(items);
+          if (cancelled) return;
+          setAirportResults(items);
+          setAirportSearchState(items.length > 0 ? "results" : "empty");
         })
         .catch(() => {
-          if (!cancelled) setAirportResults([]);
+          if (cancelled) return;
+          setAirportResults([]);
+          setAirportSearchState("error");
         });
     }, 350);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [airportInput, step]);
+  }, [airportInput, airportSearchRetryNonce, selectedStandaloneAirport, step]);
 
   const runServerTest = useCallback(async (candidateUrl: string, expectedServerFingerprint = "") => {
     const input = candidateUrl.trim();
@@ -5054,10 +5099,10 @@ export function CompanionSetupScreen({
     let rootHealthOk = false;
     try {
       const normalizedUrl = normalizeServerUrl(input);
-      setSetupProgress("Checking the Local Flight host on your LAN...");
+      setSetupProgress("Checking the Local Flight host on the same Wi-Fi...");
       await getRootHealth(normalizedUrl);
       rootHealthOk = true;
-      setSetupProgress("Reading companion status and board configuration...");
+      setSetupProgress("Reading the airport and Board settings...");
       const mobileSummary = await getMobileSummary(normalizedUrl);
       const fingerprintProblem = pairingFingerprintProblem(
         expectedServerFingerprint,
@@ -5077,21 +5122,22 @@ export function CompanionSetupScreen({
         config = fallback[1];
       }
       if (!config || !state) {
-        throw new Error("Local Flight mobile summary did not include server config and health.");
+        throw new Error("The Local Flight host did not return the information this device needs.");
       }
       const summary = {
         mode: "lan_companion" as const,
         serverUrl: normalizedUrl,
-        diagnosticsMode,
+        // The review step applies the current privacy choice before completion.
+        diagnosticsMode: "manual" as const,
         config,
         state
       };
-      setSetupProgress("Host answered. Moving to reports...");
+      setSetupProgress("Host answered. Opening privacy and review...");
       setServerInput(normalizedUrl);
       setUrlCheckState("ok");
-      setUrlCheckMessage("Host and companion setup are ready.");
+      setUrlCheckMessage("This Local Flight host is ready.");
       setServerSummary(summary);
-      goToStep("diagnostics");
+      goToStep("review");
     } catch (exc) {
       const detail = companionSetupErrorMessage(exc);
       const isPairingGuard = /Pairing QR|belongs to server|server fingerprint/i.test(detail);
@@ -5109,7 +5155,7 @@ export function CompanionSetupScreen({
       setTesting(false);
       setSetupProgress(null);
     }
-  }, [diagnosticsMode, goToStep]);
+  }, [goToStep]);
 
   const testServer = useCallback(async () => {
     await runServerTest(serverInput);
@@ -5120,7 +5166,7 @@ export function CompanionSetupScreen({
     setScannerVisible(false);
     setSetupMode("lan_companion");
     setServerInput(pairing.serverUrl);
-    goToStep("server");
+    goToStep("pairing");
     setSetupError(null);
     setUrlCheckState("checking");
     setUrlCheckMessage("Pairing QR loaded. Testing this Local Flight host...");
@@ -5131,7 +5177,7 @@ export function CompanionSetupScreen({
     if (!pairingUrl || pairingNonce <= 0) return;
     setSetupMode("lan_companion");
     setServerInput(pairingUrl);
-    goToStep("server");
+    goToStep("pairing");
     setSetupError(null);
     setUrlCheckState("checking");
     setUrlCheckMessage("Pairing QR loaded. Testing this Local Flight host...");
@@ -5153,9 +5199,33 @@ export function CompanionSetupScreen({
     };
     setSelectedStandaloneAirport(nextAirport);
     setAirportInput(`${airport.iata || airport.icao} - ${airport.name}`);
+    setAirportResults([]);
+    setAirportSearchState("idle");
     setSetupError(null);
     Keyboard.dismiss();
   }, []);
+
+  const resolveEnteredAirportCode = useCallback(async () => {
+    const airportCode = airportCodeFromQuery(airportInput);
+    if (!airportCode) {
+      setSetupError("Choose an airport from the results, or enter a 3-letter IATA or 4-letter ICAO code.");
+      return;
+    }
+    setResolvingAirport(true);
+    setSetupError(null);
+    try {
+      const airport = await resolveStandaloneAirport(airportCode);
+      setSelectedStandaloneAirport(airport);
+      setAirportInput(`${airport.iata || airport.icao} - ${airport.name}`);
+      setAirportResults([]);
+      setAirportSearchState("idle");
+      Keyboard.dismiss();
+    } catch (exc) {
+      setSetupError(standaloneAirportLookupErrorMessage(exc));
+    } finally {
+      setResolvingAirport(false);
+    }
+  }, [airportInput]);
 
   const submitAirportSearch = useCallback(() => {
     if (selectedStandaloneAirport) {
@@ -5167,31 +5237,35 @@ export function CompanionSetupScreen({
       selectStandaloneAirport(firstAirport);
       return;
     }
-    Keyboard.dismiss();
-  }, [airportResults, selectStandaloneAirport, selectedStandaloneAirport]);
+    if (airportCodeFromQuery(airportInput)) {
+      void resolveEnteredAirportCode();
+      return;
+    }
+    setSetupError("Choose an airport from the results, or enter a 3-letter IATA or 4-letter ICAO code.");
+  }, [airportInput, airportResults, resolveEnteredAirportCode, selectStandaloneAirport, selectedStandaloneAirport]);
 
   const finishSetup = useCallback(async () => {
     if (setupMode === "standalone") {
       if (!selectedStandaloneAirport) {
         goToStep("airport");
-        setSetupError("Pick an airport before finishing standalone setup.");
+        setSetupError("Choose an airport before continuing.");
         return;
       }
       setFinishing(true);
       setSetupError(null);
       try {
         const airportLookup = selectedStandaloneAirport.iata || selectedStandaloneAirport.icao;
-        setSetupProgress("Resolving airport coordinates for radar drawings...");
+        setSetupProgress("Checking the selected airport...");
         const resolvedAirport = selectedStandaloneAirport.lat == null || selectedStandaloneAirport.lon == null
           ? await resolveStandaloneAirport(airportLookup)
           : selectedStandaloneAirport;
         const relayInstallId = await loadMobileRelayInstallId();
-        setSetupProgress("Activating this phone as a standalone relay client...");
+        setSetupProgress("Activating Standalone on this device...");
         const activation = await activateStandalone({
           installId: relayInstallId,
           airport: resolvedAirport
         });
-        setSetupProgress("Saving standalone setup on this device...");
+        setSetupProgress("Saving the airport and privacy choice on this device...");
         await onComplete({
           mode: "standalone",
           relayInstallId,
@@ -5201,7 +5275,7 @@ export function CompanionSetupScreen({
           activationStatus: activation.status
         });
       } catch (exc) {
-        setSetupError(companionSetupErrorMessage(exc));
+        setSetupError(standaloneConnectionErrorMessage(exc));
       } finally {
         setFinishing(false);
         setSetupProgress(null);
@@ -5210,7 +5284,7 @@ export function CompanionSetupScreen({
     }
 
     if (!serverSummary) {
-      goToStep("server");
+      goToStep("pairing");
       setSetupError("Test your Local Flight host before finishing setup.");
       return;
     }
@@ -5251,6 +5325,8 @@ export function CompanionSetupScreen({
     ]
   };
   const compactProgressWidth = progressAnim.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] });
+  const enteredAirportCode = airportCodeFromQuery(airportInput);
+  const canContinueWithAirport = Boolean(selectedStandaloneAirport || enteredAirportCode);
 
   return (
     <KeyboardAvoidingView
@@ -5272,23 +5348,19 @@ export function CompanionSetupScreen({
         {step === "welcome" ? (
         <Animated.View style={[styles.companionSetupHero, panelMotion]}>
           <View style={styles.companionSetupLogoWrap}>
-            <View style={styles.companionSetupLogoRing} />
-            <View style={styles.companionSetupLogoRingOuter} />
-            <View style={styles.companionSetupLogoPlate}>
-              <Image
-                source={LOCAL_FLIGHT_BRAND_ASSETS[palette.themeMode].icon}
-                resizeMode="contain"
-                style={styles.companionSetupLogoMark}
-              />
-            </View>
+            <Image
+              source={LOCAL_FLIGHT_BRAND_ASSETS[palette.themeMode].icon}
+              resizeMode="contain"
+              style={styles.companionSetupLogoMark}
+            />
           </View>
           <Text style={styles.companionSetupEyebrow}>
-            <Text style={styles.companionSetupBrandText}>LOCAL FLIGHT</Text>
-            <Text style={styles.companionSetupEyebrowSuffix}> MOBILE</Text>
+            <Text style={styles.companionSetupBrandText}>Local Flight</Text>
+            <Text style={styles.companionSetupEyebrowSuffix}> Mobile</Text>
           </Text>
-          <Text style={styles.companionSetupTitle}>Set up your flight board</Text>
+          <Text style={styles.companionSetupTitle}>Your airport at a glance</Text>
           <Text style={styles.companionSetupBody}>
-            A calmer mobile board for flights, radar, and recent movement history. Pick the setup path that matches how you want this phone to connect.
+            Set up the Board, radar, and recent flight history for this device.
           </Text>
           <View style={styles.companionSetupRoute}>
             {routeSteps.map((item, index) => (
@@ -5303,7 +5375,7 @@ export function CompanionSetupScreen({
                     {index + 1}
                   </Text>
                 </View>
-                <Text style={[styles.companionSetupStepLabel, index <= activeStepIndex && styles.companionSetupStepLabelActive]}>
+                <Text style={[styles.companionSetupStepLabel, { textTransform: "none" }, index <= activeStepIndex && styles.companionSetupStepLabelActive]}>
                   {setupStepTitle(item)}
                 </Text>
               </View>
@@ -5357,37 +5429,37 @@ export function CompanionSetupScreen({
           <Animated.View style={[styles.companionSetupPanel, styles.companionSetupWelcomePanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Welcome to Local Flight Mobile</Text>
             <Text style={styles.companionSetupBody}>
-              This phone can show your airport board, radar view, and recent flight history. Setup only asks for the connection path, an airport if needed, and your report preference.
+              Choose how this device gets flight information, then review privacy before opening the Board.
             </Text>
             <View style={styles.companionSetupChecklist}>
-              <SetupChecklistItem icon={SETUP_ICONS.server} title="One app, two paths" body="Use a Local Flight host, or run a lighter standalone board from the relay." />
-              <SetupChecklistItem icon={SETUP_ICONS.lan} title="Easy to change later" body="You can rerun setup from Settings whenever your setup changes." />
-              <SetupChecklistItem icon={SETUP_ICONS.privacy} title="You choose reports" body="Manual reports stay available. Automatic reports are optional." />
+              <SetupChecklistItem icon={SETUP_ICONS.server} title="Connect your way" body="Use a Local Flight host, or choose an airport without one." />
+              <SetupChecklistItem icon={SETUP_ICONS.lan} title="Change it later" body="You can run setup again from More on this device." />
+              <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Privacy is your choice" body="Automatic crash reports are optional." />
             </View>
             <Pressable
               style={styles.companionSetupPrimary}
               onPress={() => goToStep("mode")}
               {...accessibleButton({
                 label: "Continue",
-                hint: "Choose how this phone connects to Local Flight."
+                hint: "Choose how this device uses Local Flight."
               })}
             >
               <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
-              <Text style={styles.companionSetupPrimaryText}>CONTINUE</Text>
+              <Text style={styles.companionSetupPrimaryText}>Continue</Text>
             </Pressable>
           </Animated.View>
         ) : null}
 
         {step === "mode" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>How should this phone connect?</Text>
+            <Text style={styles.companionSetupPanelTitle}>How do you want to use Local Flight?</Text>
             <Text style={styles.companionSetupBody}>
-              Choose Companion if you already run a Local Flight desktop app, Linux server, or Pi. Companion keeps this phone as a remote and glance screen for your local host. Choose Standalone if this phone should use the hosted relay by itself.
+              Choose a Local Flight host on the same Wi-Fi, or choose an airport for this device.
             </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
-                ["lan_companion", "Companion", "Companion keeps this phone as a remote and glance screen. Connects to your Local Flight host for Board, Radar, History, Control, Help, and Matrix tools."],
-                ["standalone", "Standalone", "Simpler board. Uses the relay directly with Board, Radar, History, and Settings only."]
+                ["lan_companion", "Connect to a Local Flight host", "Pair this device with Local Flight running on a computer or Raspberry Pi over the same Wi-Fi."],
+                ["standalone", "Use without a Local Flight host", "Choose an airport for Airline schedules or VATSIM traffic on this device."]
               ] as Array<[MobileSetupMode, string, string]>).map(([mode, title, body]) => (
                 <Pressable
                   key={mode}
@@ -5407,14 +5479,14 @@ export function CompanionSetupScreen({
                 >
                   <View style={styles.companionSetupOptionTop}>
                     <Text style={styles.companionSetupOptionTitle}>{title}</Text>
-                    {mode === "lan_companion" ? <Text style={styles.companionSetupRecommended}>FULL</Text> : <Text style={styles.companionSetupRecommended}>SIMPLE</Text>}
+                    {mode === "lan_companion" ? <Text style={styles.companionSetupRecommended}>Same Wi-Fi</Text> : <Text style={styles.companionSetupRecommended}>No host</Text>}
                   </View>
                   <Text style={styles.companionSetupOptionBody}>{body}</Text>
                 </Pressable>
               ))}
             </View>
             <View style={styles.companionSetupInfoGrid}>
-              <SetupInfoTile label="Mode" value={setupMode === "standalone" ? "Standalone" : "Companion"} />
+              <SetupInfoTile label="Choice" value={setupMode === "standalone" ? "Without a host" : "Local Flight host"} />
               <SetupInfoTile label="Next" value={setupMode === "standalone" ? "Choose airport" : "Pair host"} />
             </View>
             <Pressable
@@ -5426,23 +5498,23 @@ export function CompanionSetupScreen({
               })}
             >
               <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
-              <Text style={styles.companionSetupPrimaryText}>CONTINUE</Text>
+              <Text style={styles.companionSetupPrimaryText}>Continue</Text>
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
               onPress={() => goToStep("welcome")}
               {...accessibleButton({ label: "Back to welcome" })}
             >
-              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
+              <Text style={styles.companionSetupSecondaryText}>Back</Text>
             </Pressable>
           </Animated.View>
         ) : null}
 
         {step === "pairing" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Connect your Local Flight host</Text>
+            <Text style={styles.companionSetupPanelTitle}>Pair your Local Flight host</Text>
             <Text style={styles.companionSetupBody}>
-              Open Settings on your Local Flight host. Scan its pairing QR, or enter the Wi-Fi address shown there.
+              This connection is called Companion. Keep this device and your Local Flight host on the same Wi-Fi, then scan the pairing QR or enter the host address.
             </Text>
             <View style={styles.pairingChoiceRow}>
               <Pressable
@@ -5461,62 +5533,12 @@ export function CompanionSetupScreen({
                 </View>
                 <View style={styles.pairingChoiceCopy}>
                   <Text style={styles.pairingChoiceTitle}>Scan QR</Text>
-                  <Text style={styles.pairingChoiceBody}>Fastest and safest. The code includes the host fingerprint.</Text>
-                </View>
-              </Pressable>
-              <Pressable
-                style={styles.pairingChoiceCard}
-                onPress={() => goToStep("server")}
-                {...accessibleButton({
-                  label: "Enter address",
-                  hint: "Type or paste the Local Flight server address."
-                })}
-              >
-                <View style={styles.pairingChoiceIcon}>
-                  <LocalFlightIcon name={SETUP_ICONS.keyboard} size={18} color={palette.blue2} />
-                </View>
-                <View style={styles.pairingChoiceCopy}>
-                  <Text style={styles.pairingChoiceTitle}>Enter address</Text>
-                  <Text style={styles.pairingChoiceBody}>Use this if the QR is not handy or the camera is unavailable.</Text>
+                  <Text style={styles.pairingChoiceBody}>Use the pairing QR shown by your Local Flight host.</Text>
                 </View>
               </Pressable>
             </View>
             <View style={styles.companionSetupExampleBox}>
-              <Text style={styles.companionSetupExampleLabel}>WHAT YOU NEED</Text>
-              <Text style={styles.companionSetupExampleText}>Local Flight running on the same Wi-Fi</Text>
-              <Text style={styles.companionSetupExampleText}>The mobile pairing QR or host address</Text>
-            </View>
-            <Pressable
-              style={styles.companionSetupPrimary}
-              onPress={() => goToStep("server")}
-              {...accessibleButton({ label: "Enter address" })}
-            >
-              <LocalFlightIcon name={SETUP_ICONS.keyboard} size={16} color={solidButtonInk()} />
-              <Text style={styles.companionSetupPrimaryText}>ENTER ADDRESS</Text>
-            </Pressable>
-            <Pressable
-              style={styles.companionSetupSecondary}
-              onPress={() => goToStep("mode")}
-              {...accessibleButton({ label: "Back to connection mode" })}
-            >
-              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
-            </Pressable>
-            <PairingScannerSheet
-              visible={scannerVisible}
-              onClose={() => setScannerVisible(false)}
-              onPairingUrl={handleScannedServer}
-            />
-          </Animated.View>
-        ) : null}
-
-        {step === "server" ? (
-          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Test the host address</Text>
-            <Text style={styles.companionSetupBody}>
-              Enter the address shown by your Local Flight host. We will check that it is reachable and ready for mobile.
-            </Text>
-            <View style={styles.companionSetupExampleBox}>
-              <Text style={styles.companionSetupExampleLabel}>GOOD EXAMPLES</Text>
+              <Text style={styles.companionSetupExampleLabel}>Host address examples</Text>
               <Text style={styles.companionSetupExampleText}>http://192.168.1.42:8000</Text>
               <Text style={styles.companionSetupExampleText}>http://localflight.local:8000</Text>
             </View>
@@ -5535,7 +5557,11 @@ export function CompanionSetupScreen({
                 placeholder="http://localflight.local:8000"
                 placeholderTextColor={palette.textDim}
                 value={serverInput}
-                onChangeText={setServerInput}
+                onChangeText={(value) => {
+                  setServerInput(value);
+                  setServerSummary(null);
+                }}
+                accessibilityLabel="Local Flight host address"
                 returnKeyType="go"
                 blurOnSubmit
                 onSubmitEditing={() => {
@@ -5567,8 +5593,8 @@ export function CompanionSetupScreen({
             </Text>
             <SetupProgressRail
               active={testing}
-              label={setupProgress || "Waiting to test the host address."}
-              steps={["Reach host", "Read status", "Load board"]}
+              label={setupProgress || "Enter or scan a host address, then test it."}
+              steps={["Reach host", "Check pairing", "Open review"]}
             />
             <Pressable
               style={[styles.companionSetupPrimary, testing && styles.connectButtonDisabled]}
@@ -5585,40 +5611,69 @@ export function CompanionSetupScreen({
               })}
             >
               {testing ? <ActivityIndicator color={solidButtonInk()} /> : <LocalFlightIcon name={ACTION_ICONS.connect} size={16} color={solidButtonInk()} />}
-              <Text style={styles.companionSetupPrimaryText}>{testing ? "TESTING" : "TEST CONNECTION"}</Text>
+              <Text style={styles.companionSetupPrimaryText}>{testing ? "Testing" : "Test connection"}</Text>
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
-              onPress={() => goToStep("pairing")}
-              {...accessibleButton({ label: "Back to pairing choices" })}
+              onPress={() => goToStep("mode")}
+              {...accessibleButton({ label: "Back to connection choice" })}
             >
-              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
+              <Text style={styles.companionSetupSecondaryText}>Back</Text>
             </Pressable>
+            <PairingScannerSheet
+              visible={scannerVisible}
+              onClose={() => setScannerVisible(false)}
+              onPairingUrl={handleScannedServer}
+            />
           </Animated.View>
         ) : null}
 
         {step === "airport" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Choose your airport</Text>
+            <Text style={styles.companionSetupPanelTitle}>Choose an airport for this device</Text>
             <Text style={styles.companionSetupBody}>
-              Standalone uses one airport at a time. Search by airport code, city, or airport name.
+              Using Local Flight without a host is called Standalone. Choose one airport for Airline schedules or VATSIM traffic on this device.
             </Text>
-            <View style={styles.companionSetupInputWrap}>
+            <View
+              style={[
+                styles.companionSetupInputWrap,
+                airportSearchState === "loading" && styles.companionSetupInputWrapChecking,
+                airportSearchState === "results" && styles.companionSetupInputWrapOk,
+                airportSearchState === "error" && styles.companionSetupInputWrapError
+              ]}
+            >
               <TextInput
                 autoCapitalize="characters"
                 autoCorrect={false}
                 placeholder="Search airport, e.g. ZRH, Munich, RJAA"
                 placeholderTextColor={palette.textDim}
+                accessibilityLabel="Search for an airport"
                 value={airportInput}
                 onChangeText={(value) => {
                   setAirportInput(value);
                   setSelectedStandaloneAirport(null);
+                  setAirportResults([]);
+                  setAirportSearchState(value.trim().length >= 2 ? "loading" : "idle");
+                  setSetupError(null);
                 }}
                 returnKeyType="search"
                 blurOnSubmit
                 onSubmitEditing={submitAirportSearch}
                 style={styles.companionSetupInput}
               />
+              {airportInput.trim().length >= 2 ? (
+                <View style={styles.companionSetupInputStatus}>
+                  {airportSearchState === "loading" ? (
+                    <ActivityIndicator size="small" color={palette.blue2} />
+                  ) : (
+                    <LocalFlightIcon
+                      name={airportSearchState === "results" ? SETUP_ICONS.ok : airportSearchState === "error" ? SETUP_ICONS.error : SETUP_ICONS.link}
+                      size={16}
+                      color={airportSearchState === "results" ? palette.green : airportSearchState === "error" ? palette.red : palette.textDim}
+                    />
+                  )}
+                </View>
+              ) : null}
             </View>
             <View style={styles.companionSetupOptionStack}>
               {airportResults.slice(0, 6).map((airport, index) => {
@@ -5645,72 +5700,93 @@ export function CompanionSetupScreen({
                   </Pressable>
                 );
               })}
-              {airportInput.trim().length >= 2 && !airportResults.length ? (
-                <Text style={styles.companionSetupUrlHint}>No relay airport match yet. Try the IATA or ICAO code.</Text>
+              {airportSearchState === "loading" ? (
+                <Text style={styles.companionSetupUrlHint}>Searching airports...</Text>
+              ) : null}
+              {airportSearchState === "empty" ? (
+                <Text style={styles.companionSetupUrlHint}>No airport found yet. Try the IATA or ICAO code.</Text>
+              ) : null}
+              {airportSearchState === "error" ? (
+                <>
+                  <Text style={[styles.companionSetupUrlHint, styles.companionSetupUrlHintError]}>
+                    Airport search could not reach the Local Flight relay. Check this device's internet connection and try again.
+                  </Text>
+                  <Pressable
+                    style={styles.companionSetupSecondary}
+                    onPress={() => setAirportSearchRetryNonce((value) => value + 1)}
+                    {...accessibleButton({ label: "Retry airport search" })}
+                  >
+                    <Text style={styles.companionSetupSecondaryText}>Try again</Text>
+                  </Pressable>
+                </>
               ) : null}
             </View>
             <Pressable
-              style={[styles.companionSetupPrimary, !selectedStandaloneAirport && styles.connectButtonDisabled]}
-              onPress={() => selectedStandaloneAirport && goToStep("policy")}
-              disabled={!selectedStandaloneAirport}
+              style={[styles.companionSetupPrimary, (!canContinueWithAirport || resolvingAirport) && styles.connectButtonDisabled]}
+              onPress={() => {
+                if (selectedStandaloneAirport) {
+                  goToStep("review");
+                } else {
+                  void resolveEnteredAirportCode();
+                }
+              }}
+              disabled={!canContinueWithAirport || resolvingAirport}
               {...accessibleButton({
-                label: "Use this airport",
-                disabled: !selectedStandaloneAirport
+                label: selectedStandaloneAirport
+                  ? "Use this airport"
+                  : resolvingAirport
+                    ? "Checking airport code"
+                    : enteredAirportCode
+                      ? `Check airport code ${enteredAirportCode}`
+                      : "Use this airport",
+                disabled: !canContinueWithAirport || resolvingAirport,
+                busy: resolvingAirport
               })}
             >
-              <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
-              <Text style={styles.companionSetupPrimaryText}>USE THIS AIRPORT</Text>
+              {resolvingAirport ? (
+                <ActivityIndicator color={solidButtonInk()} />
+              ) : (
+                <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
+              )}
+              <Text style={styles.companionSetupPrimaryText}>
+                {selectedStandaloneAirport ? "Use this airport" : resolvingAirport ? "Checking code" : enteredAirportCode ? `Check ${enteredAirportCode}` : "Use this airport"}
+              </Text>
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
               onPress={() => goToStep("mode")}
               {...accessibleButton({ label: "Back to connection mode" })}
             >
-              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
+              <Text style={styles.companionSetupSecondaryText}>Back</Text>
             </Pressable>
           </Animated.View>
         ) : null}
 
-        {step === "policy" ? (
+        {step === "review" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Standalone stays lightweight</Text>
+            <Text style={styles.companionSetupPanelTitle}>Privacy & review</Text>
             <Text style={styles.companionSetupBody}>
-              Standalone is built for quick checks when you do not have a Local Flight host nearby. It uses shared relay resources gently.
+              {setupMode === "standalone"
+                ? "Review how Standalone works on this device, choose your report preference, and save the airport."
+                : "Choose your report preference, review the Local Flight host, and save the connection on this device."}
             </Text>
+            {setupMode === "standalone" ? (
+              <View style={styles.companionSetupChecklist}>
+                <SetupChecklistItem icon={SETUP_ICONS.server} title="Board updates" body="Airline schedules usually refresh about once an hour." />
+                <SetupChecklistItem icon={SETUP_ICONS.lan} title="Radar updates" body="Nearby traffic can refresh about every 3 minutes while Radar is open." />
+              </View>
+            ) : null}
             <View style={styles.companionSetupChecklist}>
-              <SetupChecklistItem icon={SETUP_ICONS.server} title="Board refreshes slowly" body="Flight boards refresh no faster than every 3 hours." />
-              <SetupChecklistItem icon={SETUP_ICONS.lan} title="Radar is compact" body="Radar updates no faster than every 5 minutes and uses 1, 3, 5, or 10 NM ranges." />
-              <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Display aid only" body="Do not use this data for navigation, dispatch, safety, or operational decisions." />
+              <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Informational use only" body="Do not use Local Flight for navigation, dispatch, safety, or operational decisions." />
             </View>
-            <Pressable
-              style={styles.companionSetupPrimary}
-              onPress={() => goToStep("diagnostics")}
-              {...accessibleButton({ label: "Continue to reports" })}
-            >
-              <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
-              <Text style={styles.companionSetupPrimaryText}>CONTINUE</Text>
-            </Pressable>
-            <Pressable
-              style={styles.companionSetupSecondary}
-              onPress={() => goToStep("airport")}
-              {...accessibleButton({ label: "Back to airport search" })}
-            >
-              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
-            </Pressable>
-          </Animated.View>
-        ) : null}
-
-        {step === "diagnostics" ? (
-          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Choose how reports work</Text>
             <Text style={styles.companionSetupBody}>
-              Manual reports are always available from Help. Automatic crash reports are optional and can be changed later in Settings.
+              Manual feedback is always available from Help & Privacy. Automatic crash reports are optional and can be changed later in More.
             </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
-                ["manual", "Ask me first", "No automatic mobile reports. You can still send feedback yourself from Help."],
-                ["auto", "Send crash reports", "Send serious mobile crashes with app state needed to fix the problem."],
-                ["auto_logs", "Crash reports + context", "Adds a little more mobile context when available. Native device logs are not included."]
+                ["manual", "Ask me first", "This device sends no automatic reports. You can still send feedback yourself."],
+                ["auto", "Send crash reports", "This device can send serious app crashes with limited app context."],
+                ["auto_logs", "Include more context", "Crash reports can include additional sanitized app context. Device system logs are not included."]
               ] as Array<[MobileDiagnosticsMode, string, string]>).map(([mode, title, body]) => (
                   <Pressable
                     key={mode}
@@ -5730,49 +5806,23 @@ export function CompanionSetupScreen({
                   >
                   <View style={styles.companionSetupOptionTop}>
                     <Text style={styles.companionSetupOptionTitle}>{title}</Text>
-                    {mode === "manual" ? <Text style={styles.companionSetupRecommended}>RECOMMENDED</Text> : null}
+                    {mode === "manual" ? <Text style={styles.companionSetupRecommended}>Recommended</Text> : null}
                   </View>
                   <Text style={styles.companionSetupOptionBody}>{body}</Text>
                 </Pressable>
               ))}
             </View>
-            <Pressable
-              style={styles.companionSetupPrimary}
-              onPress={() => goToStep("ready")}
-              {...accessibleButton({ label: "Review setup" })}
-            >
-              <LocalFlightIcon name={ACTION_ICONS.checklist} size={16} color={solidButtonInk()} />
-              <Text style={styles.companionSetupPrimaryText}>REVIEW</Text>
-            </Pressable>
-            <Pressable
-              style={styles.companionSetupSecondary}
-              onPress={() => goToStep(setupMode === "standalone" ? "policy" : "server")}
-              {...accessibleButton({ label: "Back to previous setup step" })}
-            >
-              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
-            </Pressable>
-          </Animated.View>
-        ) : null}
-
-        {step === "ready" ? (
-          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Review setup</Text>
-            <Text style={styles.companionSetupBody}>
-              {setupMode === "standalone"
-                ? "We will save this airport and activate the standalone board on this phone."
-                : "We will save this host on this phone and open the main mobile board."}
-            </Text>
             <View style={styles.companionSetupSummary}>
-              <InfoLine label="Mode" value={setupMode === "standalone" ? "Standalone relay client" : "Companion"} />
-              <InfoLine label={setupMode === "standalone" ? "Airport" : "Host"} value={setupMode === "standalone" ? (selectedStandaloneAirport?.iata || "---") : (serverSummary?.serverUrl || normalizeServerUrl(serverInput) || "Not tested")} />
-              <InfoLine label={setupMode === "standalone" ? "Refresh" : "Airport"} value={setupMode === "standalone" ? "3h board, 5m radar" : (serverSummary?.config.airport_iata || "---")} />
-              <InfoLine label={setupMode === "standalone" ? "Status" : "Host status"} value={setupMode === "standalone" ? "Activation on finish" : (serverSummary?.state.ok === false ? "Needs attention" : "Ready")} />
+              <InfoLine label="Mode" value={setupMode === "standalone" ? "Standalone" : "Companion"} />
+              <InfoLine label={setupMode === "standalone" ? "Airport" : "Local Flight host"} value={setupMode === "standalone" ? (selectedStandaloneAirport?.iata || "Not selected") : (serverSummary?.serverUrl || normalizeServerUrl(serverInput) || "Not tested")} />
+              <InfoLine label={setupMode === "standalone" ? "Flight information" : "Airport"} value={setupMode === "standalone" ? "Airline schedules or VATSIM traffic" : (serverSummary?.config.airport_iata || "Not set")} />
+              <InfoLine label="Status" value={setupMode === "standalone" ? "Activate when saved" : (serverSummary?.state.ok === false ? "Needs attention" : "Ready")} />
               <InfoLine label="Reports" value={diagnosticsMode === "manual" ? "Ask me first" : diagnosticsMode === "auto" ? "Crash reports" : "Crash reports + context"} />
             </View>
             <SetupProgressRail
               active={finishing}
-              label={setupProgress || (finishing ? "Saving setup..." : "Ready to save and open the board.")}
-              steps={setupMode === "standalone" ? ["Resolve airport", "Activate relay", "Open board"] : ["Save host", "Save reports", "Open board"]}
+              label={setupProgress || (finishing ? "Saving setup..." : "Ready to save and open the Board.")}
+              steps={setupMode === "standalone" ? ["Check airport", "Activate this device", "Open Board"] : ["Save host", "Save privacy choice", "Open Board"]}
             />
             <Pressable
               style={[styles.companionSetupPrimary, finishing && styles.connectButtonDisabled]}
@@ -5788,21 +5838,21 @@ export function CompanionSetupScreen({
               })}
             >
               {finishing ? <ActivityIndicator color={solidButtonInk()} /> : <LocalFlightIcon name={ACTION_ICONS.finish} size={16} color={solidButtonInk()} />}
-              <Text style={styles.companionSetupPrimaryText}>{finishing ? "SAVING" : "FINISH"}</Text>
+              <Text style={styles.companionSetupPrimaryText}>{finishing ? "Saving" : "Save and open Board"}</Text>
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
-              onPress={() => goToStep("diagnostics")}
-              {...accessibleButton({ label: "Back to diagnostics choices" })}
+              onPress={() => goToStep(setupMode === "standalone" ? "airport" : "pairing")}
+              {...accessibleButton({ label: setupMode === "standalone" ? "Back to airport choice" : "Back to host pairing" })}
             >
-              <Text style={styles.companionSetupSecondaryText}>BACK</Text>
+              <Text style={styles.companionSetupSecondaryText}>Back</Text>
             </Pressable>
           </Animated.View>
         ) : null}
 
         {setupError ? (
           <View style={styles.companionSetupError}>
-            <Text style={styles.companionSetupErrorLabel}>SETUP NEEDS ATTENTION</Text>
+            <Text style={styles.companionSetupErrorLabel}>Setup needs attention</Text>
             <Text style={styles.companionSetupErrorText}>{setupError}</Text>
           </View>
         ) : null}
@@ -5827,20 +5877,6 @@ function SetupChecklistItem({ icon, title, body }: { icon: AppIconName; title: s
 }
 
 function SetupProgressRail({ active, label, steps }: { active: boolean; label: string; steps: string[] }) {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const reduceMotion = useReducedMotionPreference();
-
-  useEffect(() => {
-    if (!active) {
-      setActiveIndex(0);
-      return;
-    }
-    const timer = setInterval(() => {
-      setActiveIndex((value) => (value + 1) % Math.max(1, steps.length));
-    }, reduceMotion ? 520 : 420);
-    return () => clearInterval(timer);
-  }, [active, reduceMotion, steps.length]);
-
   return (
     <View style={[styles.companionSetupProgressRail, active && styles.companionSetupProgressRailActive]}>
       <View style={styles.companionSetupProgressHeader}>
@@ -5848,9 +5884,9 @@ function SetupProgressRail({ active, label, steps }: { active: boolean; label: s
         <Text style={styles.companionSetupProgressText}>{label}</Text>
       </View>
       <View style={styles.companionSetupProgressSteps}>
-        {steps.map((item, index) => (
+        {steps.map((item) => (
           <View key={item} style={styles.companionSetupProgressStep}>
-            <View style={[styles.companionSetupProgressDot, active && index <= activeIndex && styles.companionSetupProgressDotActive]} />
+            <View style={[styles.companionSetupProgressDot, active && styles.companionSetupProgressDotActive]} />
             <Text style={styles.companionSetupProgressStepText}>{item}</Text>
           </View>
         ))}
@@ -5901,51 +5937,69 @@ function setupStepRank(step: CompanionSetupStep): number {
     welcome: 0,
     mode: 1,
     pairing: 2,
-    server: 3,
     airport: 2,
-    policy: 3,
-    diagnostics: 4,
-    ready: 5
+    review: 3
   }[step];
 }
 
 function setupStepTitle(step: CompanionSetupStep): string {
   return {
-    welcome: "Start",
-    mode: "Mode",
-    pairing: "Pair",
-    server: "Test",
-    airport: "Airport",
-    policy: "Limits",
-    diagnostics: "Reports",
-    ready: "Review"
+    welcome: "Welcome",
+    mode: "Connection",
+    pairing: "Pair host",
+    airport: "Choose airport",
+    review: "Privacy & review"
   }[step];
 }
 
 function companionSetupUrlProblem(input: string): string | null {
   const normalized = normalizeServerUrl(input);
   if (!normalized) {
-    return "Enter the Local Flight server URL first.";
+    return "Enter the Local Flight host address first.";
   }
   try {
     const parsed = new URL(normalized);
     const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
     if (["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(host)) {
-      return "This phone cannot use localhost because that points back at the phone. Use the Pi or desktop LAN address, or localflight.local if it works on your Wi-Fi.";
+      return "This device cannot use localhost because that points back at this device. Use the Local Flight host address, or localflight.local if it works on the same Wi-Fi.";
     }
     if (!["http:", "https:"].includes(parsed.protocol)) {
-      return "Use an http:// or https:// Local Flight server URL.";
+      return "Use an http:// or https:// Local Flight host address.";
     }
   } catch {
-    return "Enter a valid Local Flight server URL, for example http://192.168.1.42:8000.";
+    return "Enter a valid Local Flight host address, for example http://192.168.1.42:8000.";
   }
   return null;
+}
+
+function airportCodeFromQuery(input: string): string | null {
+  const code = input.trim().toUpperCase();
+  return /^[A-Z0-9]{3,4}$/.test(code) ? code : null;
+}
+
+function standaloneAirportLookupErrorMessage(value: unknown): string {
+  const message = errorMessage(value);
+  if (/not found|\b404\b/i.test(message)) {
+    return "That airport code was not found. Check the IATA or ICAO code and try again.";
+  }
+  if (/Network request failed|Failed to fetch|timed? out|abort/i.test(message)) {
+    return standaloneConnectionErrorMessage(value);
+  }
+  return "Airport search is temporarily unavailable. Try again in a moment.";
+}
+
+function standaloneConnectionErrorMessage(value: unknown): string {
+  const message = errorMessage(value);
+  if (/Network request failed|Failed to fetch|timed? out|abort/i.test(message)) {
+    return "This device could not reach the Local Flight relay. Check its internet connection and try again.";
+  }
+  return message;
 }
 
 function companionSetupErrorMessage(value: unknown): string {
   const message = errorMessage(value);
   if (/Network request failed/i.test(message)) {
-    return "Could not reach Local Flight on the Wi-Fi network. Make sure this phone and the Pi or desktop are on the same Wi-Fi, Local Flight is running, and the address uses the server IP or localflight.local.";
+    return "Could not reach the Local Flight host. Make sure this device and the host are on the same Wi-Fi, Local Flight is running, and the address uses the host IP or localflight.local.";
   }
   return message;
 }
@@ -6029,13 +6083,13 @@ function SettingsScreen({
       <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>CONNECTION & SYNC</Text>
         <View style={styles.metricRow}>
-          <InfoCard label="SERVER" value={serverUrl ? "READY" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
+          <InfoCard label="HOST" value={serverUrl ? "READY" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
           <InfoCard label="REFRESH" value={refreshSeconds ? formatInterval(refreshSeconds).toUpperCase() : "WAIT"} />
           <InfoCard label="DISPLAYS" value={outputValue} tone="blue" />
         </View>
-        <InfoLine label="Saved server" value={serverUrl || "Not set"} />
+        <InfoLine label="Saved host" value={serverUrl || "Not set"} />
         <InfoLine label="Mobile build" value={APP_VERSION} />
-        <InfoLine label="Layout" value={isTablet ? `iPad ${isLandscape ? "landscape" : "portrait"}` : "iPhone"} />
+        <InfoLine label="Layout" value={isTablet ? `Wide ${isLandscape ? "landscape" : "portrait"}` : "Compact"} />
 
         {profiles.length > 1 ? (
           <View style={styles.settingsProfileBlock}>
@@ -6095,11 +6149,11 @@ function SettingsScreen({
             style={styles.settingsCompactButton}
             onPress={() => setServerExpanded((value) => !value)}
             {...accessibleButton({
-              label: serverExpanded ? "Hide server URL editor" : "Change server URL",
+              label: serverExpanded ? "Hide Local Flight host address editor" : "Change Local Flight host address",
               expanded: serverExpanded
             })}
           >
-            <Text style={styles.settingsCompactButtonText}>{serverExpanded ? "HIDE SERVER" : "CHANGE SERVER"}</Text>
+            <Text style={styles.settingsCompactButtonText}>{serverExpanded ? "HIDE HOST" : "CHANGE HOST"}</Text>
           </Pressable>
           <Pressable
             style={[styles.settingsCompactButton, schedulerRestarting && styles.connectButtonDisabled]}
@@ -6132,7 +6186,7 @@ function SettingsScreen({
               onPress={onConnect}
               disabled={loading}
               {...accessibleButton({
-                label: loading ? "Connecting" : "Connect to Local Flight server",
+                label: loading ? "Connecting" : "Connect to Local Flight host",
                 disabled: loading,
                 busy: loading
               })}
@@ -6140,7 +6194,7 @@ function SettingsScreen({
               {loading ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
             </Pressable>
             <Text style={styles.settingsHelp}>
-              Use the LAN IP of the machine running Local Flight. On a physical iPhone, localhost points at the phone itself.
+              Use the LAN IP of the machine running Local Flight. On this device, localhost points back at this device.
             </Text>
           </>
         ) : null}
@@ -6232,7 +6286,7 @@ function SettingsScreen({
         <SettingsToolPill
           icon={TOOL_ICONS.setup}
           label="Rerun mobile setup"
-          value="Revisit server pairing and diagnostics consent"
+          value="Revisit Local Flight host pairing and diagnostics consent"
           onPress={onRerunSetup}
         />
       </View>
@@ -6251,7 +6305,10 @@ function SettingsScreen({
   );
 }
 
+export type SettingsSurface = "all" | "host" | "advanced" | "help";
+
 export function ControlScreen({
+  surface = "all",
   snapshot,
   rows,
   view,
@@ -6321,6 +6378,7 @@ export function ControlScreen({
   onPairingUrl,
   onConnect
 }: {
+  surface?: SettingsSurface;
   snapshot: DashboardSnapshot;
   rows: FidsRow[];
   view: FlightView;
@@ -6394,6 +6452,10 @@ export function ControlScreen({
   onPairingUrl: (value: PairingLinkResult) => void;
   onConnect: () => void;
 }) {
+  const showHostTools = surface === "all" || surface === "host";
+  const showPersonalTools = surface === "all";
+  const showAdvancedTools = surface === "all" || surface === "advanced";
+  const showHelpTools = surface === "all" || surface === "help";
   const [activeSheet, setActiveSheet] = useState<"connection" | "appearance" | "matrix" | "widgets" | "support" | "help" | null>(null);
   const [activeControlSection, setActiveControlSection] = useState<ControlSection | null>(null);
   const outputValue = outputs.length ? outputs.join(", ").toUpperCase() : "WEB";
@@ -6453,114 +6515,136 @@ export function ControlScreen({
 
   return (
     <View style={styles.cardStack}>
-      <View style={styles.settingsCard}>
+      {surface === "all" ? <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>MOBILE CONTROL</Text>
         <Text style={styles.moduleIntro}>
           One-tap control center for pairing, board settings, Matrix, diagnostics, and help.
         </Text>
-      </View>
+      </View> : null}
 
-      <ControlActionCard
-        icon={TOOL_ICONS.setup}
-        title="Connect to Local Flight"
-        summary={serverUrl ? `${companionCount} mobiles · ${remoteSummary} · ${outputValue}` : "Pair this phone with your LAN server"}
-        onPress={() => openSheet("connection")}
-      />
+      {showHostTools ? (
+        <>
+          <ControlActionCard
+            icon={TOOL_ICONS.setup}
+            title="Connect to Local Flight"
+            summary={serverUrl ? `${companionCount} mobile devices · ${remoteSummary} · ${outputValue}` : "Pair this device with your Local Flight host"}
+            onPress={() => openSheet("connection")}
+          />
 
-      <ControlAccordionCard
-        section="host"
-        activeSection={activeControlSection}
-        icon={TOOL_ICONS.admin}
-        title="Host Information"
-        summary={`${serverUrl ? "Ready" : "Setup"} · ${schedulerRunning ? "scheduler healthy" : "scheduler check"}`}
-        onSelect={setActiveControlSection}
-      >
-        <View style={styles.metricRow}>
-          <InfoCard label="SERVER" value={serverUrl ? "READY" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
-          <InfoCard label="SCHEDULER" value={schedulerRunning ? "HEALTHY" : "CHECK"} tone={schedulerRunning ? "green" : "amber"} />
-          <InfoCard label="VERSION" value={`V${snapshot.system?.version || APP_VERSION}`} tone="blue" />
-        </View>
-        <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
-        <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
-        <InfoLine label="Last successful fetch" value={formatRelative(snapshot.state?.last_success_utc)} />
-        <InfoLine label="Support ID" value={snapshot.system?.install_id || "Unknown host"} />
-      </ControlAccordionCard>
+          <ControlAccordionCard
+            section="host"
+            activeSection={activeControlSection}
+            icon={TOOL_ICONS.admin}
+            title="Host Information"
+            summary={`${serverUrl ? "Ready" : "Setup"} · ${schedulerRunning ? "scheduler healthy" : "scheduler check"}`}
+            onSelect={setActiveControlSection}
+          >
+            <View style={styles.metricRow}>
+              <InfoCard label="HOST" value={serverUrl ? "READY" : "SETUP"} tone={serverUrl ? "green" : "amber"} />
+              <InfoCard label="SCHEDULER" value={schedulerRunning ? "HEALTHY" : "CHECK"} tone={schedulerRunning ? "green" : "amber"} />
+              <InfoCard label="VERSION" value={`V${snapshot.system?.version || APP_VERSION}`} tone="blue" />
+            </View>
+            <InfoLine label="Airport" value={snapshot.config?.airport_iata || "---"} />
+            <InfoLine label="Source" value={snapshot.state?.source_name || snapshot.config?.source || "Unknown"} />
+            <InfoLine label="Last successful fetch" value={formatRelative(snapshot.state?.last_success_utc)} />
+            <InfoLine label="Support ID" value={snapshot.system?.install_id || "Unknown host"} />
+          </ControlAccordionCard>
 
-      <ControlActionCard
-        icon={TOOL_ICONS.control}
-        title="FIDS Display Settings"
-        summary={`${snapshot.config?.airport_iata || "---"} · ${snapshot.config?.source || "unknown"} · ${refreshSeconds ? formatInterval(refreshSeconds) : "waiting"}`}
-        onPress={openConfig}
-      />
+          <ControlActionCard
+            icon={TOOL_ICONS.control}
+            title="FIDS Display Settings"
+            summary={`${snapshot.config?.airport_iata || "---"} · ${snapshot.config?.source || "unknown"} · ${refreshSeconds ? formatInterval(refreshSeconds) : "waiting"}`}
+            onPress={openConfig}
+          />
 
-      <ControlActionCard
-        icon={TOOL_ICONS.matrix}
-        title="Matrix Board"
-        summary={`${matrixPaletteOption.label} · ${matrixRuntime.max_rows} rows · WX ${matrixShowWeather ? "on" : "off"}`}
-        onPress={() => openSheet("matrix")}
-      />
+          <ControlActionCard
+            icon={TOOL_ICONS.matrix}
+            title="Matrix Board"
+            summary={`${matrixPaletteOption.label} · ${matrixRuntime.max_rows} rows · WX ${matrixShowWeather ? "on" : "off"}`}
+            onPress={() => openSheet("matrix")}
+          />
+        </>
+      ) : null}
 
-      <ControlActionCard
-        icon={TOOL_ICONS.appearance}
-        title="Mobile Customization"
-        summary={`${themeMode} · ${skin} · ${weatherModeOption(weatherDisplayMode).label} weather`}
-        onPress={() => openSheet("appearance")}
-      />
+      {showPersonalTools ? (
+        <>
+          <ControlActionCard
+            icon={TOOL_ICONS.appearance}
+            title="Mobile Customization"
+            summary={`${themeMode} · ${skin} · ${weatherModeOption(weatherDisplayMode).label} weather`}
+            onPress={() => openSheet("appearance")}
+          />
 
-      <ControlActionCard
-        icon={TOOL_ICONS.displayModes}
-        title="Widgets & Glances"
-        summary={widgetSummary}
-        onPress={() => openSheet("widgets")}
-      />
+          <ControlActionCard
+            icon={TOOL_ICONS.displayModes}
+            title="Widgets & Glances"
+            summary={widgetSummary}
+            onPress={() => openSheet("widgets")}
+          />
+        </>
+      ) : null}
 
-      <ControlAccordionCard
-        section="diagnostics"
-        activeSection={activeControlSection}
-        icon={TOOL_ICONS.report}
-        title="Diagnostics & Reset"
-        summary={`${String(hostDiagnostics).replace(/_/g, " ")} host · ${mobileDiagnosticsMode.replace(/_/g, " ")} mobile`}
-        onSelect={setActiveControlSection}
-      >
-        <InfoLine label="Host diagnostics" value={String(hostDiagnostics).replace(/_/g, " ").toUpperCase()} />
-        <FilterSection title="MOBILE REPORTING">
-          <View style={styles.filterRow}>
-            {([
-              ["manual", "MANUAL"],
-              ["auto", "AUTO"],
-              ["auto_logs", "AUTO + CONTEXT"]
-            ] as Array<[MobileDiagnosticsMode, string]>).map(([mode, label]) => (
-              <DirectionButton
-                key={mode}
-                active={mobileDiagnosticsMode === mode}
-                label={label}
-                onPress={() => onMobileDiagnosticsModeChange(mode)}
-              />
-            ))}
-          </View>
-        </FilterSection>
-        <Pressable
-          style={[styles.connectButton, styles.crashButton]}
-          onPress={onRerunSetup}
-          {...accessibleButton({
-            label: "Rerun mobile setup",
-            hint: "Starts first launch setup again."
-          })}
-        >
-          <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
-        </Pressable>
-      </ControlAccordionCard>
+      {showAdvancedTools ? (
+        <>
+          <ControlAccordionCard
+            section="diagnostics"
+            activeSection={activeControlSection}
+            icon={TOOL_ICONS.report}
+            title="Diagnostics & Reset"
+            summary={`${String(hostDiagnostics).replace(/_/g, " ")} host · ${mobileDiagnosticsMode.replace(/_/g, " ")} mobile`}
+            onSelect={setActiveControlSection}
+          >
+            <InfoLine label="Host diagnostics" value={String(hostDiagnostics).replace(/_/g, " ").toUpperCase()} />
+            <FilterSection title="MOBILE REPORTING">
+              <View style={styles.filterRow}>
+                {([
+                  ["manual", "MANUAL"],
+                  ["auto", "AUTO"],
+                  ["auto_logs", "AUTO + CONTEXT"]
+                ] as Array<[MobileDiagnosticsMode, string]>).map(([mode, label]) => (
+                  <DirectionButton
+                    key={mode}
+                    active={mobileDiagnosticsMode === mode}
+                    label={label}
+                    onPress={() => onMobileDiagnosticsModeChange(mode)}
+                  />
+                ))}
+              </View>
+            </FilterSection>
+            {surface === "all" ? (
+              <Pressable
+                style={[styles.connectButton, styles.crashButton]}
+                onPress={onRerunSetup}
+                {...accessibleButton({
+                  label: "Rerun mobile setup",
+                  hint: "Starts first launch setup again."
+                })}
+              >
+                <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
+              </Pressable>
+            ) : null}
+          </ControlAccordionCard>
+        </>
+      ) : null}
 
-      <ControlActionCard
-        icon={TOOL_ICONS.help}
-        title="Local Flight Help"
-        summary="Connection help, privacy, reports, and project"
-        onPress={() => openSheet("help")}
-      />
+      {showHelpTools ? (
+        <>
+          <ControlActionCard
+            icon={TOOL_ICONS.help}
+            title="Connection help & reports"
+            summary="Sanitized reports, release details, privacy, and project links"
+            onPress={() => openSheet("help")}
+          />
+        </>
+      ) : null}
 
-      <SupportFooterButton onOpenSupport={() => openSheet("support")} />
+      {surface === "all" ? (
+        <>
+          <SupportFooterButton onOpenSupport={() => openSheet("support")} />
+        </>
+      ) : null}
 
-      <ConnectionPairingSheet
+      {showHostTools ? <ConnectionPairingSheet
         visible={activeSheet === "connection"}
         snapshot={snapshot}
         serverUrl={serverUrl}
@@ -6582,9 +6666,9 @@ export function ControlScreen({
         onChangeUrl={onChangeUrl}
         onPairingUrl={onPairingUrl}
         onConnect={onConnect}
-      />
+      /> : null}
 
-      <AppearanceSheet
+      {showPersonalTools ? <AppearanceSheet
         visible={activeSheet === "appearance"}
         themeMode={themeMode}
         skin={skin}
@@ -6593,8 +6677,8 @@ export function ControlScreen({
         onThemeModeChange={onThemeModeChange}
         onSkinChange={onSkinChange}
         onWeatherDisplayModeChange={onWeatherDisplayModeChange}
-      />
-      <MatrixLiveSheet
+      /> : null}
+      {showHostTools ? <MatrixLiveSheet
         visible={activeSheet === "matrix"}
         matrixRuntime={matrixRuntime}
         matrixDirty={matrixDirty}
@@ -6616,8 +6700,8 @@ export function ControlScreen({
         onMatrixRefreshChange={onMatrixRefreshChange}
         onMatrixSave={onMatrixSave}
         onMatrixReset={onMatrixReset}
-      />
-      <WidgetSettingsSheet
+      /> : null}
+      {showPersonalTools ? <WidgetSettingsSheet
         visible={activeSheet === "widgets"}
         preview={widgetPreview}
         preferences={widgetPreferences}
@@ -6626,13 +6710,13 @@ export function ControlScreen({
         onPreferencesChange={onWidgetPreferencesChange}
         onRefresh={onRefreshWidget}
         onClose={() => setActiveSheet(null)}
-      />
-      <SupportPurchaseSheet
+      /> : null}
+      {surface === "all" ? <SupportPurchaseSheet
         visible={activeSheet === "support"}
         controller={supportPurchases}
         onClose={() => setActiveSheet(null)}
-      />
-      <HelpReportsSheet
+      /> : null}
+      {showHelpTools ? <HelpReportsSheet
         visible={activeSheet === "help"}
         mode="lan"
         connected={connected}
@@ -6648,7 +6732,7 @@ export function ControlScreen({
         onFeedbackTitleChange={onFeedbackTitleChange}
         onFeedbackDescriptionChange={onFeedbackDescriptionChange}
         onSubmitFeedback={onSubmitFeedback}
-      />
+      /> : null}
     </View>
   );
 }
@@ -6666,6 +6750,7 @@ type ControlSection =
   | "board";
 
 export function StandaloneSettingsScreen({
+  surface = "all",
   snapshot,
   rows,
   view,
@@ -6699,6 +6784,7 @@ export function StandaloneSettingsScreen({
   onFeedbackDescriptionChange,
   onSubmitFeedback
 }: {
+  surface?: SettingsSurface;
   snapshot: DashboardSnapshot;
   rows: FidsRow[];
   view: FlightView;
@@ -6732,6 +6818,10 @@ export function StandaloneSettingsScreen({
   onFeedbackDescriptionChange: (value: string) => void;
   onSubmitFeedback: () => void;
 }) {
+  const showConnectionTools = surface === "all" || surface === "host";
+  const showPersonalTools = surface === "all";
+  const showAdvancedTools = surface === "all" || surface === "advanced";
+  const showHelpTools = surface === "all" || surface === "help";
   const [activeSection, setActiveSection] = useState<ControlSection | null>(null);
   const [activeSheet, setActiveSheet] = useState<"appearance" | "widgets" | "support" | "help" | null>(null);
   const weatherOption = weatherModeOption(weatherDisplayMode);
@@ -6766,110 +6856,132 @@ export function StandaloneSettingsScreen({
 
   return (
     <View style={styles.cardStack}>
-      <View style={styles.settingsCard}>
+      {surface === "all" ? <View style={styles.settingsCard}>
         <Text style={styles.settingsTitle}>MOBILE SETTINGS</Text>
         <Text style={styles.moduleIntro}>
           Standalone is the lighter mobile board: relay data, local history, appearance, diagnostics, and help without host controls.
         </Text>
-      </View>
+      </View> : null}
 
-      <ControlAccordionCard
-        section="standalone"
-        activeSection={activeSection}
-        icon={SETUP_ICONS.lan}
-        title="Standalone Relay"
-        summary={`${airportCode || "---"} · no Local Flight host needed`}
-        onSelect={setActiveSection}
-      >
-        <View style={styles.metricRow}>
-          <InfoCard label="AIRPORT" value={airportCode || "---"} tone="blue" />
-          <InfoCard label="MODE" value="RELAY" tone={connected ? "green" : "amber"} />
-          <InfoCard label="POLICY" value="3H / 5M" tone="blue" />
-        </View>
-        <InfoLine label="Airport" value={airportLabel} />
-        <InfoLine label="Relay token" value={tokenRef} />
-        <InfoLine label="How it works" value="This phone asks the Local Flight relay directly. It does not need your own Local Flight host on the LAN." />
-      </ControlAccordionCard>
+      {showConnectionTools ? (
+        <>
+          <ControlAccordionCard
+            section="standalone"
+            activeSection={activeSection}
+            icon={SETUP_ICONS.lan}
+            title="Standalone Relay"
+            summary={`${airportCode || "---"} · no Local Flight host needed`}
+            onSelect={setActiveSection}
+          >
+            <View style={styles.metricRow}>
+              <InfoCard label="AIRPORT" value={airportCode || "---"} tone="blue" />
+              <InfoCard label="MODE" value="RELAY" tone={connected ? "green" : "amber"} />
+              <InfoCard label="POLICY" value="1H / 3M" tone="blue" />
+            </View>
+            <InfoLine label="Airport" value={airportLabel} />
+            <InfoLine label="Relay token" value={tokenRef} />
+            <InfoLine label="How it works" value="This device asks the Local Flight relay directly. It does not need your own Local Flight host on the same Wi-Fi." />
+          </ControlAccordionCard>
 
-      <ControlAccordionCard
-        section="board"
-        activeSection={activeSection}
-        icon={TOOL_ICONS.displayModes}
-        title="Board Data"
-        summary="FIDS, radar, and local movement history"
-        onSelect={setActiveSection}
-      >
-        <View style={styles.metricRow}>
-          <InfoCard label="FIDS" value="3H" tone="blue" />
-          <InfoCard label="RADAR" value="5M" tone="blue" />
-          <InfoCard label="HISTORY" value="LOCAL" tone="green" />
-        </View>
-        <InfoLine label="FIDS board" value="Standalone refreshes the board no faster than every 3 hours to protect shared relay limits." />
-        <InfoLine label="Radar" value="Radar refreshes no faster than every 5 minutes and supports 1, 3, 5, and 10 NM." />
-        <InfoLine label="History" value="Successful board rows are stored on this device only for quick movement summaries." />
-      </ControlAccordionCard>
+          <ControlAccordionCard
+            section="board"
+            activeSection={activeSection}
+            icon={TOOL_ICONS.displayModes}
+            title="Board Data"
+            summary="FIDS, radar, and local movement history"
+            onSelect={setActiveSection}
+          >
+            <View style={styles.metricRow}>
+              <InfoCard label="BOARD" value="1H" tone="blue" />
+              <InfoCard label="RADAR" value="3M" tone="blue" />
+              <InfoCard label="HISTORY" value="LOCAL" tone="green" />
+            </View>
+            <InfoLine label="Board" value="Airline schedules usually refresh about once an hour and may still be cached or delayed." />
+            <InfoLine label="Radar" value="Nearby traffic can refresh about every 3 minutes while Radar is open and supports 1, 3, 5, and 10 NM." />
+            <InfoLine label="History" value="Successful board rows are stored on this device only for quick movement summaries." />
+          </ControlAccordionCard>
+        </>
+      ) : null}
 
-      <ControlActionCard
-        icon={TOOL_ICONS.appearance}
-        title="Mobile Customization"
-        summary={`${themeMode} · ${skin} · ${weatherOption.label} weather`}
-        onPress={() => openSheet("appearance")}
-      />
+      {showPersonalTools ? (
+        <>
+          <ControlActionCard
+            icon={TOOL_ICONS.appearance}
+            title="Mobile Customization"
+            summary={`${themeMode} · ${skin} · ${weatherOption.label} weather`}
+            onPress={() => openSheet("appearance")}
+          />
 
-      <ControlActionCard
-        icon={TOOL_ICONS.displayModes}
-        title="Widgets & Glances"
-        summary={widgetSummary}
-        onPress={() => openSheet("widgets")}
-      />
+          <ControlActionCard
+            icon={TOOL_ICONS.displayModes}
+            title="Widgets & Glances"
+            summary={widgetSummary}
+            onPress={() => openSheet("widgets")}
+          />
+        </>
+      ) : null}
 
-      <ControlAccordionCard
-        section="diagnostics"
-        activeSection={activeSection}
-        icon={TOOL_ICONS.report}
-        title="Diagnostics & Reset"
-        summary={`${mobileDiagnosticsMode.replace(/_/g, " ")} reports · setup reset`}
-        onSelect={setActiveSection}
-      >
-        <InfoLine label="Mobile diagnostics" value={mobileDiagnosticsMode.replace(/_/g, " ").toUpperCase()} />
-        <FilterSection title="MOBILE REPORTING">
-          <View style={styles.filterRow}>
-            {([
-              ["manual", "MANUAL"],
-              ["auto", "AUTO"],
-              ["auto_logs", "AUTO + CONTEXT"]
-            ] as Array<[MobileDiagnosticsMode, string]>).map(([mode, label]) => (
-              <DirectionButton
-                key={mode}
-                active={mobileDiagnosticsMode === mode}
-                label={label}
-                onPress={() => onMobileDiagnosticsModeChange(mode)}
-              />
-            ))}
-          </View>
-        </FilterSection>
-        <Pressable
-          style={[styles.connectButton, styles.crashButton]}
-          onPress={onRerunSetup}
-          {...accessibleButton({
-            label: "Rerun mobile setup",
-            hint: "Starts the first launch setup flow again."
-          })}
-        >
-          <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
-        </Pressable>
-      </ControlAccordionCard>
+      {showAdvancedTools ? (
+        <>
+          <ControlAccordionCard
+            section="diagnostics"
+            activeSection={activeSection}
+            icon={TOOL_ICONS.report}
+            title="Diagnostics & Reset"
+            summary={`${mobileDiagnosticsMode.replace(/_/g, " ")} reports · setup reset`}
+            onSelect={setActiveSection}
+          >
+            <InfoLine label="Mobile diagnostics" value={mobileDiagnosticsMode.replace(/_/g, " ").toUpperCase()} />
+            <FilterSection title="MOBILE REPORTING">
+              <View style={styles.filterRow}>
+                {([
+                  ["manual", "MANUAL"],
+                  ["auto", "AUTO"],
+                  ["auto_logs", "AUTO + CONTEXT"]
+                ] as Array<[MobileDiagnosticsMode, string]>).map(([mode, label]) => (
+                  <DirectionButton
+                    key={mode}
+                    active={mobileDiagnosticsMode === mode}
+                    label={label}
+                    onPress={() => onMobileDiagnosticsModeChange(mode)}
+                  />
+                ))}
+              </View>
+            </FilterSection>
+            {surface === "all" ? (
+              <Pressable
+                style={[styles.connectButton, styles.crashButton]}
+                onPress={onRerunSetup}
+                {...accessibleButton({
+                  label: "Rerun mobile setup",
+                  hint: "Starts the first launch setup flow again."
+                })}
+              >
+                <Text style={styles.connectButtonText}>RERUN MOBILE SETUP</Text>
+              </Pressable>
+            ) : null}
+          </ControlAccordionCard>
+        </>
+      ) : null}
 
-      <ControlActionCard
-        icon={TOOL_ICONS.help}
-        title="Local Flight Help"
-        summary="Connection help, privacy, reports, and project"
-        onPress={() => openSheet("help")}
-      />
+      {showHelpTools ? (
+        <>
+          <ControlActionCard
+            icon={TOOL_ICONS.help}
+            title="Connection help & reports"
+            summary="Sanitized reports, release details, privacy, and project links"
+            onPress={() => openSheet("help")}
+          />
+        </>
+      ) : null}
 
-      <SupportFooterButton onOpenSupport={() => openSheet("support")} />
+      {surface === "all" ? (
+        <>
+          <SupportFooterButton onOpenSupport={() => openSheet("support")} />
+        </>
+      ) : null}
 
-      <AppearanceSheet
+      {showPersonalTools ? <AppearanceSheet
         visible={activeSheet === "appearance"}
         themeMode={themeMode}
         skin={skin}
@@ -6878,8 +6990,8 @@ export function StandaloneSettingsScreen({
         onThemeModeChange={onThemeModeChange}
         onSkinChange={onSkinChange}
         onWeatherDisplayModeChange={onWeatherDisplayModeChange}
-      />
-      <WidgetSettingsSheet
+      /> : null}
+      {showPersonalTools ? <WidgetSettingsSheet
         visible={activeSheet === "widgets"}
         preview={widgetPreview}
         preferences={widgetPreferences}
@@ -6888,13 +7000,13 @@ export function StandaloneSettingsScreen({
         onPreferencesChange={onWidgetPreferencesChange}
         onRefresh={onRefreshWidget}
         onClose={() => setActiveSheet(null)}
-      />
-      <SupportPurchaseSheet
+      /> : null}
+      {surface === "all" ? <SupportPurchaseSheet
         visible={activeSheet === "support"}
         controller={supportPurchases}
         onClose={() => setActiveSheet(null)}
-      />
-      <HelpReportsSheet
+      /> : null}
+      {showHelpTools ? <HelpReportsSheet
         visible={activeSheet === "help"}
         mode="standalone"
         connected={connected}
@@ -6910,7 +7022,7 @@ export function StandaloneSettingsScreen({
         onFeedbackTitleChange={onFeedbackTitleChange}
         onFeedbackDescriptionChange={onFeedbackDescriptionChange}
         onSubmitFeedback={onSubmitFeedback}
-      />
+      /> : null}
     </View>
   );
 }
@@ -7153,7 +7265,7 @@ function WidgetSettingsSheet({
               <Text style={styles.connectButtonText}>{refreshing ? "REFRESHING BOARD" : "REFRESH WIDGET NOW"}</Text>
             </Pressable>
 
-            <InfoLine label="Dynamic Island" value="Future iOS Live Activity stays pinned-flight-only: flight number and short status first, no mini FIDS board." />
+            <InfoLine label="Live Activity" value="On supported iPhones, Pin & show on Lock Screen keeps one pinned flight visible with its route, status, and update age." />
             <InfoLine label="Snapshot" value={snapshotLabel} />
             <InfoLine label="Data source" value="Widgets read the app-written snapshot. They do not poll LAN or relay data directly." />
           </ScrollView>
@@ -7490,7 +7602,7 @@ function HelpReportsSheet({
     : `${connected ? "Relay reachable" : "Check internet"} · ${updateValue}`;
   const connectionLabel = isLan ? "Cannot connect" : "Relay check";
   const connectionValue = isLan
-    ? "Confirm Local Flight is running on the same Wi-Fi and use the host's LAN address, not phone localhost."
+    ? "Confirm Local Flight is running on the same Wi-Fi and use the host’s LAN address, not this device’s localhost."
     : "If standalone requests fail, check internet access first. Standalone does not need your own Local Flight host.";
   const staleValue = isLan
     ? "Use Restart Fetch from the pairing sheet, then wait for the next snapshot push or open the board again."
@@ -7700,15 +7812,15 @@ function ConnectionPairingSheet({
 
           <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent}>
             <Text style={styles.moduleIntro}>
-              On the host, choose LAN only or create a LAN + Remote QR. Scan that QR once while this phone is on the same Wi-Fi; Local Flight verifies the remote backup before saving it.
+              On the host, choose nearby only or create a nearby + Remote QR. Scan that QR once while this device is on the same Wi-Fi; Local Flight verifies the remote fallback before saving it.
             </Text>
             <View style={styles.metricRow}>
               <InfoCard label="PATH" value={pathLabel} tone={pathTone} />
               <InfoCard label="REFRESH" value={refreshSeconds ? formatInterval(refreshSeconds).toUpperCase() : "WAIT"} />
               <InfoCard label="DISPLAYS" value={outputValue} tone="blue" />
-              <InfoCard label="LAYOUT" value={isTablet ? (isLandscape ? "IPAD LAND" : "IPAD PORT") : "IPHONE"} />
+              <InfoCard label="LAYOUT" value={isTablet ? (isLandscape ? "WIDE LAND" : "WIDE PORT") : "COMPACT"} />
             </View>
-            <InfoLine label="Saved server" value={serverUrl || "Not set"} />
+            <InfoLine label="Saved host" value={serverUrl || "Not set"} />
             <InfoLine label="Support ID" value={snapshot.system?.install_id || "Unknown"} />
             <InfoLine label="Remote Companion" value={remoteValue} />
             <InfoLine label="Mobile build" value={APP_VERSION} />
@@ -7767,7 +7879,7 @@ function ConnectionPairingSheet({
                   onPress={onForgetRemoteCompanion}
                   {...accessibleButton({
                     label: "Forget Remote Companion fallback",
-                    hint: "Removes this phone's stored remote grant. The host can still revoke the grant from Local Flight Settings."
+                    hint: "Removes this device’s stored remote grant. The host can still revoke the grant from Local Flight Settings."
                   })}
                 >
                   <Text style={styles.settingsCompactButtonText}>REMOVE REMOTE</Text>
@@ -7800,7 +7912,7 @@ function ConnectionPairingSheet({
               onPress={onConnect}
               disabled={loading}
               {...accessibleButton({
-                label: loading ? "Connecting" : "Connect to Local Flight server",
+                label: loading ? "Connecting" : "Connect to Local Flight host",
                 disabled: loading,
                 busy: loading
               })}
@@ -7808,7 +7920,7 @@ function ConnectionPairingSheet({
               {loading ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>CONNECT</Text>}
             </Pressable>
             <Text style={styles.settingsHelp}>
-              Use the LAN IP of the machine running Local Flight. Remote Companion keeps working away from Wi-Fi only after this phone pairs locally with a remote QR.
+              Use the local IP of the machine running Local Flight. Remote Companion keeps working away from Wi-Fi only after this device pairs on the same Wi-Fi with a Remote QR.
             </Text>
             {schedulerMessage ? <Text style={[styles.feedbackMessage, styles.feedbackMessageOk]}>{schedulerMessage}</Text> : null}
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -7945,7 +8057,7 @@ export function HelpScreen({
             <InfoCard label="VERSION" value={updateValue} />
             <InfoCard
               label={standalone ? "POLICY" : "SCHEDULER"}
-              value={standalone ? "3H / 5M" : (snapshot.scheduler?.running ? "RUNNING" : "CHECK")}
+              value={standalone ? "1H / 3M" : (snapshot.scheduler?.running ? "RUNNING" : "CHECK")}
               tone={standalone || snapshot.scheduler?.running ? "green" : "amber"}
             />
           </View>
@@ -7974,24 +8086,24 @@ export function HelpScreen({
         <Text style={styles.moduleIntro}>
           {standalone
             ? "Standalone deliberately keeps the moving parts small: relay access, local history, slow FIDS refresh, and short-range radar."
-            : "Start with the simple host-side checks first so the phone stays a quick mobile board instead of a maintenance console."}
+            : "Start with the simple host-side checks first so this device stays a quick board instead of a maintenance console."}
         </Text>
         <InfoLine
           label={standalone ? "Relay check" : "Cannot connect"}
           value={standalone
             ? "If relay requests fail, check internet access first. Standalone does not need your own Local Flight host on the LAN."
-            : "Confirm Local Flight is running on the same Wi-Fi and use the host's LAN address, not phone localhost."}
+            : "Confirm Local Flight is running on the same Wi-Fi and use the host’s LAN address, not this device’s localhost."}
         />
         <InfoLine
           label="Board looks stale"
           value={standalone
-            ? "Standalone FIDS auto-refreshes no faster than every 3 hours to preserve shared provider tokens. Pull to refresh when you intentionally need a check."
+            ? "Airline schedules usually refresh about once an hour. Check the latest shared information when you intentionally need an update."
             : "Use Restart Fetch from Control, then wait for the next snapshot push or open the board again."}
         />
         <InfoLine
           label={standalone ? "Radar limits" : "Scheduler warning"}
           value={standalone
-            ? "Standalone radar refreshes at most every 5 minutes and only supports 1, 3, 5, and 10 NM ranges."
+            ? "Nearby traffic can refresh about every 3 minutes while Radar is open and supports 1, 3, 5, and 10 NM ranges."
             : "If the scheduler is not running, reopen the host app first and then retry from Mobile."}
         />
         <InfoLine
@@ -8148,7 +8260,7 @@ function DocsScreen({
               loadingDoc
                 ? {
                     label: `Loading ${source.title}`,
-                    detail: "Asking the connected Local Flight server for bundled Markdown."
+                    detail: "Asking the connected Local Flight host for help content."
                   }
                 : null
             }
@@ -8638,7 +8750,7 @@ function MatrixLiveSheet({
                     key={item}
                     active={matrixRuntime.refresh_seconds === item}
                     label={item >= 60 ? `${Math.round(item / 60)}m` : `${item}s`}
-                    meta="server"
+                    meta="host"
                     onPress={() => onMatrixRefreshChange(item)}
                   />
                 ))}
@@ -8866,11 +8978,11 @@ export function ConnectPrompt({ onSettings }: { onSettings: () => void }) {
       onPress={onSettings}
       {...accessibleButton({
         label: "Connect Local Flight",
-        hint: "Opens the server URL settings before live rows can load."
+        hint: "Opens Local Flight host settings before live rows can load."
       })}
     >
       <Text style={styles.connectPromptTitle}>Connect Local Flight</Text>
-      <Text style={styles.connectPromptBody}>Tap here to set the server URL before live rows can load.</Text>
+      <Text style={styles.connectPromptBody}>Tap here to set the Local Flight host address before live rows can load.</Text>
     </Pressable>
   );
 }
@@ -9000,32 +9112,62 @@ export function StandaloneAirportSheet({
 }) {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<AirportResult[]>([]);
+  const [searchState, setSearchState] = useState<AirportSearchState>("idle");
   const [selectedAirport, setSelectedAirport] = useState<AirportResult | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequest = useRef(0);
 
   useEffect(() => {
+    searchRequest.current += 1;
+    if (searchTimer.current) {
+      clearTimeout(searchTimer.current);
+      searchTimer.current = null;
+    }
     if (!visible) return;
     setQuery("");
     setSearchResults([]);
+    setSearchState("idle");
     setSelectedAirport(null);
     setApplyError(null);
+    return () => {
+      searchRequest.current += 1;
+      if (searchTimer.current) {
+        clearTimeout(searchTimer.current);
+        searchTimer.current = null;
+      }
+    };
   }, [visible]);
 
   const doSearch = useCallback((text: string) => {
-    if (text.trim().length < 2) {
+    const cleanQuery = text.trim();
+    const requestId = ++searchRequest.current;
+    if (cleanQuery.length < 2) {
       setSearchResults([]);
+      setSearchState("idle");
       return;
     }
-    void searchStandaloneAirports(text, 8)
-      .then(setSearchResults)
-      .catch(() => setSearchResults([]));
+    setSearchResults([]);
+    setSearchState("loading");
+    void searchStandaloneAirports(cleanQuery, 8)
+      .then((items) => {
+        if (requestId !== searchRequest.current) return;
+        setSearchResults(items);
+        setSearchState(items.length > 0 ? "results" : "empty");
+      })
+      .catch(() => {
+        if (requestId !== searchRequest.current) return;
+        setSearchResults([]);
+        setSearchState("error");
+      });
   }, []);
 
   const onQueryChange = useCallback((text: string) => {
     setQuery(text);
     setSelectedAirport(null);
+    setSearchResults([]);
+    setSearchState(text.trim().length >= 2 ? "loading" : "idle");
     setApplyError(null);
     if (searchTimer.current) clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => doSearch(text), 300);
@@ -9036,13 +9178,15 @@ export function StandaloneAirportSheet({
     setSelectedAirport(airport);
     setQuery(`${airport.iata || airport.icao} - ${airport.name}`);
     setSearchResults([]);
+    setSearchState("idle");
     setApplyError(null);
   }, []);
 
   const apply = useCallback(async () => {
-    const lookup = selectedAirport?.iata || selectedAirport?.icao || query.trim();
+    const directCode = airportCodeFromQuery(query);
+    const lookup = selectedAirport?.iata || selectedAirport?.icao || directCode;
     if (!lookup) {
-      setApplyError("Search and select an airport first.");
+      setApplyError("Choose an airport from the results, or enter a 3-letter IATA or 4-letter ICAO code.");
       return;
     }
     Keyboard.dismiss();
@@ -9061,7 +9205,7 @@ export function StandaloneAirportSheet({
         lon: resolved.lon
       });
     } catch (exc) {
-      setApplyError(companionSetupErrorMessage(exc));
+      setApplyError(standaloneAirportLookupErrorMessage(exc));
     } finally {
       setApplying(false);
     }
@@ -9107,7 +9251,7 @@ export function StandaloneAirportSheet({
               keyboardDismissMode="interactive"
             >
               <Text style={styles.moduleIntro}>
-                Change the airport without resetting this phone. Relay token, diagnostics, appearance, and install identity stay untouched.
+                Change the airport without resetting this device. Relay token, diagnostics, appearance, and install identity stay untouched.
               </Text>
               {currentAirport ? (
                 <View style={styles.configSelectedAirport}>
@@ -9130,9 +9274,20 @@ export function StandaloneAirportSheet({
                 returnKeyType="search"
                 onSubmitEditing={() => {
                   const first = searchResults[0];
-                  if (first) selectAirport(first);
+                  if (first) {
+                    selectAirport(first);
+                  } else {
+                    doSearch(query);
+                  }
                 }}
               />
+
+              {searchState === "loading" ? (
+                <View style={styles.configSelectedAirport}>
+                  <ActivityIndicator size="small" color={palette.blue2} />
+                  <Text style={styles.configSelectedText}>Searching airports...</Text>
+                </View>
+              ) : null}
 
               {searchResults.length > 0 ? (
                 <View style={styles.configSearchResults}>
@@ -9158,6 +9313,25 @@ export function StandaloneAirportSheet({
                     );
                   })}
                 </View>
+              ) : null}
+
+              {searchState === "empty" ? (
+                <Text style={styles.moduleIntro}>No airport found. Try a city, airport name, IATA code, or ICAO code.</Text>
+              ) : null}
+
+              {searchState === "error" ? (
+                <>
+                  <Text style={styles.errorText}>
+                    Airport search could not reach the Local Flight relay. Check this device's internet connection and try again.
+                  </Text>
+                  <Pressable
+                    style={styles.companionSetupSecondary}
+                    onPress={() => doSearch(query)}
+                    {...accessibleButton({ label: "Retry airport search" })}
+                  >
+                    <Text style={styles.companionSetupSecondaryText}>Try again</Text>
+                  </Pressable>
+                </>
               ) : null}
 
               {selectedAirport ? (
@@ -9212,6 +9386,7 @@ export function AirportConfigSheet({
 }) {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<AirportResult[]>([]);
+  const [searchState, setSearchState] = useState<AirportSearchState>("idle");
   const [selectedAirport, setSelectedAirport] = useState<AirportResult | null>(null);
   const [source, setSource] = useState<"real" | "virtual">("real");
   const [refreshSecs, setRefreshSecs] = useState(3600);
@@ -9220,6 +9395,7 @@ export function AirportConfigSheet({
   const [profileName, setProfileName] = useState("");
   const [applyingProfileId, setApplyingProfileId] = useState<string | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequest = useRef(0);
   const schedulePolicy = budget?.schedule_policy ?? budget?.aviationstack?.schedule_policy;
   const policyAllowed = source === "real" && schedulePolicy?.community_shared
     ? new Set((schedulePolicy.allowed_refresh_seconds ?? []).map((value) => Number(value)))
@@ -9229,6 +9405,11 @@ export function AirportConfigSheet({
     : REFRESH_OPTIONS;
 
   useEffect(() => {
+    searchRequest.current += 1;
+    if (searchTimer.current) {
+      clearTimeout(searchTimer.current);
+      searchTimer.current = null;
+    }
     if (!visible) return;
     setSelectedAirport(
       currentConfig?.airport_iata
@@ -9247,8 +9428,16 @@ export function AirportConfigSheet({
     setRefreshSecs(currentConfig?.refresh_seconds || 3600);
     setQuery("");
     setSearchResults([]);
+    setSearchState("idle");
     setApplyError(null);
     setProfileName("");
+    return () => {
+      searchRequest.current += 1;
+      if (searchTimer.current) {
+        clearTimeout(searchTimer.current);
+        searchTimer.current = null;
+      }
+    };
   }, [visible, currentConfig]);
 
   useEffect(() => {
@@ -9262,8 +9451,26 @@ export function AirportConfigSheet({
 
   const doSearch = useCallback(
     (text: string) => {
-      if (!text.trim()) { setSearchResults([]); return; }
-      void searchAirports(serverUrl, text).then(setSearchResults).catch(() => {});
+      const cleanQuery = text.trim();
+      const requestId = ++searchRequest.current;
+      if (cleanQuery.length < 2) {
+        setSearchResults([]);
+        setSearchState("idle");
+        return;
+      }
+      setSearchResults([]);
+      setSearchState("loading");
+      void searchAirports(serverUrl, cleanQuery)
+        .then((items) => {
+          if (requestId !== searchRequest.current) return;
+          setSearchResults(items);
+          setSearchState(items.length > 0 ? "results" : "empty");
+        })
+        .catch(() => {
+          if (requestId !== searchRequest.current) return;
+          setSearchResults([]);
+          setSearchState("error");
+        });
     },
     [serverUrl]
   );
@@ -9271,6 +9478,8 @@ export function AirportConfigSheet({
   const onQueryChange = useCallback(
     (text: string) => {
       setQuery(text);
+      setSearchResults([]);
+      setSearchState(text.trim().length >= 2 ? "loading" : "idle");
       if (searchTimer.current) clearTimeout(searchTimer.current);
       searchTimer.current = setTimeout(() => doSearch(text), 300);
     },
@@ -9367,7 +9576,7 @@ export function AirportConfigSheet({
         <View style={styles.configSheet}>
           <View style={styles.configSheetHandle} />
           <View style={styles.configSheetHeader}>
-            <Text style={styles.configSheetTitle}>CONFIGURE SERVER</Text>
+            <Text style={styles.configSheetTitle}>CONFIGURE HOST</Text>
             <Pressable
               onPress={() => {
                 Keyboard.dismiss();
@@ -9375,7 +9584,7 @@ export function AirportConfigSheet({
               }}
               style={styles.configSheetClose}
               hitSlop={tapTargetHitSlop}
-              {...accessibleButton({ label: "Close server configuration" })}
+              {...accessibleButton({ label: "Close Local Flight host settings" })}
             >
               <LocalFlightIcon name={ACTION_ICONS.close} size={20} color={palette.textMuted} />
             </Pressable>
@@ -9396,7 +9605,14 @@ export function AirportConfigSheet({
               onChangeText={onQueryChange}
               autoCapitalize="characters"
               returnKeyType="search"
+              onSubmitEditing={() => doSearch(query)}
             />
+            {searchState === "loading" ? (
+              <View style={styles.configSelectedAirport}>
+                <ActivityIndicator size="small" color={palette.blue2} />
+                <Text style={styles.configSelectedText}>Searching airports...</Text>
+              </View>
+            ) : null}
             {searchResults.length > 0 && (
               <View style={styles.configSearchResults}>
                 {searchResults.map((r, index) => (
@@ -9411,6 +9627,7 @@ export function AirportConfigSheet({
                       setSelectedAirport(r);
                       setQuery("");
                       setSearchResults([]);
+                      setSearchState("idle");
                     }}
                     {...accessibleButton({
                       label: `Select ${r.iata || r.icao}, ${r.name}`,
@@ -9427,6 +9644,23 @@ export function AirportConfigSheet({
                 ))}
               </View>
             )}
+            {searchState === "empty" ? (
+              <Text style={styles.moduleIntro}>No airport found. Try a city, airport name, IATA code, or ICAO code.</Text>
+            ) : null}
+            {searchState === "error" ? (
+              <>
+                <Text style={styles.errorText}>
+                  The Local Flight host could not search airports. Check the connection and try again.
+                </Text>
+                <Pressable
+                  style={styles.companionSetupSecondary}
+                  onPress={() => doSearch(query)}
+                  {...accessibleButton({ label: "Retry host airport search" })}
+                >
+                  <Text style={styles.companionSetupSecondaryText}>Try again</Text>
+                </Pressable>
+              </>
+            ) : null}
             {selectedAirport ? (
               <View style={styles.configSelectedAirport}>
                 <LocalFlightIcon name={ACTION_ICONS.configured} size={14} color={palette.green} />
@@ -9552,14 +9786,14 @@ export function AirportConfigSheet({
               onPress={() => void apply()}
               disabled={applying}
               {...accessibleButton({
-                label: applying ? "Applying server configuration" : "Apply server configuration",
+                label: applying ? "Applying Local Flight host settings" : "Apply Local Flight host settings",
                 disabled: applying,
                 busy: applying
               })}
             >
               {applying
                 ? <ActivityIndicator size="small" color={blueButtonInk()} />
-                : <Text style={styles.configApplyBtnText}>APPLY TO SERVER</Text>
+                : <Text style={styles.configApplyBtnText}>APPLY TO HOST</Text>
               }
             </Pressable>
             <View style={{ height: 36 }} />

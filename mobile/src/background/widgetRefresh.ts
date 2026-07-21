@@ -2,7 +2,7 @@ import * as BackgroundTask from "expo-background-task";
 import * as TaskManager from "expo-task-manager";
 
 import { getFids, getMobileSummary, normalizeServerUrl } from "../api/client";
-import { getStandaloneFids, getStandaloneSummary, type StandaloneCredentials } from "../api/standalone";
+import { getStandaloneBoard, getStandaloneSummary, type StandaloneCredentials } from "../api/standalone";
 import type { AppConfig, FlightView } from "../api/types";
 import {
   buildWidgetExchangeSnapshot,
@@ -21,7 +21,7 @@ import { readWidgetSnapshot, writeWidgetSnapshot } from "../storage/widgetSnapsh
 
 export const LOCAL_FLIGHT_WIDGET_BACKGROUND_TASK = "localflight-widget-background-refresh";
 export const WIDGET_BACKGROUND_MINIMUM_INTERVAL_MINUTES = 30;
-const STANDALONE_FIDS_MINIMUM_REFRESH_MS = 3 * 60 * 60 * 1000;
+const STANDALONE_FIDS_MINIMUM_REFRESH_MS = 60 * 60 * 1000;
 
 function updatedLabel(value?: string | null): string {
   const parsed = Date.parse(String(value || ""));
@@ -66,11 +66,12 @@ export async function refreshWidgetSnapshotInBackground(): Promise<boolean> {
       airport: setup.standaloneAirport,
       diagnosticsMode: setup.diagnosticsMode
     };
-    const [summary, rows] = await Promise.all([
+    const [summary, board] = await Promise.all([
       getStandaloneSummary(credentials),
-      getStandaloneFids(credentials, view)
+      getStandaloneBoard(credentials)
     ]);
-    const sourceUpdatedAt = summary.state?.last_success_utc || new Date().toISOString();
+    const rows = view === "arrivals" ? board.arrivals : board.departures;
+    const sourceUpdatedAt = board.generated_at;
     const preview = deriveWidgetPreviewSnapshot({
       rows,
       pinnedCallsign,

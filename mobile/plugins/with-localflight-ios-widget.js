@@ -3,6 +3,7 @@ const path = require("path");
 const {
   withDangerousMod,
   withEntitlementsPlist,
+  withInfoPlist,
   withXcodeProject,
 } = require("@expo/config-plugins");
 
@@ -15,12 +16,12 @@ const widgetSwiftSources = [
   "DesignTokens.swift",
   "SmallWidgetViewV2.swift",
   "MediumWidgetViewV2.swift",
+  "LiveActivityViewV2.swift",
   "LocalFlightWidget.swift",
 ];
 
 const widgetTemplateFiles = [
   ...widgetSwiftSources,
-  "LiveActivityViewV2.swift",
   "SampleSnapshots.swift",
   "LocalFlightWidget.entitlements",
   "LocalFlightWidget-Info.plist",
@@ -175,7 +176,7 @@ function ensureWidgetTarget(project, config) {
   }
 
   const version = config.version || "0.5.2";
-  const buildNumber = config.ios?.buildNumber || "8";
+  const buildNumber = config.ios?.buildNumber || "9";
   updateBuildSettings(project, targetUuid, {
     APPLICATION_EXTENSION_API_ONLY: "YES",
     CODE_SIGN_ENTITLEMENTS: `${WIDGET_TARGET}/${WIDGET_TARGET}.entitlements`,
@@ -200,6 +201,11 @@ function ensureWidgetTarget(project, config) {
 }
 
 function withLocalFlightIosWidget(config) {
+  config = withInfoPlist(config, (nextConfig) => {
+    nextConfig.modResults.NSSupportsLiveActivities = true;
+    return nextConfig;
+  });
+
   config = withEntitlementsPlist(config, (nextConfig) => {
     const entitlements = nextConfig.modResults;
     const groups = new Set(entitlements["com.apple.security.application-groups"] || []);

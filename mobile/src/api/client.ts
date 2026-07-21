@@ -43,6 +43,7 @@ export type CompanionTransportState = "lan" | "remote";
 let lastCompanionTransport: CompanionTransportState = "lan";
 const COMPANION_LAN_TIMEOUT_MS = 4_500;
 const COMPANION_LAN_RETRY_DELAY_MS = 30_000;
+const AIRPORT_SEARCH_QUERY_LIMIT = 20;
 const lanRetryAfterByBase = new Map<string, number>();
 
 export function configureRemoteCompanionGrant(grant: RemoteCompanionGrant | null | undefined): void {
@@ -120,7 +121,7 @@ async function companionHeaders(): Promise<Record<string, string>> {
 async function fetchJson<T>(serverUrl: string, path: string): Promise<T> {
   const base = normalizeServerUrl(serverUrl);
   if (!base) {
-    throw new LocalFlightApiError("Set a Local Flight server URL first.");
+    throw new LocalFlightApiError("Set a Local Flight host address first.");
   }
 
   if (shouldSkipLan(base)) {
@@ -160,7 +161,7 @@ async function sendJson<T>(
 ): Promise<T> {
   const base = normalizeServerUrl(serverUrl);
   if (!base) {
-    throw new LocalFlightApiError("Set a Local Flight server URL first.");
+    throw new LocalFlightApiError("Set a Local Flight host address first.");
   }
 
   if (shouldSkipLan(base)) {
@@ -217,7 +218,7 @@ async function patchJson<T>(
 ): Promise<T> {
   const base = normalizeServerUrl(serverUrl);
   if (!base) {
-    throw new LocalFlightApiError("Set a Local Flight server URL first.");
+    throw new LocalFlightApiError("Set a Local Flight host address first.");
   }
 
   if (shouldSkipLan(base)) {
@@ -292,7 +293,7 @@ export function getConfig(serverUrl: string): Promise<AppConfig> {
 export async function getRootHealth(serverUrl: string): Promise<{ ok: boolean }> {
   const base = normalizeServerUrl(serverUrl);
   if (!base) {
-    throw new LocalFlightApiError("Set a Local Flight server URL first.");
+    throw new LocalFlightApiError("Set a Local Flight host address first.");
   }
 
   const response = await fetchWithTimeout(
@@ -581,9 +582,10 @@ export async function saveMatrixConfig(
 }
 
 export function searchAirports(serverUrl: string, q: string, limit = 8): Promise<AirportResult[]> {
+  const query = q.trim().replace(/\s+/g, " ").slice(0, AIRPORT_SEARCH_QUERY_LIMIT);
   return fetchJson<AirportResult[]>(
     serverUrl,
-    `/api/airports/search?q=${encodeURIComponent(q)}&limit=${limit}`
+    `/api/airports/search?q=${encodeURIComponent(query)}&limit=${limit}`
   );
 }
 

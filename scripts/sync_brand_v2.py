@@ -21,12 +21,32 @@ from typing import Iterable
 
 from PIL import Image
 
+if __package__:
+    from .mobile_brand_assets import (
+        GENERATOR_ID as MOBILE_GENERATOR_ID,
+        MOBILE_ASSET_SIZES,
+        generate_mobile_brand_assets,
+        validate_mobile_brand_assets,
+    )
+else:
+    from mobile_brand_assets import (  # type: ignore[no-redef]
+        GENERATOR_ID as MOBILE_GENERATOR_ID,
+        MOBILE_ASSET_SIZES,
+        generate_mobile_brand_assets,
+        validate_mobile_brand_assets,
+    )
+
 ROOT = Path(__file__).resolve().parents[1]
 STAGE = ROOT / "build" / "brand-v2" / "package-icons-stage"
 ASSETS = ROOT / "assets"
 STATIC = ROOT / "src" / "localflight" / "ui" / "static"
 MOBILE_ASSETS = ROOT / "mobile" / "assets"
-SITE_ASSETS = ROOT / "site" / "assets"
+SITE_ASSETS = ROOT / "site" / "public" / "assets"
+CANONICAL_FONTS = STATIC / "fonts"
+MOBILE_FONTS = MOBILE_ASSETS / "fonts"
+IOS_WIDGET_FONTS = ROOT / "mobile" / "native" / "ios-widget" / "Fonts"
+ANDROID_WIDGET_FONTS = ROOT / "mobile" / "native" / "android-widget" / "res" / "font"
+ANDROID_WIDGET_FONT_LICENSES = ROOT / "mobile" / "native" / "android-widget" / "assets" / "licenses"
 
 BEACON_LOCKUP = Path()
 BEACON_MARK = Path()
@@ -85,14 +105,21 @@ MACOS_ICONSET_SIZES = (
     ("icon_512x512.png", 512),
     ("icon_512x512@2x.png", 1024),
 )
-MOBILE_BRAND_ASSETS = (
-    "localflight-icon.png",
-    "localflight-icon-dark.png",
-    "localflight-icon-light.png",
-    "localflight-logo.png",
-    "localflight-logo-dark.png",
-    "localflight-logo-light.png",
-)
+MOBILE_BRAND_ASSETS = tuple(MOBILE_ASSET_SIZES)
+MOBILE_OUTPUT_ROLES = {
+    "localflight-ios-light.png": "mobile-ios-icon-light",
+    "localflight-ios-dark.png": "mobile-ios-icon-dark",
+    "localflight-ios-tinted.png": "mobile-ios-icon-tinted",
+    "localflight-android-foreground.png": "mobile-android-adaptive-foreground",
+    "localflight-android-background.png": "mobile-android-adaptive-background",
+    "localflight-android-monochrome.png": "mobile-android-adaptive-monochrome",
+    "localflight-android-legacy.png": "mobile-android-legacy-icon",
+    "localflight-mark-light.png": "mobile-in-app-mark-light",
+    "localflight-mark-dark.png": "mobile-in-app-mark-dark",
+    "localflight-splash-light.png": "mobile-splash-lockup-light",
+    "localflight-splash-dark.png": "mobile-splash-lockup-dark",
+    "store/android/feature-graphic-1024x500.png": "mobile-android-feature-graphic",
+}
 SITE_BRAND_ASSETS = (
     "apple-touch-icon.png",
     "beacon-tools-icon-512.png",
@@ -108,6 +135,24 @@ STALE_SITE_BRAND_ALIASES = (
     "matrix-preview.svg",
     "radar-preview.svg",
 )
+
+FONT_FILES = (
+    "DMSans.ttf",
+    "Audiowide-Regular.ttf",
+    "SpaceMono-Regular.ttf",
+    "SpaceMono-Bold.ttf",
+)
+FONT_LICENSE_FILES = (
+    "OFL-DMSans.txt",
+    "OFL-Audiowide.txt",
+    "OFL-SpaceMono.txt",
+)
+ANDROID_FONT_FILES = {
+    "DMSans.ttf": "dm_sans.ttf",
+    "Audiowide-Regular.ttf": "audiowide_regular.ttf",
+    "SpaceMono-Regular.ttf": "space_mono_regular.ttf",
+    "SpaceMono-Bold.ttf": "space_mono_bold.ttf",
+}
 
 
 @dataclass(frozen=True)
@@ -388,15 +433,10 @@ def stage_qt_lan_static(renderer: SvgRenderer) -> None:
     renderer.render(LOCAL_FLIGHT_DARK, qt_lan / "localflight-app-icon.png", 1024, 1024)
 
 
-def stage_mobile_assets(renderer: SvgRenderer) -> None:
+def stage_mobile_assets() -> None:
     mobile = STAGE / "mobile-assets"
     mobile.mkdir(parents=True, exist_ok=True)
-    renderer.render(LOCAL_FLIGHT_DARK, mobile / "localflight-icon-dark.png", 1024, 1024)
-    renderer.render(LOCAL_FLIGHT_LIGHT, mobile / "localflight-icon-light.png", 1024, 1024)
-    shutil.copyfile(mobile / "localflight-icon-dark.png", mobile / "localflight-icon.png")
-    shutil.copyfile(mobile / "localflight-icon-dark.png", mobile / "localflight-logo-dark.png")
-    shutil.copyfile(mobile / "localflight-icon-light.png", mobile / "localflight-logo-light.png")
-    shutil.copyfile(mobile / "localflight-logo-dark.png", mobile / "localflight-logo.png")
+    generate_mobile_brand_assets(mobile)
 
 
 def stage_site_assets(renderer: SvgRenderer) -> None:
@@ -443,11 +483,11 @@ def validate_stage() -> None:
     assert_svg(STAGE / "qt-lan-static" / "localflight-logo.svg")
     assert_image(STAGE / "qt-lan-static" / "localflight-icon.png", 1024, 1024)
     assert_image(STAGE / "qt-lan-static" / "localflight-app-icon.png", 1024, 1024)
-    for filename in MOBILE_BRAND_ASSETS:
-        assert_image(STAGE / "mobile-assets" / filename, 1024, 1024)
+    for filename, expected_size in MOBILE_ASSET_SIZES.items():
+        assert_image(STAGE / "mobile-assets" / filename, *expected_size)
     assert_images_differ(
-        STAGE / "mobile-assets" / "localflight-icon-dark.png",
-        STAGE / "mobile-assets" / "localflight-icon-light.png",
+        STAGE / "mobile-assets" / "localflight-ios-dark.png",
+        STAGE / "mobile-assets" / "localflight-ios-light.png",
     )
     site = STAGE / "site-assets"
     for filename, expected_size in (
@@ -508,6 +548,55 @@ def sanitize_site_brand_files() -> None:
             path.unlink()
 
 
+def sanitize_mobile_brand_files() -> None:
+    """Remove obsolete generated mobile brand PNGs, preserving fonts/store art."""
+    MOBILE_ASSETS.mkdir(parents=True, exist_ok=True)
+    keep = set(MOBILE_BRAND_ASSETS)
+    for path in MOBILE_ASSETS.glob("localflight-*.png"):
+        if path.name not in keep:
+            path.unlink()
+
+
+def sync_canonical_fonts() -> None:
+    """Distribute the Qt/LAN font masters without re-encoding the binaries."""
+    for filename in (*FONT_FILES, *FONT_LICENSE_FILES):
+        source = CANONICAL_FONTS / filename
+        if not source.is_file():
+            raise FileNotFoundError(source)
+        for destination_root in (MOBILE_FONTS, IOS_WIDGET_FONTS):
+            destination_root.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination_root / filename)
+
+    ANDROID_WIDGET_FONTS.mkdir(parents=True, exist_ok=True)
+    for source_name, destination_name in ANDROID_FONT_FILES.items():
+        shutil.copyfile(CANONICAL_FONTS / source_name, ANDROID_WIDGET_FONTS / destination_name)
+
+    ANDROID_WIDGET_FONT_LICENSES.mkdir(parents=True, exist_ok=True)
+    for filename in FONT_LICENSE_FILES:
+        shutil.copyfile(CANONICAL_FONTS / filename, ANDROID_WIDGET_FONT_LICENSES / filename)
+
+
+def validate_canonical_fonts() -> None:
+    for filename in (*FONT_FILES, *FONT_LICENSE_FILES):
+        source = CANONICAL_FONTS / filename
+        if not source.is_file():
+            raise FileNotFoundError(source)
+        for destination_root in (MOBILE_FONTS, IOS_WIDGET_FONTS):
+            destination = destination_root / filename
+            if not destination.is_file() or sha256(destination) != sha256(source):
+                raise ValueError(f"font contract mismatch: {destination.relative_to(ROOT)}")
+    for source_name, destination_name in ANDROID_FONT_FILES.items():
+        source = CANONICAL_FONTS / source_name
+        destination = ANDROID_WIDGET_FONTS / destination_name
+        if not destination.is_file() or sha256(destination) != sha256(source):
+            raise ValueError(f"font contract mismatch: {destination.relative_to(ROOT)}")
+    for filename in FONT_LICENSE_FILES:
+        source = CANONICAL_FONTS / filename
+        destination = ANDROID_WIDGET_FONT_LICENSES / filename
+        if not destination.is_file() or sha256(destination) != sha256(source):
+            raise ValueError(f"font license mismatch: {destination.relative_to(ROOT)}")
+
+
 def copy_validated_outputs() -> None:
     ASSETS.mkdir(exist_ok=True)
     sanitize_module_brand_files(
@@ -531,16 +620,17 @@ def copy_validated_outputs() -> None:
     shutil.copyfile(STAGE / "qt-lan-static" / "localflight-icon.png", STATIC / "localflight-icon.png")
     shutil.copyfile(STAGE / "qt-lan-static" / "localflight-app-icon.png", STATIC / "localflight-app-icon.png")
 
-    sanitize_module_brand_files(
-        MOBILE_ASSETS,
-        set(MOBILE_BRAND_ASSETS),
-    )
+    sanitize_mobile_brand_files()
     for filename in MOBILE_BRAND_ASSETS:
-        shutil.copyfile(STAGE / "mobile-assets" / filename, MOBILE_ASSETS / filename)
+        destination = MOBILE_ASSETS / filename
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(STAGE / "mobile-assets" / filename, destination)
 
     sanitize_site_brand_files()
     for filename in SITE_BRAND_ASSETS:
         shutil.copyfile(STAGE / "site-assets" / filename, SITE_ASSETS / filename)
+
+    sync_canonical_fonts()
 
 
 def output_record(role: str, path: Path) -> OutputRecord:
@@ -573,14 +663,20 @@ def write_manifest(renderer_name: str) -> None:
             output_record("qt-native-brand-png", STATIC / "localflight-icon.png"),
             output_record("lan-browser-brand-svg", STATIC / "localflight-logo.svg"),
             output_record("lan-browser-touch-icon", STATIC / "localflight-app-icon.png"),
-            output_record("mobile-app-icon", MOBILE_ASSETS / "localflight-icon.png"),
-            output_record("mobile-app-icon-dark", MOBILE_ASSETS / "localflight-icon-dark.png"),
-            output_record("mobile-app-icon-light", MOBILE_ASSETS / "localflight-icon-light.png"),
-            output_record("mobile-splash-logo", MOBILE_ASSETS / "localflight-logo.png"),
-            output_record("mobile-splash-logo-dark", MOBILE_ASSETS / "localflight-logo-dark.png"),
-            output_record("mobile-splash-logo-light", MOBILE_ASSETS / "localflight-logo-light.png"),
+            *(
+                output_record(role, MOBILE_ASSETS / filename)
+                for filename, role in MOBILE_OUTPUT_ROLES.items()
+            ),
         ]
     )
+    for filename in (*FONT_FILES, *FONT_LICENSE_FILES):
+        outputs.append(output_record("qt-lan-font-master", CANONICAL_FONTS / filename))
+        outputs.append(output_record("mobile-react-native-font-copy", MOBILE_FONTS / filename))
+        outputs.append(output_record("ios-widget-font-copy", IOS_WIDGET_FONTS / filename))
+    for source_name, destination_name in ANDROID_FONT_FILES.items():
+        outputs.append(output_record("android-widget-font-copy", ANDROID_WIDGET_FONTS / destination_name))
+    for filename in FONT_LICENSE_FILES:
+        outputs.append(output_record("android-widget-font-license", ANDROID_WIDGET_FONT_LICENSES / filename))
     outputs.extend(
         [
             output_record("site-beacon-apple-touch-icon", SITE_ASSETS / "apple-touch-icon.png"),
@@ -593,14 +689,51 @@ def write_manifest(renderer_name: str) -> None:
         ]
     )
     manifest = {
-        "version": 1,
+        "version": 2,
         "phase": "package-qt-lan-mobile-site",
         "renderer": renderer_name,
+        "mobile_renderer": MOBILE_GENERATOR_ID,
         "masters": {
             "beacon_lockup": "beacon-lockup-master",
             "beacon_mark": "beacon-mark-master",
             "local_flight_dark": "local-flight-dark-master",
             "local_flight_light": "local-flight-light-master",
+            "mobile_icon_system": "repository-mobile-icon-generator-v1",
+        },
+        "font_contract": {
+            "version": 1,
+            "canonical_root": CANONICAL_FONTS.relative_to(ROOT).as_posix(),
+            "roles": {
+                "ui": {
+                    "family": "DM Sans",
+                    "file": "DMSans.ttf",
+                    "license": "OFL-DMSans.txt",
+                    "sha256": sha256(CANONICAL_FONTS / "DMSans.ttf"),
+                },
+                "brand": {
+                    "family": "Audiowide",
+                    "file": "Audiowide-Regular.ttf",
+                    "license": "OFL-Audiowide.txt",
+                    "sha256": sha256(CANONICAL_FONTS / "Audiowide-Regular.ttf"),
+                },
+                "board_regular": {
+                    "family": "Space Mono",
+                    "file": "SpaceMono-Regular.ttf",
+                    "license": "OFL-SpaceMono.txt",
+                    "sha256": sha256(CANONICAL_FONTS / "SpaceMono-Regular.ttf"),
+                },
+                "board_bold": {
+                    "family": "Space Mono",
+                    "file": "SpaceMono-Bold.ttf",
+                    "license": "OFL-SpaceMono.txt",
+                    "sha256": sha256(CANONICAL_FONTS / "SpaceMono-Bold.ttf"),
+                },
+            },
+            "release_targets": [
+                MOBILE_FONTS.relative_to(ROOT).as_posix(),
+                IOS_WIDGET_FONTS.relative_to(ROOT).as_posix(),
+                ANDROID_WIDGET_FONTS.relative_to(ROOT).as_posix(),
+            ],
         },
         "active_outputs": [asdict(record) for record in outputs],
         "excluded_until_later_phases": [],
@@ -619,12 +752,13 @@ def validate_active_outputs() -> None:
     assert_svg(STATIC / "localflight-logo.svg")
     assert_image(STATIC / "localflight-icon.png", 1024, 1024)
     assert_image(STATIC / "localflight-app-icon.png", 1024, 1024)
-    for filename in MOBILE_BRAND_ASSETS:
-        assert_image(MOBILE_ASSETS / filename, 1024, 1024)
+    for filename, expected_size in MOBILE_ASSET_SIZES.items():
+        assert_image(MOBILE_ASSETS / filename, *expected_size)
     assert_images_differ(
-        MOBILE_ASSETS / "localflight-icon-dark.png",
-        MOBILE_ASSETS / "localflight-icon-light.png",
+        MOBILE_ASSETS / "localflight-ios-dark.png",
+        MOBILE_ASSETS / "localflight-ios-light.png",
     )
+    validate_mobile_brand_assets(MOBILE_ASSETS)
     for filename, expected_size in (
         ("apple-touch-icon.png", (180, 180)),
         ("beacon-tools-icon-512.png", (512, 512)),
@@ -641,6 +775,7 @@ def validate_active_outputs() -> None:
     manifest = json.loads((ASSETS / "brand-manifest.json").read_text(encoding="utf-8"))
     if manifest.get("phase") != "package-qt-lan-mobile-site":
         raise ValueError("brand manifest phase mismatch")
+    validate_canonical_fonts()
 
 
 def main() -> None:
@@ -649,7 +784,7 @@ def main() -> None:
     with SvgRenderer() as renderer:
         stage_package_icons(renderer)
         stage_qt_lan_static(renderer)
-        stage_mobile_assets(renderer)
+        stage_mobile_assets()
         stage_site_assets(renderer)
         validate_stage()
         copy_validated_outputs()

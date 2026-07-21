@@ -1,0 +1,112 @@
+---
+const groups = [
+  {
+    code: "01 / DESKTOP",
+    title: "Desktop computers",
+    description: "Choose the computer you use first. Processor details appear only where the download differs.",
+    products: [
+      {
+        title: "Windows",
+        description: "For most Windows 10 and 11 computers with an Intel or AMD processor. Windows may show “Unknown publisher” because this release is not code-signed.",
+        targets: [
+          { platform: "windows", name: "Windows PC", detail: "64-bit Intel or AMD (x64)" },
+        ],
+      },
+      {
+        title: "macOS",
+        description: "For Mac computers. Choose Apple silicon for M-series Macs, or Intel for older models. Both packages are Developer ID signed and notarized.",
+        targets: [
+          { platform: "macos_arm64", name: "M-series Mac", detail: "Apple silicon (ARM64): M1, M2, M3, M4, or newer" },
+          { platform: "macos_x86_64", name: "Intel Mac", detail: "Intel processor (x86-64)" },
+        ],
+      },
+      {
+        title: "Linux AppImage",
+        description: "A portable app for Linux computers. Make the file executable, then run it without administrator access.",
+        targets: [
+          { platform: "linux_appimage_x86_64", name: "Most Linux PCs", detail: "64-bit Intel or AMD (x86-64)" },
+          { platform: "linux_appimage_aarch64", name: "ARM Linux computer", detail: "ARM64 with Ubuntu 24.04, Debian 13, or a compatible newer system" },
+        ],
+      },
+      {
+        title: "Ubuntu / Debian desktop",
+        description: "For Ubuntu or Debian computers with a desktop. The .deb package adds Local Flight to the app menu and keeps data in your normal user account.",
+        targets: [
+          { platform: "linux_deb_desktop_amd64", name: "Most Ubuntu or Debian PCs", detail: "64-bit Intel or AMD (AMD64)" },
+          { platform: "linux_deb_desktop_arm64", name: "ARM Ubuntu or Debian computer", detail: "64-bit ARM (ARM64)" },
+        ],
+      },
+    ],
+  },
+  {
+    code: "02 / SERVER",
+    title: "Always-on computers",
+    description: "Run Local Flight in the background, then open the board from other screens on your home or local network.",
+    products: [
+      {
+        title: "Linux server",
+        description: "For an Ubuntu or Debian server without a desktop. Setup, board, radar, and controls remain available in browsers on your local network.",
+        targets: [
+          { platform: "linux_deb_server_amd64", name: "Most Linux servers", detail: "64-bit Intel or AMD (AMD64)" },
+          { platform: "linux_deb_server_arm64", name: "ARM Linux server", detail: "64-bit ARM (ARM64)" },
+        ],
+      },
+    ],
+  },
+  {
+    code: "03 / PI",
+    title: "Raspberry Pi displays",
+    description: "Use a small always-on Raspberry Pi for an HDMI kiosk, native app, browser kiosk, or background server.",
+    products: [
+      {
+        title: "Raspberry Pi",
+        description: "For Raspberry Pi OS. This versioned source bundle supports background-server, native-kiosk, and browser-kiosk installation paths.",
+        targets: [
+          { platform: "pi", name: "Raspberry Pi", detail: "Source bundle for Raspberry Pi OS" },
+        ],
+      },
+    ],
+  },
+];
+---
+
+<div class="download-shell" data-downloads data-reveal>
+  <div class="download-release-status" data-release-status aria-live="polite">Checking which downloads are ready in the latest complete GitHub release…</div>
+  {groups.map((group) => (
+    <section class="download-group">
+      <div class="download-group-heading">
+        <span>{group.code}</span>
+        <h3>{group.title}</h3>
+        <p>{group.description}</p>
+      </div>
+      <div class="download-targets">
+        {group.products.map((product) => (
+          <article class="download-product">
+            <div class="download-product-heading">
+              <strong>{product.title}</strong>
+              <span>{product.description}</span>
+            </div>
+            {product.targets.map((target) => (
+              <div class="download-target" data-download-platform={target.platform}>
+                <div class="download-variant-title">
+                  <strong>{target.name}</strong>
+                  <span>{target.detail}</span>
+                </div>
+                <p class="download-status" data-download-status>Checking this download…</p>
+                <div class="download-actions">
+                  <a class="action-button action-button--primary" data-download-button href="https://github.com/tr3y4rch/local-flight/releases">View release files</a>
+                  <a class="download-checksum" data-download-checksum href="https://github.com/tr3y4rch/local-flight/releases" hidden>Verify download (SHA-256)</a>
+                </div>
+              </div>
+            ))}
+          </article>
+        ))}
+      </div>
+    </section>
+  ))}
+</div>
+<p class="download-caveat">Verification confirms that a downloaded file matches the file published with the release. A direct download appears only when both the package and its SHA-256 verification file are present in a complete public release. GitHub Releases remains the file host and source of record.</p>
+
+<script>
+  import "../scripts/downloads";
+</script>

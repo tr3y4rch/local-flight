@@ -30,7 +30,7 @@ export const WIDGET_SNAPSHOT_SCHEMA_VERSION = 1;
 export const WIDGET_APP_GROUP_ID = "group.cc.beacontools.localflight";
 export const WIDGET_SNAPSHOT_FILENAME = "localflight-widget-snapshot.json";
 export const WIDGET_SNAPSHOT_STALE_AFTER_MS = 60 * 60 * 1000;
-export const WIDGET_STANDALONE_STALE_AFTER_MS = 4 * 60 * 60 * 1000;
+export const WIDGET_STANDALONE_STALE_AFTER_MS = 90 * 60 * 1000;
 export const WIDGET_SNAPSHOT_MAX_BYTES = 64 * 1024;
 const WIDGET_MAX_MEDIUM_ROWS_WITH_PIN = 4;
 
@@ -99,13 +99,14 @@ function normalizeView(value: unknown): FlightView {
 
 function normalizeWidgetPreferences(value: unknown): MobileWidgetPreferences {
   if (!value || typeof value !== "object") {
-    return { mediumRowCount: 3, showGateTerminal: true, automaticRefresh: true };
+    return { mediumRowCount: 3, showGateTerminal: true, automaticRefresh: true, liveActivityEnabled: false };
   }
   const raw = value as Partial<MobileWidgetPreferences>;
   return {
     mediumRowCount: raw.mediumRowCount === 2 ? 2 : 3,
     showGateTerminal: raw.showGateTerminal !== false,
-    automaticRefresh: raw.automaticRefresh !== false
+    automaticRefresh: raw.automaticRefresh !== false,
+    liveActivityEnabled: raw.liveActivityEnabled === true
   };
 }
 

@@ -49,7 +49,6 @@ struct LocalFlightWidgetView: View {
   }
 }
 
-@main
 struct LocalFlightWidget: Widget {
   let kind = "LocalFlightWidget"
 
@@ -61,5 +60,17 @@ struct LocalFlightWidget: Widget {
     .configurationDisplayName("Local Flight")
     .description("Pinned flight and airport board glance.")
     .supportedFamilies([.systemSmall, .systemMedium])
+    .contentMarginsDisabled()
+  }
+}
+
+@main
+struct LocalFlightWidgetBundle: WidgetBundle {
+  @WidgetBundleBuilder
+  var body: some Widget {
+    LocalFlightWidget()
+    if #available(iOSApplicationExtension 16.1, *) {
+      LocalFlightLiveActivityWidget()
+    }
   }
 }

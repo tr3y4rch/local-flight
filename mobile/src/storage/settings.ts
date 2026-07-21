@@ -1,6 +1,14 @@
 import * as SecureStore from "expo-secure-store";
 import type { AirportResolved, AppConfig } from "../api/types";
-import type { MobileSkin, MobileThemeMode } from "../theme/tokens";
+import {
+  DEFAULT_CONTRAST_PREFERENCE,
+  DEFAULT_THEME_PREFERENCE,
+  resolveMobileThemeMode,
+  type MobileContrastPreference,
+  type MobileSkin,
+  type MobileThemeMode,
+  type MobileThemePreference
+} from "../theme/tokens";
 
 const SERVER_URL_KEY = "localflight.serverUrl";
 const PINNED_FLIGHT_KEY = "localflight.pinnedFlight";
@@ -8,6 +16,8 @@ const PROFILES_KEY = "localflight.profiles";
 const COMPANION_ID_KEY = "localflight.companionId";
 const APPEARANCE_THEME_KEY = "localflight.mobileTheme";
 const APPEARANCE_SKIN_KEY = "localflight.mobileSkin";
+const APPEARANCE_PREFERENCE_KEY = "localflight.mobileThemePreference";
+const APPEARANCE_CONTRAST_KEY = "localflight.mobileContrastPreference";
 const WEATHER_DISPLAY_KEY = "localflight.weatherDisplayMode";
 const RADAR_DRAWING_LAYERS_KEY = "localflight.radarDrawingLayers";
 const STANDALONE_GROUND_LAYERS_VERSION_KEY = "localflight.standaloneGroundLayersVersion";
@@ -21,7 +31,7 @@ const CACHED_LAN_CONFIG_KEY = "localflight.cachedLanConfig";
 const CACHED_LAN_AIRPORT_KEY = "localflight.cachedLanAirport";
 
 const DEFAULT_THEME_MODE: MobileThemeMode = "dark";
-const DEFAULT_SKIN: MobileSkin = "technical";
+const DEFAULT_SKIN: MobileSkin = "standard";
 
 let companionIdCache: string | null = null;
 let relayInstallIdCache: string | null = null;
@@ -48,6 +58,14 @@ export type MobileWidgetPreferences = {
   mediumRowCount: 2 | 3;
   showGateTerminal: boolean;
   automaticRefresh: boolean;
+  /** User explicitly enabled pinned-flight presentation on the Lock Screen. */
+  liveActivityEnabled: boolean;
+};
+
+export type MobileThemePreferences = {
+  preference: MobileThemePreference;
+  contrast: MobileContrastPreference;
+  resolvedThemeMode: MobileThemeMode;
 };
 
 export type RemoteCompanionGrant = {
@@ -68,7 +86,8 @@ const DEFAULT_RADAR_DRAWING_LAYERS: MobileRadarDrawingLayers = {
 export const DEFAULT_WIDGET_PREFERENCES: MobileWidgetPreferences = {
   mediumRowCount: 3,
   showGateTerminal: true,
-  automaticRefresh: true
+  automaticRefresh: true,
+  liveActivityEnabled: false
 };
 
 export type StandaloneAirport = {
@@ -298,6 +317,20 @@ function normalizeThemeMode(value: string | null | undefined): MobileThemeMode {
   return value === "light" ? "light" : DEFAULT_THEME_MODE;
 }
 
+export function normalizeMobileThemePreference(
+  value: string | null | undefined,
+  fallback: MobileThemePreference = DEFAULT_THEME_PREFERENCE
+): MobileThemePreference {
+  switch (value) {
+    case "system":
+    case "light":
+    case "dark":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
 function normalizeSkin(value: string | null | undefined): MobileSkin {
   switch (value) {
     case "standard":
@@ -310,6 +343,22 @@ function normalizeSkin(value: string | null | undefined): MobileSkin {
     default:
       return DEFAULT_SKIN;
   }
+}
+
+export function legacySkinToContrastPreference(
+  value: string | null | undefined
+): MobileContrastPreference {
+  return normalizeSkin(value) === "high_contrast" ? "high" : DEFAULT_CONTRAST_PREFERENCE;
+}
+
+export function normalizeMobileContrastPreference(
+  value: string | null | undefined,
+  legacySkin?: string | null
+): MobileContrastPreference {
+  if (value === "high" || value === "standard") {
+    return value;
+  }
+  return legacySkinToContrastPreference(legacySkin);
 }
 
 function normalizeDiagnosticsMode(value: string | null | undefined): MobileDiagnosticsMode {
@@ -359,7 +408,8 @@ function normalizeWidgetPreferences(value: unknown): MobileWidgetPreferences {
   return {
     mediumRowCount: raw.mediumRowCount === 2 ? 2 : 3,
     showGateTerminal: raw.showGateTerminal !== false,
-    automaticRefresh: raw.automaticRefresh !== false
+    automaticRefresh: raw.automaticRefresh !== false,
+    liveActivityEnabled: raw.liveActivityEnabled === true
   };
 }
 
@@ -505,13 +555,72 @@ export async function loadAppearancePrefs(): Promise<{
   };
 }
 
+/**
+ * Loads the V2 theme contract and lazily seeds it from the V1 theme/skin keys.
+ * The legacy keys remain readable and writable so upgrades and older clients
+ * keep their previous behavior while new screens move to semantic themes.
+ */
+export async function loadMobileThemePreferences(
+  systemThemeMode: MobileThemeMode = DEFAULT_THEME_MODE
+): Promise<MobileThemePreferences> {
+  const [storedPreference, storedContrast, legacyThemeMode, legacySkin] = await Promise.all([
+    SecureStore.getItemAsync(APPEARANCE_PREFERENCE_KEY),
+    SecureStore.getItemAsync(APPEARANCE_CONTRAST_KEY),
+    SecureStore.getItemAsync(APPEARANCE_THEME_KEY),
+    SecureStore.getItemAsync(APPEARANCE_SKIN_KEY)
+  ]);
+  const legacyPreference = legacyThemeMode === "light" || legacyThemeMode === "dark"
+    ? legacyThemeMode
+    : DEFAULT_THEME_PREFERENCE;
+  const preference = normalizeMobileThemePreference(storedPreference, legacyPreference);
+  const contrast = normalizeMobileContrastPreference(storedContrast, legacySkin);
+
+  const migrationWrites: Promise<void>[] = [];
+  if (storedPreference !== preference) {
+    migrationWrites.push(SecureStore.setItemAsync(APPEARANCE_PREFERENCE_KEY, preference));
+  }
+  if (storedContrast !== contrast) {
+    migrationWrites.push(SecureStore.setItemAsync(APPEARANCE_CONTRAST_KEY, contrast));
+  }
+  if (migrationWrites.length) {
+    await Promise.all(migrationWrites.map((write) => write.catch(() => undefined)));
+  }
+
+  return {
+    preference,
+    contrast,
+    resolvedThemeMode: resolveMobileThemeMode(preference, systemThemeMode)
+  };
+}
+
+export async function saveMobileThemePreferences(value: {
+  preference: MobileThemePreference;
+  contrast: MobileContrastPreference;
+  resolvedThemeMode: MobileThemeMode;
+}): Promise<void> {
+  const preference = normalizeMobileThemePreference(value.preference);
+  const contrast = normalizeMobileContrastPreference(value.contrast);
+  const resolvedThemeMode = resolveMobileThemeMode(preference, value.resolvedThemeMode);
+  const compatibilitySkin: MobileSkin = contrast === "high" ? "high_contrast" : "standard";
+  await Promise.all([
+    SecureStore.setItemAsync(APPEARANCE_PREFERENCE_KEY, preference),
+    SecureStore.setItemAsync(APPEARANCE_CONTRAST_KEY, contrast),
+    SecureStore.setItemAsync(APPEARANCE_THEME_KEY, resolvedThemeMode),
+    SecureStore.setItemAsync(APPEARANCE_SKIN_KEY, compatibilitySkin)
+  ]);
+}
+
 export async function saveAppearancePrefs(value: {
   themeMode: MobileThemeMode;
   skin: MobileSkin;
 }): Promise<void> {
+  const themeMode = normalizeThemeMode(value.themeMode);
+  const skin = normalizeSkin(value.skin);
   await Promise.all([
-    SecureStore.setItemAsync(APPEARANCE_THEME_KEY, normalizeThemeMode(value.themeMode)),
-    SecureStore.setItemAsync(APPEARANCE_SKIN_KEY, normalizeSkin(value.skin))
+    SecureStore.setItemAsync(APPEARANCE_THEME_KEY, themeMode),
+    SecureStore.setItemAsync(APPEARANCE_SKIN_KEY, skin),
+    SecureStore.setItemAsync(APPEARANCE_PREFERENCE_KEY, themeMode),
+    SecureStore.setItemAsync(APPEARANCE_CONTRAST_KEY, legacySkinToContrastPreference(skin))
   ]);
 }
 

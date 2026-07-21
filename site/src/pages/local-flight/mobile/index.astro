@@ -1,0 +1,129 @@
+---
+import { Picture } from "astro:assets";
+import SiteLayout from "../../../layouts/SiteLayout.astro";
+import SectionHeading from "../../../components/SectionHeading.astro";
+import MobileModeSwitcher from "../../../components/MobileModeSwitcher.astro";
+import SafetyNotice from "../../../components/SafetyNotice.astro";
+import { currentRelease } from "../../../data/site";
+import iosFids from "../../../assets/screens/mobile/ios/fids-0.5.1.png";
+import iosRadar from "../../../assets/screens/mobile/ios/radar-0.5.1.png";
+import iosHistory from "../../../assets/screens/mobile/ios/history-0.5.1.png";
+import iosSetup from "../../../assets/screens/mobile/ios/setup-0.5.1.png";
+import androidFids from "../../../assets/screens/mobile/android/fids.png";
+import androidRadar from "../../../assets/screens/mobile/android/radar.png";
+---
+
+<SiteLayout
+  title="Local Flight Mobile"
+  description="Use Local Flight on iPhone or Android by connecting to an existing setup with Companion or running a phone-only board with Standalone. The apps are currently in testing."
+  active="mobile"
+>
+  <header class="terminal-hero">
+    <div class="terminal-frame terminal-grid hero-grid">
+      <div class="hero-copy hero-copy--narrow">
+        <div class="eyebrow">Local Flight Mobile / iOS + Android</div>
+        <h1 class="hero-title">Take your flight board <span class="accent-word">with you.</span></h1>
+        <p class="hero-lede">Connect to the Local Flight setup you already run with Companion, or use only your phone with Standalone. Both modes bring the board, nearby-aircraft radar, and recent movement history to iPhone and Android.</p>
+        <div class="hero-actions">
+          <a class="action-button action-button--primary" href="#modes">Compare the two modes <span aria-hidden="true">↓</span></a>
+          <a class="action-link" href="#availability">Ask about mobile testing</a>
+        </div>
+        <p class="hero-footnote">Version {currentRelease} · TestFlight and Google Play testing · no ads · no cross-app tracking</p>
+      </div>
+      <div class="hero-visual hero-visual--wide phone-composition" aria-label="Local Flight Mobile interface previews" data-reveal>
+        <div class="phone-frame phone-frame--primary">
+          <Picture src={iosFids} formats={["avif", "webp"]} widths={[300, 480, 640]} sizes="(max-width: 680px) 52vw, 280px" alt="Local Flight Mobile board on iOS" loading="eager" />
+        </div>
+        <div class="phone-frame phone-frame--secondary">
+          <Picture src={androidRadar} formats={["avif", "webp"]} widths={[300, 480, 640]} sizes="(max-width: 680px) 52vw, 280px" alt="Local Flight Mobile radar on Android" loading="eager" />
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section" id="modes">
+    <div class="terminal-frame">
+      <SectionHeading index="01 / MODES" title="Use your existing setup—or just your phone." description="Companion connects to a Local Flight computer you already run. Standalone runs a simpler flight board from the phone itself. Compare the connection, history, and update timing below." />
+      <MobileModeSwitcher />
+    </div>
+  </section>
+
+  <section class="section section--raised section--ruled">
+    <div class="terminal-frame">
+      <SectionHeading index="02 / ON YOUR PHONE" title="A mobile interface designed for the screen in your hand." description="Move between the board, nearby-aircraft radar, movement history, setup, and widgets with navigation made for a phone." />
+      <div class="feature-run" data-reveal>
+        <article class="feature"><span class="feature-index">BOARD</span><h3>Arrivals and departures</h3><p>See airport-local times, weather, supplied status and gates, pinned flights, and when the board was last updated.</p></article>
+        <article class="feature"><span class="feature-index">RADAR</span><h3>Nearby aircraft</h3><p>Follow the same 15-second sweep used by desktop and browser views, with phone-friendly range and detail controls.</p></article>
+        <article class="feature"><span class="feature-index">HISTORY</span><h3>Recent movements</h3><p>Companion shows history from your Local Flight computer. Standalone keeps its recent movement history on the phone.</p></article>
+        <article class="feature"><span class="feature-index">WIDGET</span><h3>A quick saved view</h3><p>Widgets show the latest copy saved by the app. They never contact your computer, Community Relay, or an aviation-data provider by themselves.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="terminal-frame">
+      <SectionHeading index="03 / CURRENT BUILDS" title="Real screens from the current testing build." description={`The iOS captures are from 0.5.1 and remain visually current for ${currentRelease}; Android shows the matching testing interface. These are real Local Flight screens, not generic device mockups.`} />
+      <div class="preview-strip" data-reveal>
+        <figure class="preview-phone"><Picture src={iosRadar} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Radar on iOS" /><figcaption>iOS / Radar · 0.5.1</figcaption></figure>
+        <figure class="preview-phone"><Picture src={androidFids} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Board on Android" /><figcaption>Android / Board</figcaption></figure>
+        <figure class="preview-phone"><Picture src={iosHistory} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="History on iOS" /><figcaption>iOS / History · 0.5.1</figcaption></figure>
+        <figure class="preview-phone"><Picture src={iosSetup} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Setup on iOS" /><figcaption>iOS / Setup · 0.5.1</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--quiet section--ruled">
+    <div class="terminal-frame">
+      <SectionHeading index="04 / UPDATE TIMING" title="How often phone-only mode checks for new data." description="Standalone uses measured update limits to keep Community Relay sustainable. If a provider has a temporary problem, the last known board can remain visible instead of disappearing." />
+      <div class="cadence-line" data-reveal>
+        <article class="cadence-item"><strong>About 1 h</strong><h3>Flight board</h3><p>Airline schedules usually refresh about once an hour. Shared information may still be cached or delayed.</p></article>
+        <article class="cadence-item"><strong>About 3 min</strong><h3>Open Radar</h3><p>Nearby traffic can refresh about every 3 minutes while Radar is open.</p></article>
+        <article class="cadence-item"><strong>10 NM</strong><h3>Maximum range</h3><p>Phone-only radar offers 1, 3, 5, and 10 nautical mile ranges.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="availability">
+    <div class="terminal-frame terminal-grid split-story">
+      <div class="split-story-copy" data-reveal>
+        <span class="section-index">05 / AVAILABILITY</span>
+        <h2>The mobile apps are currently in testing.</h2>
+        <p>Version {currentRelease} is currently distributed through TestFlight and Google Play internal testing. Public store badges remain unavailable until review is complete.</p>
+        <ul class="data-list">
+          <li><b>iOS</b><span>TestFlight testing with the permanent Local Flight application identity.</span></li>
+          <li><b>Android</b><span>Google Play internal testing on the matching {currentRelease} contract.</span></li>
+          <li><b>Questions</b><span>Ask about testing access, pairing, or which mode fits your setup.</span></li>
+        </ul>
+        <div class="inline-actions" style="margin-top: 30px">
+          <a class="action-button action-button--primary" href="/support/#message">Ask about joining mobile testing <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="store-release" aria-label="Mobile app store availability">
+          <div class="store-badges">
+            <!-- Future App Store URL requires the App Store app ID assigned after review. -->
+            <span class="store-badge is-disabled" role="link" aria-disabled="true" aria-label="Download on the App Store">
+              <img src="/assets/store-badges/download-on-app-store.svg" alt="Download on the App Store" />
+            </span>
+            <!-- Future Google Play URL: https://play.google.com/store/apps/details?id=cc.beacontools.localflight -->
+            <span class="store-badge is-disabled" role="link" aria-disabled="true" aria-label="Get it on Google Play">
+              <img src="/assets/store-badges/get-it-on-google-play.png" alt="Get it on Google Play" />
+            </span>
+          </div>
+          <p class="store-note">Public store listings will open after store review.</p>
+        </div>
+      </div>
+      <div class="split-story-media">
+        <div class="media-stage" data-reveal>
+          <Picture src={androidRadar} formats={["avif", "webp"]} widths={[420, 640, 860]} sizes="(max-width: 680px) 90vw, 46vw" alt="Local Flight Android radar view" />
+          <div class="media-caption"><strong>ANDROID / RADAR</strong><span>Testing build preview</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <SafetyNotice subject="Local Flight Mobile board, radar, weather, map, and shared-service data" />
+
+  <div class="terminal-frame store-legal">
+    <p>Apple, the Apple logo, iPhone, and iPad are trademarks of Apple Inc. App Store is a service mark of Apple Inc.</p>
+    <p>Google Play and the Google Play logo are trademarks of Google LLC. Android is a trademark of Google LLC.</p>
+  </div>
+</SiteLayout>

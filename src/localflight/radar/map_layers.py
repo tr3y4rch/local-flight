@@ -195,6 +195,10 @@ def build_radar_map(
     }
 
     runway_sources = _runway_source_summary(runways)
+    mapped_surface_features = _map_surface_features(source_features, radius_nm=radius_nm)
+    mapped_context_features = _map_context_features(map_source_features, radius_nm=radius_nm)
+    surface_is_estimated = surface_provider == "localflight-estimated" or surface_cache_state == "estimated"
+    surface_is_loading = surface_cache_state in {"miss", "preparing", "queued", "error"}
     return {
         "center": {
             "lat": float(center_lat),
@@ -203,10 +207,13 @@ def build_radar_map(
             "airport_icao": airport_icao,
         },
         "radius_nm": float(radius_nm),
+        "coverage_radius_nm": float(radius_nm),
+        "maximum_radius_nm": float(radius_nm),
+        "queued_refresh": bool(surface_is_loading),
         "schema_version": "radar-map-v1",
         "runways": runways,
-        "map_features": _map_context_features(map_source_features, radius_nm=radius_nm),
-        "surface_features": _map_surface_features(source_features, radius_nm=radius_nm),
+        "map_features": mapped_context_features,
+        "surface_features": mapped_surface_features,
         "terrain": terrain,
         "attribution": attribution,
         "sources": {
@@ -218,6 +225,12 @@ def build_radar_map(
             "map_cache_state": map_cache_state or "none",
             "terrain": terrain["provider"] or "none",
             "terrain_cache_state": terrain["cache_state"],
+        },
+        "layer_readiness": {
+            "runways": "ready" if runway_sources["has_provider_runways"] else "estimated" if runways else "loading",
+            "surface": "loading" if surface_is_loading else "estimated" if surface_is_estimated else "ready" if mapped_surface_features else "unavailable",
+            "map": "ready" if mapped_context_features else "loading" if map_cache_state in {"miss", "preparing", "queued"} else "unavailable",
+            "terrain": "off" if not terrain_enabled else "ready" if terrain_features else "loading" if terrain_cache_state in {"miss", "preparing", "queued"} else "unavailable",
         },
         "confidence": {
             "runway_count": len(runways),

@@ -1,12 +1,14 @@
 {
-  "version": 1,
+  "version": 2,
   "phase": "package-qt-lan-mobile-site",
   "renderer": "playwright-chromium",
+  "mobile_renderer": "pillow-supersampled-mobile-mark-v1",
   "masters": {
     "beacon_lockup": "beacon-lockup-master",
     "beacon_mark": "beacon-mark-master",
     "local_flight_dark": "local-flight-dark-master",
-    "local_flight_light": "local-flight-light-master"
+    "local_flight_light": "local-flight-light-master",
+    "mobile_icon_system": "repository-mobile-icon-generator-v1"
   },
   "active_outputs": [
     {
@@ -21,91 +23,91 @@
       "path": "assets/icon.png",
       "width": 1024,
       "height": 1024,
-      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+      "sha256": "7171e49af8b9f7959dc96b500ff77643079b8202551793b9017baaa968d8b389"
     },
     {
       "role": "local-flight-windows-ico",
       "path": "assets/icon.ico",
       "width": 256,
       "height": 256,
-      "sha256": "d607b37a51c76c5a1c1309928ae2678a26550d02b6d3944901edcf86d28262a8"
+      "sha256": "d403406ae44131c0239d033cc7981b9a861ed54344f41ee8235e5966ee071b93"
     },
     {
       "role": "local-flight-macos-icns",
       "path": "assets/icon.icns",
       "width": 1024,
       "height": 1024,
-      "sha256": "abfa7e7332dd8568e1d09827684e4cb1b4f3b80acc6f42ccd203ed640f60d17b"
+      "sha256": "5ef87b97684f48f6a3506d6af36cbf4a933271c5e82b6205708a351acf9b0ac5"
     },
     {
       "role": "local-flight-macos-iconset-member",
       "path": "assets/icon.iconset/icon_16x16.png",
       "width": 16,
       "height": 16,
-      "sha256": "e87761ab4dd88701cb56ad364c28150fc9b40a85badcb7320393bb3f86d80c32"
+      "sha256": "f2addc4daa0c8e8d6d47f0ae22e1fdd0041a58971070fef60671382100b702dd"
     },
     {
       "role": "local-flight-macos-iconset-member",
       "path": "assets/icon.iconset/icon_16x16@2x.png",
       "width": 32,
       "height": 32,
-      "sha256": "ed45929918c60299d34f2a6144ff81274eb910a2ff5a84ad7fe333cbcfd1a937"
+      "sha256": "35189d7d1b9d3efeaeff1d673a471c6ab39542a2c851d39751c0bb4f42f1a895"
     },
     {
       "role": "local-flight-macos-iconset-member",
       "path": "assets/icon.iconset/icon_32x32.png",
       "width": 32,
       "height": 32,
-      "sha256": "ed45929918c60299d34f2a6144ff81274eb910a2ff5a84ad7fe333cbcfd1a937"
+      "sha256": "35189d7d1b9d3efeaeff1d673a471c6ab39542a2c851d39751c0bb4f42f1a895"
     },
     {
       "role": "local-flight-macos-iconset-member",
       "path": "assets/icon.iconset/icon_32x32@2x.png",
       "width": 64,
       "height": 64,
-      "sha256": "cc155aac9a102a5736ee406ac3692a16a2dd89cf62dc0285c2c5b7f5a0f70139"
+      "sha256": "61a9283ece047eeafa97e88ba3c4773842112e952d20fe07477e969398df24ac"
     },
     {
       "role": "local-flight-macos-iconset-member",
       "path": "assets/icon.iconset/icon_128x128.png",
       "width": 128,
       "height": 128,
-      "sha256": "e90da03d1c7165a6353ffaa8b4543959e574104cd5e2b9f70c0f0843a1487b24"
+      "sha256": "5d8590287e7aea8ee24892bd7fc75daa5b41dd691603238ab0d5447ed0377e60"
     },
     {
       "role": "local-flight-macos-iconset-member",
       "path": "assets/icon.iconset/icon_128x128@2x.png",
       "width": 256,
       "height": 256,
-      "sha256": "857c7699bb7ce478a657e15911666e45ffa7c0b29a5cd2138bc3b27b8488cdea"
+      "sha256": "ee6f84987da5396b4cb02fda63761a27e3cf54c17d5709861a5392e54dc7ecb2"
     },
     {
       "role": "local-flight-macos-iconset-member",
       "path": "assets/icon.iconset/icon_256x256.png",
       "width": 256,
       "height": 256,
-      "sha256": "857c7699bb7ce478a657e15911666e45ffa7c0b29a5cd2138bc3b27b8488cdea"
+      "sha256": "ee6f84987da5396b4cb02fda63761a27e3cf54c17d5709861a5392e54dc7ecb2"
     },
     {
       "role": "local-flight-macos-iconset-member",
       "path": "assets/icon.iconset/icon_256x256@2x.png",
       "width": 512,
       "height": 512,
-      "sha256": "a3cedd0519c98d656f645fabad6fcd30b3250a3b6889a90e0dbb1774c16af5ad"
+      "sha256": "0ef664a5ec63547f1104f05109710ec5f7d6943a1e9baff35d7eab1323dc4416"
     },
     {
       "role": "local-flight-macos-iconset-member",
       "path": "assets/icon.iconset/icon_512x512.png",
       "width": 512,
       "height": 512,
-      "sha256": "a3cedd0519c98d656f645fabad6fcd30b3250a3b6889a90e0dbb1774c16af5ad"
+      "sha256": "0ef664a5ec63547f1104f05109710ec5f7d6943a1e9baff35d7eab1323dc4416"
     },
     {
       "role": "local-flight-macos-iconset-member",
       "path": "assets/icon.iconset/icon_512x512@2x.png",
       "width": 1024,
       "height": 1024,
-      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+      "sha256": "7171e49af8b9f7959dc96b500ff77643079b8202551793b9017baaa968d8b389"
     },
     {
       "role": "qt-native-brand-svg",
@@ -136,96 +138,173 @@
       "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
     },
     {
-      "role": "mobile-app-icon",
-      "path": "mobile/assets/localflight-icon.png",
+      "role": "mobile-ios-icon-light",
+      "path": "mobile/assets/localflight-ios-light.png",
       "width": 1024,
       "height": 1024,
-      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+      "sha256": "b6603001876e90d91c712f603d6614a50f5124cdf7f456e40d0785e6851d57f7"
     },
     {
-      "role": "mobile-app-icon-dark",
-      "path": "mobile/assets/localflight-icon-dark.png",
+      "role": "mobile-ios-icon-dark",
+      "path": "mobile/assets/localflight-ios-dark.png",
       "width": 1024,
       "height": 1024,
-      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+      "sha256": "1f4a97363d44324e9dfb52126c965cdcc546f96952ba37f5781298ad96e59314"
     },
     {
-      "role": "mobile-app-icon-light",
-      "path": "mobile/assets/localflight-icon-light.png",
+      "role": "mobile-ios-icon-tinted",
+      "path": "mobile/assets/localflight-ios-tinted.png",
       "width": 1024,
       "height": 1024,
-      "sha256": "5680faa542d0ebaa0127a481e700f8c0fa37005b8cb298f6e6b94d0b4b372ffc"
+      "sha256": "fa0c9fb6ad05b1de0471556c5fe04f704aaf2e18f82878c158a7660ee501cedc"
     },
     {
-      "role": "mobile-splash-logo",
-      "path": "mobile/assets/localflight-logo.png",
+      "role": "mobile-android-adaptive-foreground",
+      "path": "mobile/assets/localflight-android-foreground.png",
       "width": 1024,
       "height": 1024,
-      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+      "sha256": "b91bacdc25eecc26281ed33d93d46e014afe57384645af1e6bd3625859f24e79"
     },
     {
-      "role": "mobile-splash-logo-dark",
-      "path": "mobile/assets/localflight-logo-dark.png",
+      "role": "mobile-android-adaptive-background",
+      "path": "mobile/assets/localflight-android-background.png",
       "width": 1024,
       "height": 1024,
-      "sha256": "4bd99a19f76ea16bf6940762fe679c93f3d75e6e902570f9e2b7e1144bd07db7"
+      "sha256": "1079ce506f848268d11b25edd7742dd28a4fe7fc8eebf8147e849ddd3f5f2f90"
     },
     {
-      "role": "mobile-splash-logo-light",
-      "path": "mobile/assets/localflight-logo-light.png",
+      "role": "mobile-android-adaptive-monochrome",
+      "path": "mobile/assets/localflight-android-monochrome.png",
       "width": 1024,
       "height": 1024,
-      "sha256": "5680faa542d0ebaa0127a481e700f8c0fa37005b8cb298f6e6b94d0b4b372ffc"
+      "sha256": "5d47cd2b0f090ddcde6b41ce6dbcb1d752d4ae9396d77cb96ccda8e05b8f4446"
+    },
+    {
+      "role": "mobile-android-legacy-icon",
+      "path": "mobile/assets/localflight-android-legacy.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "edb8ef35e792ba3d22d0fb63d45bd7fc6068b141eb9abe1310cba0c0fbeb4c8a"
+    },
+    {
+      "role": "mobile-in-app-mark-light",
+      "path": "mobile/assets/localflight-mark-light.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "7be29a2473508512097ecd1ffb1656dd87c431907f7c1a0d8485593c1cc207ba"
+    },
+    {
+      "role": "mobile-in-app-mark-dark",
+      "path": "mobile/assets/localflight-mark-dark.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "6212fdae4f3927b1ef9a241d803573eb755200ee04025fdf4480b8ae162ebf4e"
+    },
+    {
+      "role": "mobile-splash-lockup-light",
+      "path": "mobile/assets/localflight-splash-light.png",
+      "width": 1200,
+      "height": 520,
+      "sha256": "964cd78c570fee975146efca417c01c98297dfcb6288280edbae5dac11a3902d"
+    },
+    {
+      "role": "mobile-splash-lockup-dark",
+      "path": "mobile/assets/localflight-splash-dark.png",
+      "width": 1200,
+      "height": 520,
+      "sha256": "108fc3b3c17bb2244ab693cc6d26c6b5fa8284f8f046b966bf6e677f532fc4b3"
+    },
+    {
+      "role": "mobile-android-feature-graphic",
+      "path": "mobile/assets/store/android/feature-graphic-1024x500.png",
+      "width": 1024,
+      "height": 500,
+      "sha256": "1461ae57fd4135dbf12f436b78bb1a0ac62b465b3176af3f815dfcb97809f8d1"
     },
     {
       "role": "site-beacon-apple-touch-icon",
-      "path": "site/assets/apple-touch-icon.png",
+      "path": "site/public/assets/apple-touch-icon.png",
       "width": 180,
       "height": 180,
       "sha256": "24795998acea4580ff82b92faf52576c192ded0732e5a8ad1ed62e98ada1e637"
     },
     {
       "role": "site-beacon-favicon-ico",
-      "path": "site/assets/favicon.ico",
+      "path": "site/public/assets/favicon.ico",
       "width": 256,
       "height": 256,
       "sha256": "bcd77a2e1395a64504a75b963519184d69692bdc9289daee92a667ba11849d96"
     },
     {
       "role": "site-beacon-favicon-32",
-      "path": "site/assets/favicon-32.png",
+      "path": "site/public/assets/favicon-32.png",
       "width": 32,
       "height": 32,
       "sha256": "7d27a84b5d6007897d1bd43edbfc3d03b7bb0115d24f77d131bca25268e5b6c2"
     },
     {
       "role": "site-beacon-icon-512",
-      "path": "site/assets/beacon-tools-icon-512.png",
+      "path": "site/public/assets/beacon-tools-icon-512.png",
       "width": 512,
       "height": 512,
       "sha256": "8c3858d0ee8f877763f573ab37b17ef41e4d77caa2ccb38860ce8306b4f0db0c"
     },
     {
       "role": "site-beacon-lockup",
-      "path": "site/assets/beacon-tools-logo.png",
+      "path": "site/public/assets/beacon-tools-logo.png",
       "width": 1200,
       "height": 349,
       "sha256": "675e2352b5820e047720aa7f077d894b1f3aeedd9393bd8ad6b4c3b1a643ba84"
     },
     {
       "role": "site-beacon-mark-96",
-      "path": "site/assets/beacon-tools-mark-96.png",
+      "path": "site/public/assets/beacon-tools-mark-96.png",
       "width": 96,
       "height": 96,
       "sha256": "4bf3c211961ebf09a4a2991950ff283a1efc46e4f475a313baf6915508c7d960"
     },
     {
       "role": "site-local-flight-product-lockup",
-      "path": "site/assets/localflight-lockup.png",
+      "path": "site/public/assets/localflight-lockup.png",
       "width": 960,
       "height": 260,
       "sha256": "8dac16d59f94436360a92109961bba1beb70ae842819506830636ca276958fe6"
     }
   ],
+  "font_contract": {
+    "version": 1,
+    "canonical_root": "src/localflight/ui/static/fonts",
+    "roles": {
+      "ui": {
+        "family": "DM Sans",
+        "file": "DMSans.ttf",
+        "license": "OFL-DMSans.txt",
+        "sha256": "8cd08d97e89c24d0aa92edd2f0f4c8ee6195eee9b7c9f154865a58b02f0c1c0d"
+      },
+      "brand": {
+        "family": "Audiowide",
+        "file": "Audiowide-Regular.ttf",
+        "license": "OFL-Audiowide.txt",
+        "sha256": "c7c0f2b0f6fad8c623e31772ce79f94a4edb9321ffce9fce978ea892d20ae730"
+      },
+      "board_regular": {
+        "family": "Space Mono",
+        "file": "SpaceMono-Regular.ttf",
+        "license": "OFL-SpaceMono.txt",
+        "sha256": "95837e182baeeada83368f7748db28357f0a1b75c6b84ff7065b5edf933c8e18"
+      },
+      "board_bold": {
+        "family": "Space Mono",
+        "file": "SpaceMono-Bold.ttf",
+        "license": "OFL-SpaceMono.txt",
+        "sha256": "405e73d41afb7e5906efce206a326af5c956f38e255f35421c260e861e599c59"
+      }
+    },
+    "release_targets": [
+      "mobile/assets/fonts",
+      "mobile/native/ios-widget/Fonts",
+      "mobile/native/android-widget/res/font"
+    ]
+  },
   "excluded_until_later_phases": []
 }

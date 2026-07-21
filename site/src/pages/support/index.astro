@@ -1,0 +1,51 @@
+---
+import SiteLayout from "../../layouts/SiteLayout.astro";
+import SectionHeading from "../../components/SectionHeading.astro";
+import SupportForms from "../../components/SupportForms.astro";
+import SafetyNotice from "../../components/SafetyNotice.astro";
+---
+
+<SiteLayout
+  title="Support"
+  description="Ask a Local Flight question, request mobile testing access, or report something that is not working on desktop, server, Raspberry Pi, mobile, radar, or LED matrix."
+  active="support"
+>
+  <header class="terminal-hero">
+    <div class="terminal-frame terminal-grid hero-grid">
+      <div class="hero-copy">
+        <div class="eyebrow">Support / Message desk</div>
+        <h1 class="hero-title">Tell us what you’re <span class="accent-word">trying to do.</span></h1>
+        <p class="hero-lede">Ask a question when you want guidance or mobile testing access. Report something that is not working when device details and optional cleaned text logs could help investigate it.</p>
+        <div class="hero-actions">
+          <a class="action-button action-button--primary" href="#message">Ask a question <span aria-hidden="true">↓</span></a>
+          <a class="action-link" href="#bug-report">Report something that isn’t working</a>
+        </div>
+        <p class="hero-footnote">No support account required · reply email optional · do not include aviation-data keys or other private credentials</p>
+      </div>
+      <div class="hero-visual">
+        <div class="support-console" aria-label="Support routes" data-reveal>
+          <p><b>DESK</b><span>GENERAL SUPPORT</span><i>OPEN</i></p>
+          <p><b>MOB</b><span>MOBILE + PAIRING</span><i>OPEN</i></p>
+          <p><b>SYS</b><span>DESKTOP · SERVER · PI</span><i>OPEN</i></p>
+          <p><b>PRV</b><span>PRIVACY + DIAGNOSTICS</span><i>OPEN</i></p>
+          <small>Choose a question or an issue report. You can leave optional technical details blank.</small>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section section--compact">
+    <div class="terminal-frame">
+      <SectionHeading index="01 / CHOOSE A TOPIC" title="Choose the closest match. You don’t need the technical name." description="A general description is enough to start. Device, airport, mode, and approximate time are useful when you know them." />
+      <div class="support-router" data-reveal>
+        <article class="support-route"><span>SYS</span><h3>Computer, server, or Raspberry Pi</h3><p>Download, install, setup, Windows, macOS, Linux, browser, and dedicated-display questions.</p></article>
+        <article class="support-route"><span>MOB</span><h3>Mobile</h3><p>Companion, Remote Companion, Standalone, testing access, widgets, and pairing.</p></article>
+        <article class="support-route"><span>DSP</span><h3>LED matrix or radar</h3><p>Supported HUB75 LED matrix setup, generated display files, nearby aircraft, radar drawing, and map context.</p></article>
+        <article class="support-route"><span>PRV</span><h3>Privacy</h3><p>Diagnostics, deletion, reset, or privacy requests begin with <a href="/privacy/choices/">Privacy choices</a>.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <SupportForms />
+  <SafetyNotice />
+</SiteLayout>

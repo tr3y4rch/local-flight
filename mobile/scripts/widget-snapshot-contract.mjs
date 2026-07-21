@@ -459,7 +459,7 @@ module.exports = { openDatabaseAsync };
     widgets.widgetSnapshotSemanticKey(snapshot),
     widgets.widgetSnapshotSemanticKey(refreshedSource)
   );
-  assert.equal(widgets.widgetSnapshotStaleAfterMs("standalone"), 4 * 60 * 60 * 1000);
+  assert.equal(widgets.widgetSnapshotStaleAfterMs("standalone"), 90 * 60 * 1000);
   assert.equal(widgets.widgetSnapshotStaleAfterMs("lan_companion", 8 * 60 * 60), 16 * 60 * 60 * 1000);
 
   const fsMock = globalThis.__localFlightExpoFileSystemMock;
@@ -547,9 +547,11 @@ module.exports = { openDatabaseAsync };
     timezone: "Europe/Zurich"
   };
   const recentEventTime = new Date(Date.now() - 60 * 1000).toISOString();
-  const historyRows = rows.slice(0, 4).map((historyRow) => ({
+  const historyRows = rows.slice(0, 4).map((historyRow, index) => ({
     ...historyRow,
-    actual_time: recentEventTime
+    actual_time: recentEventTime,
+    airline_iata: "LX",
+    delay_minutes: index === 0 ? 5 : 0
   }));
 
   resetSqliteMock();
@@ -563,6 +565,26 @@ module.exports = { openDatabaseAsync };
   ]);
   assert.equal(history.flights.length, 2);
   assert.equal(historySummary.total, 2);
+  assert.equal(historySummary.delayed, 1);
+  assert.equal(historySummary.delayed_pct, 50);
+  assert.equal(historySummary.on_time_pct, 50);
+  assert.deepEqual(
+    historySummary.delay_buckets.map(({ bucket, count }) => [bucket, count]),
+    [
+      ["early", 0],
+      ["on_time", 1],
+      ["delayed_warn", 1],
+      ["delayed_bad", 0],
+      ["unknown", 0]
+    ]
+  );
+  assert.deepEqual(historySummary.top_airlines, [{
+    code: "LX",
+    count: 2,
+    delay_rate_pct: 50,
+    on_time_pct: 50,
+    avg_delay_minutes: 5
+  }]);
   assert.equal(history.standalone_storage.airport_key, "ZRH");
   assert.equal(history.standalone_storage.last_store_rows, 2);
   assert.equal(history.standalone_storage.last_store_error, null);
@@ -628,7 +650,8 @@ module.exports = { openDatabaseAsync };
   const backgroundRefreshSource = readFileSync(path.join(mobileRoot, "src/background/widgetRefresh.ts"), "utf8");
   assert.match(backgroundRefreshSource, /STANDALONE_FIDS_MINIMUM_REFRESH_MS/);
   assert.match(backgroundRefreshSource, /configureWidgetBackgroundRefresh/);
-  assert.match(backgroundRefreshSource, /getStandaloneFids/);
+  assert.match(backgroundRefreshSource, /getStandaloneBoard/);
+  assert.match(backgroundRefreshSource, /board\.generated_at/);
   assert.match(backgroundRefreshSource, /getFids/);
   for (const forbidden of [
     "TIP JAR",

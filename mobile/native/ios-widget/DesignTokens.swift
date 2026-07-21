@@ -1,9 +1,18 @@
 import CoreText
 import SwiftUI
+import UIKit
 
 enum LocalFlightWidgetFont {
   private static let registeredBundledFonts: Void = {
-    for name in ["Audiowide-Regular", "SpaceMono-Regular", "SpaceMono-Bold", "DMSans"] {
+    for (name, postScriptName) in [
+      ("DMSans", "DM Sans"),
+      ("Audiowide-Regular", "Audiowide-Regular"),
+      ("SpaceMono-Regular", "SpaceMono-Regular"),
+      ("SpaceMono-Bold", "SpaceMono-Bold"),
+    ] {
+      guard UIFont(name: postScriptName, size: 12) == nil else {
+        continue
+      }
       guard let url = Bundle.main.url(forResource: name, withExtension: "ttf", subdirectory: "Fonts")
         ?? Bundle.main.url(forResource: name, withExtension: "ttf")
       else {
@@ -34,20 +43,23 @@ enum LocalFlightWidgetFont {
 
   static func ui(size: CGFloat) -> Font {
     registerBundledFonts()
-    return .custom("DMSans-9ptRegular_Regular", size: size)
+    return .custom("DM Sans", size: size, relativeTo: .body)
   }
 
   static func uiBold(size: CGFloat) -> Font {
     registerBundledFonts()
-    return .custom("DMSans-9ptRegular_Bold", size: size)
+    return .custom("DM Sans", size: size, relativeTo: .headline).weight(.semibold)
   }
 }
 
 enum LFWidgetDesignV2 {
+  // Warm glance palette anchors:
+  // light #F5F1E8 / #FFFDF8 / #132638 / #536575 / #2F6F9F / #1F6F61
+  // dark  #08141D / #102330 / #F5F0E8 / #A4B3BE / #74B5DE / #59C1A5
   static let darkWidgetBg = LinearGradient(
     colors: [
-      Color(red: 0.055, green: 0.113, blue: 0.180),
-      Color(red: 0.024, green: 0.055, blue: 0.094),
+      Color(red: 0.063, green: 0.137, blue: 0.188),
+      Color(red: 0.031, green: 0.078, blue: 0.114),
     ],
     startPoint: .topLeading,
     endPoint: .bottomTrailing
@@ -55,8 +67,8 @@ enum LFWidgetDesignV2 {
 
   static let lightWidgetBg = LinearGradient(
     colors: [
-      Color(red: 0.957, green: 0.969, blue: 0.988),
-      Color(red: 0.922, green: 0.941, blue: 0.973),
+      Color(red: 1.000, green: 0.992, blue: 0.973),
+      Color(red: 0.961, green: 0.945, blue: 0.910),
     ],
     startPoint: .topLeading,
     endPoint: .bottomTrailing
@@ -64,8 +76,8 @@ enum LFWidgetDesignV2 {
 
   static let darkRowBg = LinearGradient(
     colors: [
-      Color(red: 0.067, green: 0.125, blue: 0.188),
-      Color(red: 0.043, green: 0.094, blue: 0.149),
+      Color(red: 0.063, green: 0.137, blue: 0.188),
+      Color(red: 0.043, green: 0.110, blue: 0.153),
     ],
     startPoint: .topLeading,
     endPoint: .bottomTrailing
@@ -73,8 +85,8 @@ enum LFWidgetDesignV2 {
 
   static let lightRowBg = LinearGradient(
     colors: [
-      Color(red: 0.910, green: 0.929, blue: 0.965),
-      Color(red: 0.871, green: 0.902, blue: 0.941),
+      Color(red: 1.000, green: 0.992, blue: 0.973),
+      Color(red: 0.949, green: 0.929, blue: 0.894),
     ],
     startPoint: .topLeading,
     endPoint: .bottomTrailing
@@ -82,9 +94,9 @@ enum LFWidgetDesignV2 {
 
   static let darkPinnedBg = LinearGradient(
     colors: [
-      Color(red: 0.125, green: 0.118, blue: 0.039),
-      Color(red: 0.094, green: 0.110, blue: 0.055),
-      Color(red: 0.055, green: 0.094, blue: 0.125),
+      Color(red: 0.259, green: 0.204, blue: 0.106),
+      Color(red: 0.180, green: 0.169, blue: 0.118),
+      Color(red: 0.063, green: 0.137, blue: 0.188),
     ],
     startPoint: .leading,
     endPoint: .trailing
@@ -92,9 +104,9 @@ enum LFWidgetDesignV2 {
 
   static let lightPinnedBg = LinearGradient(
     colors: [
-      Color(red: 1.000, green: 0.976, blue: 0.910),
-      Color(red: 1.000, green: 0.957, blue: 0.847),
-      Color(red: 0.933, green: 0.957, blue: 1.000),
+      Color(red: 1.000, green: 0.965, blue: 0.843),
+      Color(red: 0.965, green: 0.902, blue: 0.745),
+      Color(red: 0.961, green: 0.945, blue: 0.910),
     ],
     startPoint: .leading,
     endPoint: .trailing
@@ -102,8 +114,8 @@ enum LFWidgetDesignV2 {
 
   static let amberAccentBar = LinearGradient(
     colors: [
-      Color(red: 0.953, green: 0.722, blue: 0.207),
-      Color(red: 0.769, green: 0.565, blue: 0.063).opacity(0.4),
+      Color(red: 0.894, green: 0.706, blue: 0.329),
+      Color(red: 0.573, green: 0.365, blue: 0.063).opacity(0.55),
     ],
     startPoint: .top,
     endPoint: .bottom
@@ -111,8 +123,8 @@ enum LFWidgetDesignV2 {
 
   static let lightAmberAccentBar = LinearGradient(
     colors: [
-      Color(red: 0.784, green: 0.565, blue: 0.000),
-      Color(red: 0.627, green: 0.439, blue: 0.000).opacity(0.4),
+      Color(red: 0.573, green: 0.365, blue: 0.063),
+      Color(red: 0.776, green: 0.557, blue: 0.169).opacity(0.55),
     ],
     startPoint: .top,
     endPoint: .bottom
@@ -122,22 +134,22 @@ enum LFWidgetDesignV2 {
     let dark = scheme == .dark
     switch tone {
     case "boarding", "departed":
-      return dark ? Color(red: 0.137, green: 0.886, blue: 0.529)
-                  : Color(red: 0.039, green: 0.478, blue: 0.235)
+      return dark ? Color(red: 0.349, green: 0.757, blue: 0.647)
+                  : Color(red: 0.122, green: 0.435, blue: 0.380)
     case "delayed":
-      return dark ? Color(red: 0.953, green: 0.722, blue: 0.207)
-                  : Color(red: 0.541, green: 0.376, blue: 0.000)
+      return dark ? Color(red: 0.894, green: 0.706, blue: 0.329)
+                  : Color(red: 0.573, green: 0.365, blue: 0.063)
     case "cancelled":
-      return dark ? Color(red: 0.941, green: 0.349, blue: 0.298)
-                  : Color(red: 0.737, green: 0.145, blue: 0.094)
+      return dark ? Color(red: 0.941, green: 0.486, blue: 0.384)
+                  : Color(red: 0.655, green: 0.278, blue: 0.196)
     default:
-      return dark ? Color(red: 0.396, green: 0.722, blue: 0.969)
-                  : Color(red: 0.043, green: 0.376, blue: 0.690)
+      return dark ? Color(red: 0.455, green: 0.710, blue: 0.871)
+                  : Color(red: 0.184, green: 0.435, blue: 0.624)
     }
   }
 
   static func statusBackground(tone: String, scheme: ColorScheme) -> Color {
-    statusColor(tone: tone, scheme: scheme).opacity(scheme == .dark ? 0.14 : 0.12)
+    statusColor(tone: tone, scheme: scheme).opacity(scheme == .dark ? 0.14 : 0.04)
   }
 
   static func statusBorder(tone: String, scheme: ColorScheme) -> Color {
@@ -145,48 +157,52 @@ enum LFWidgetDesignV2 {
   }
 
   static func textPrimary(_ scheme: ColorScheme) -> Color {
-    scheme == .dark ? Color(red: 0.929, green: 0.965, blue: 1.000)
-                    : Color(red: 0.039, green: 0.078, blue: 0.125)
+    scheme == .dark ? Color(red: 0.961, green: 0.941, blue: 0.910)
+                    : Color(red: 0.075, green: 0.149, blue: 0.220)
   }
 
   static func textSecondary(_ scheme: ColorScheme) -> Color {
-    scheme == .dark ? Color(red: 0.769, green: 0.851, blue: 0.933)
-                    : Color(red: 0.118, green: 0.220, blue: 0.314)
+    scheme == .dark ? Color(red: 0.843, green: 0.886, blue: 0.910)
+                    : Color(red: 0.176, green: 0.263, blue: 0.329)
   }
 
   static func textMuted(_ scheme: ColorScheme) -> Color {
-    scheme == .dark ? Color(red: 0.494, green: 0.651, blue: 0.800)
-                    : Color(red: 0.227, green: 0.345, blue: 0.471)
+    scheme == .dark ? Color(red: 0.643, green: 0.702, blue: 0.745)
+                    : Color(red: 0.325, green: 0.396, blue: 0.459)
   }
 
   static func textDim(_ scheme: ColorScheme) -> Color {
-    scheme == .dark ? Color(red: 0.239, green: 0.376, blue: 0.486)
-                    : Color(red: 0.416, green: 0.557, blue: 0.659)
+    textMuted(scheme)
   }
 
   static func separator(_ scheme: ColorScheme) -> Color {
-    scheme == .dark ? Color(red: 0.094, green: 0.176, blue: 0.259)
-                    : Color(red: 0.784, green: 0.831, blue: 0.875)
+    scheme == .dark ? Color(red: 0.157, green: 0.263, blue: 0.322)
+                    : Color(red: 0.843, green: 0.820, blue: 0.776)
   }
 
   static func textCyan(_ scheme: ColorScheme) -> Color {
-    scheme == .dark ? Color(red: 0.396, green: 0.722, blue: 0.969)
-                    : Color(red: 0.043, green: 0.376, blue: 0.690)
+    scheme == .dark ? Color(red: 0.455, green: 0.710, blue: 0.871)
+                    : Color(red: 0.184, green: 0.435, blue: 0.624)
   }
 
   static func pinnedBorderColor(_ scheme: ColorScheme) -> Color {
-    scheme == .dark ? Color(red: 0.165, green: 0.145, blue: 0.024)
-                    : Color(red: 0.831, green: 0.722, blue: 0.251)
+    scheme == .dark ? Color(red: 0.894, green: 0.706, blue: 0.329)
+                    : Color(red: 0.573, green: 0.365, blue: 0.063)
   }
 
   static func beaconBTint(_ scheme: ColorScheme) -> Color {
-    scheme == .dark ? Color(red: 0.612, green: 0.780, blue: 0.918)
-                    : Color(red: 0.039, green: 0.125, blue: 0.251)
+    scheme == .dark ? Color(red: 0.455, green: 0.710, blue: 0.871)
+                    : Color(red: 0.184, green: 0.435, blue: 0.624)
   }
 
   static func beaconBCutout(_ scheme: ColorScheme) -> Color {
-    scheme == .dark ? Color(red: 0.024, green: 0.055, blue: 0.094)
-                    : Color(red: 0.922, green: 0.941, blue: 0.973)
+    scheme == .dark ? Color(red: 0.031, green: 0.078, blue: 0.114)
+                    : Color(red: 0.961, green: 0.945, blue: 0.910)
+  }
+
+  static func warmAccent(_ scheme: ColorScheme) -> Color {
+    scheme == .dark ? Color(red: 0.894, green: 0.706, blue: 0.329)
+                    : Color(red: 0.573, green: 0.365, blue: 0.063)
   }
 }
 
@@ -201,8 +217,8 @@ struct LFStatusCapsuleV2: View {
       .lineLimit(1)
       .minimumScaleFactor(0.7)
       .foregroundStyle(LFWidgetDesignV2.statusColor(tone: tone, scheme: scheme))
-      .padding(.horizontal, 9)
-      .padding(.vertical, 5)
+      .padding(.horizontal, 7)
+      .padding(.vertical, 3)
       .background(
         LFWidgetDesignV2.statusBackground(tone: tone, scheme: scheme),
         in: Capsule()

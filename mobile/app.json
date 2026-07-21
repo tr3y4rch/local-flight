@@ -6,7 +6,7 @@
     "scheme": "localflight",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
-    "icon": "./assets/localflight-icon.png",
+    "icon": "./assets/localflight-ios-light.png",
     "platforms": [
       "ios",
       "android"
@@ -15,13 +15,13 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#f5f9fc",
-          "image": "./assets/localflight-logo-light.png",
-          "imageWidth": 172,
+          "backgroundColor": "#F5F1E8",
+          "image": "./assets/localflight-splash-light.png",
+          "imageWidth": 260,
           "resizeMode": "contain",
           "dark": {
-            "backgroundColor": "#080c12",
-            "image": "./assets/localflight-logo-dark.png"
+            "backgroundColor": "#08141D",
+            "image": "./assets/localflight-splash-dark.png"
           }
         }
       ],
@@ -50,10 +50,11 @@
     ],
     "ios": {
       "bundleIdentifier": "cc.beacontools.localflight",
-      "buildNumber": "8",
+      "buildNumber": "9",
       "icon": {
-        "light": "./assets/localflight-icon-light.png",
-        "dark": "./assets/localflight-icon-dark.png"
+        "light": "./assets/localflight-ios-light.png",
+        "dark": "./assets/localflight-ios-dark.png",
+        "tinted": "./assets/localflight-ios-tinted.png"
       },
       "supportsTablet": true,
       "entitlements": {
@@ -63,7 +64,7 @@
       },
       "infoPlist": {
         "NSCameraUsageDescription": "Local Flight scans pairing QR codes shown by your Local Flight host.",
-        "NSLocalNetworkUsageDescription": "Local Flight connects to your Local Flight server on your local network.",
+        "NSLocalNetworkUsageDescription": "Local Flight connects to a Local Flight host on the same Wi-Fi.",
         "NSBonjourServices": [
           "_http._tcp"
         ],
@@ -75,7 +76,14 @@
     },
     "android": {
       "package": "cc.beacontools.localflight",
-      "versionCode": 11,
+      "versionCode": 12,
+      "icon": "./assets/localflight-android-legacy.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/localflight-android-foreground.png",
+        "backgroundImage": "./assets/localflight-android-background.png",
+        "backgroundColor": "#132638",
+        "monochromeImage": "./assets/localflight-android-monochrome.png"
+      },
       "permissions": [
         "CAMERA",
         "VIBRATE"

@@ -1,0 +1,13 @@
+---
+interface Props {
+  subject?: string;
+}
+
+const { subject = "Local Flight and Beacon Tools data" } = Astro.props;
+---
+
+<aside class="safety-notice terminal-frame" aria-labelledby="safety-title">
+  <span class="safety-code">NOTICE</span>
+  <h2 id="safety-title">For display and hobby use only.</h2>
+  <p>{subject} may be delayed, incomplete, cached, wrong, or unavailable. Do not use it for navigation, dispatch, operational control, flight planning, professional aviation work, or safety decisions. Always use official aviation sources and certified systems for real-world operations.</p>
+</aside>

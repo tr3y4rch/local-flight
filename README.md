@@ -22,7 +22,7 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 - Portable Linux AppImages plus integrated Ubuntu/Debian desktop and headless-server packages for x86-64 and ARM64
 - LAN browser UI that mirrors the native Qt shell — same nav, same tokens, same components — with an automatic mobile view for phones and a compact layout for 7" Raspberry Pi screens
 - Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
-- Mobile app with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. iOS build 8 and Android versionCode 11 use the same `0.5.2` feature contract during store testing.
+- Mobile app with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. iOS build 9 and Android versionCode 12 use the same `0.5.2` feature contract during store testing.
 - Interstate 75 W / HUB75 Matrix client and preview tools
 - Beacon Tools public site and privacy page for release/App Store/TestFlight metadata
 
@@ -142,7 +142,7 @@ The Pi installer asks how the Pi should run and defaults to headless.
 
 ### Mobile App
 
-Version `0.5.2` (iOS build 8 and Android versionCode 11) is in TestFlight and Google Play internal testing. Public availability and tester access are listed at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development, not ordinary installation.
+Version `0.5.2` (iOS build 9 and Android versionCode 12) is in TestFlight and Google Play internal testing. Public availability and tester access are listed at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development, not ordinary installation.
 
 ```bash
 cd mobile

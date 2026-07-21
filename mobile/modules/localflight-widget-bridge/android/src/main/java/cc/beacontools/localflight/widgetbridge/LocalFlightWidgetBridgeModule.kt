@@ -10,6 +10,11 @@ class LocalFlightWidgetBridgeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("LocalFlightWidgetBridge")
 
+    View(LocalFlightShortcutView::class) {
+      Name("LocalFlightShortcutView")
+      Events("onShortcut")
+    }
+
     AsyncFunction("reload") {
       val context = appContext.reactContext?.applicationContext
         ?: return@AsyncFunction mapOf("available" to false, "widgetCount" to 0)
@@ -27,5 +32,18 @@ class LocalFlightWidgetBridgeModule : Module() {
       }
       mapOf("available" to true, "widgetCount" to widgetIds.size)
     }
+
+    AsyncFunction("isSupported") { unsupportedLiveActivity() }
+    AsyncFunction("startLiveActivity") { unsupportedLiveActivity() }
+    AsyncFunction("updateLiveActivity") { unsupportedLiveActivity() }
+    AsyncFunction("endLiveActivity") { unsupportedLiveActivity() }
+    AsyncFunction("reconcileLiveActivity") { unsupportedLiveActivity() }
   }
+
+  private fun unsupportedLiveActivity() = mapOf(
+    "supported" to false,
+    "enabled" to false,
+    "active" to false,
+    "action" to "unsupported"
+  )
 }

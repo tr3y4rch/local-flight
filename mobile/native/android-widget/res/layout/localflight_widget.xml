@@ -4,78 +4,215 @@
   android:layout_width="match_parent"
   android:layout_height="match_parent"
   android:background="@drawable/localflight_widget_background"
+  android:clipToOutline="true"
   android:orientation="vertical"
   android:padding="12dp">
 
+  <View
+    android:layout_width="44dp"
+    android:layout_height="3dp"
+    android:layout_marginBottom="7dp"
+    android:background="@color/localflight_widget_pin" />
+
   <LinearLayout
+    android:id="@+id/widget_compact"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:gravity="center_vertical"
-    android:orientation="horizontal">
+    android:layout_height="0dp"
+    android:layout_weight="1"
+    android:orientation="vertical">
+
+    <LinearLayout
+      android:id="@+id/widget_compact_header"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:gravity="center_vertical"
+      android:orientation="horizontal">
+
+      <TextView
+        android:id="@+id/widget_compact_airport"
+        style="@style/LocalFlightWidgetEyebrow"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:text="@string/localflight_widget_name" />
+
+      <TextView
+        android:id="@+id/widget_compact_freshness"
+        style="@style/LocalFlightWidgetEyebrow"
+        android:text="@string/localflight_widget_open_app" />
+
+      <TextView
+        android:id="@+id/widget_compact_refresh"
+        style="@style/LocalFlightWidgetRefresh"
+        android:contentDescription="@string/localflight_widget_refresh_description" />
+    </LinearLayout>
+
+    <LinearLayout
+      android:id="@+id/widget_compact_label_row"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:gravity="center_vertical"
+      android:orientation="horizontal">
+
+      <TextView
+        android:id="@+id/widget_compact_label"
+        style="@style/LocalFlightWidgetEyebrow"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:text="@string/localflight_widget_pinned_flight"
+        android:textColor="@color/localflight_widget_pin" />
+
+      <TextView
+        android:id="@+id/widget_compact_status"
+        style="@style/LocalFlightWidgetStatus"
+        android:text="@string/localflight_widget_waiting" />
+    </LinearLayout>
 
     <TextView
-      android:id="@+id/widget_airport"
-      android:layout_width="0dp"
+      android:id="@+id/widget_compact_flight"
+      android:layout_width="match_parent"
       android:layout_height="wrap_content"
-      android:layout_weight="1"
       android:ellipsize="end"
-      android:fontFamily="monospace"
+      android:fontFamily="@font/space_mono_bold"
       android:maxLines="1"
-      android:text="LOCAL FLIGHT"
+      android:text="@string/localflight_widget_pin_flight"
+      android:textColor="@color/localflight_widget_text"
+      android:textSize="27sp"
+      android:textStyle="bold" />
+
+    <TextView
+      android:id="@+id/widget_compact_route"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:ellipsize="end"
+      android:fontFamily="@font/dm_sans"
+      android:maxLines="1"
+      android:text="@string/localflight_widget_choose_flight"
       android:textColor="@color/localflight_widget_text"
       android:textSize="14sp"
       android:textStyle="bold" />
 
-    <TextView
-      android:id="@+id/widget_refresh"
-      android:layout_width="40dp"
-      android:layout_height="40dp"
-      android:gravity="center"
-      android:text="↻"
-      android:textColor="@color/localflight_widget_blue"
-      android:textSize="20sp"
-      android:contentDescription="Refresh Local Flight widget" />
+    <LinearLayout
+      android:id="@+id/widget_compact_footer"
+      android:layout_width="match_parent"
+      android:layout_height="0dp"
+      android:layout_weight="1"
+      android:gravity="bottom"
+      android:orientation="horizontal">
+
+      <TextView
+        android:id="@+id/widget_compact_meta"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:fontFamily="@font/space_mono_bold"
+        android:maxLines="1"
+        android:text="@string/localflight_widget_snapshot_prepared"
+        android:textColor="@color/localflight_widget_muted"
+        android:textSize="10sp"
+        android:textStyle="bold" />
+
+      <TextView
+        android:id="@+id/widget_compact_info"
+        style="@style/LocalFlightWidgetInfo"
+        android:text="A62" />
+    </LinearLayout>
   </LinearLayout>
 
-  <TextView
-    android:id="@+id/widget_freshness"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:ellipsize="end"
-    android:fontFamily="monospace"
-    android:maxLines="1"
-    android:text="OPEN APP"
-    android:textColor="@color/localflight_widget_green"
-    android:textSize="9sp"
-    android:textStyle="bold" />
-
-  <View
-    android:layout_width="match_parent"
-    android:layout_height="1dp"
-    android:layout_marginBottom="5dp"
-    android:layout_marginTop="5dp"
-    android:background="@color/localflight_widget_separator" />
-
-  <TextView
-    android:id="@+id/widget_row_1"
-    style="@style/LocalFlightWidgetRow" />
-
-  <TextView
-    android:id="@+id/widget_row_2"
-    style="@style/LocalFlightWidgetRow" />
-
-  <TextView
-    android:id="@+id/widget_row_3"
-    style="@style/LocalFlightWidgetRow" />
-
-  <TextView
-    android:id="@+id/widget_empty"
+  <LinearLayout
+    android:id="@+id/widget_board"
     android:layout_width="match_parent"
     android:layout_height="0dp"
     android:layout_weight="1"
-    android:gravity="center_vertical"
-    android:maxLines="2"
-    android:text="Open Local Flight to prepare the board"
-    android:textColor="@color/localflight_widget_muted"
-    android:textSize="12sp" />
+    android:orientation="vertical"
+    android:visibility="gone">
+
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:gravity="center_vertical"
+      android:orientation="horizontal">
+
+      <TextView
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:background="@color/localflight_widget_panel"
+        android:fontFamily="@font/audiowide_regular"
+        android:gravity="center"
+        android:text="LF"
+        android:textColor="@color/localflight_widget_pin"
+        android:textSize="10sp"
+        android:textStyle="bold" />
+
+      <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+          android:id="@+id/widget_board_airport"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:ellipsize="end"
+          android:fontFamily="@font/dm_sans"
+          android:maxLines="1"
+          android:text="@string/localflight_widget_name"
+          android:textColor="@color/localflight_widget_text"
+          android:textSize="14sp"
+          android:textStyle="bold" />
+
+        <TextView
+          android:id="@+id/widget_board_direction"
+          style="@style/LocalFlightWidgetEyebrow"
+          android:text="@string/localflight_widget_airport_board"
+          android:textColor="@color/localflight_widget_pin" />
+      </LinearLayout>
+
+      <TextView
+        android:id="@+id/widget_board_freshness"
+        style="@style/LocalFlightWidgetEyebrow"
+        android:text="@string/localflight_widget_open_app" />
+
+      <TextView
+        android:id="@+id/widget_board_refresh"
+        style="@style/LocalFlightWidgetRefresh"
+        android:contentDescription="@string/localflight_widget_refresh_description" />
+    </LinearLayout>
+
+    <TextView
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="5dp"
+      android:fontFamily="@font/space_mono_bold"
+      android:text="@string/localflight_widget_board_columns"
+      android:textColor="@color/localflight_widget_muted"
+      android:textSize="8sp"
+      android:textStyle="bold" />
+
+    <View
+      android:layout_width="match_parent"
+      android:layout_height="1dp"
+      android:layout_marginBottom="2dp"
+      android:layout_marginTop="3dp"
+      android:background="@color/localflight_widget_separator" />
+
+    <TextView android:id="@+id/widget_row_1" style="@style/LocalFlightWidgetRow" />
+    <TextView android:id="@+id/widget_row_2" style="@style/LocalFlightWidgetRow" />
+    <TextView android:id="@+id/widget_row_3" style="@style/LocalFlightWidgetRow" />
+    <TextView android:id="@+id/widget_row_4" style="@style/LocalFlightWidgetRow" />
+
+    <TextView
+      android:id="@+id/widget_empty"
+      android:layout_width="match_parent"
+      android:layout_height="0dp"
+      android:layout_weight="1"
+      android:gravity="center_vertical"
+      android:fontFamily="@font/dm_sans"
+      android:maxLines="2"
+      android:text="@string/localflight_widget_prepare_board"
+      android:textColor="@color/localflight_widget_muted"
+      android:textSize="12sp" />
+  </LinearLayout>
 </LinearLayout>

@@ -42,10 +42,10 @@ def test_mobile_native_build_counters_match_052_contract() -> None:
     app = _json("mobile/app.json")["expo"]
     contract = (ROOT / "mobile/scripts/native-widget-contract.mjs").read_text(encoding="utf-8")
 
-    assert app["ios"]["buildNumber"] == "8"
-    assert app["android"]["versionCode"] == 11
-    assert 'assert.equal(app.ios.buildNumber, "8")' in contract
-    assert "assert.equal(app.android.versionCode, 11)" in contract
+    assert app["ios"]["buildNumber"] == "9"
+    assert app["android"]["versionCode"] == 12
+    assert 'assert.equal(app.ios.buildNumber, "9")' in contract
+    assert "assert.equal(app.android.versionCode, 12)" in contract
 
 
 def test_current_release_help_and_notes_point_to_052() -> None:

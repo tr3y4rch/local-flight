@@ -1,17 +1,48 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-
-import { loadAppearancePrefs, saveAppearancePrefs } from "../storage/settings";
 import {
-  DEFAULT_MOBILE_APPEARANCE,
-  DEFAULT_SKIN,
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode
+} from "react";
+import { AccessibilityInfo, Appearance, useColorScheme } from "react-native";
+
+import {
+  loadMobileThemePreferences,
+  saveMobileThemePreferences
+} from "../storage/settings";
+import {
+  DEFAULT_CONTRAST_PREFERENCE,
   DEFAULT_THEME_MODE,
-  getMobileAppearance,
+  DEFAULT_THEME_PREFERENCE,
+  getMobileSemanticTheme,
+  mobileAppearanceFromSemanticTheme,
+  resolveMobileThemeMode,
   type MobileAppearance,
+  type MobileContrastPreference,
+  type MobileSemanticTheme,
   type MobileSkin,
-  type MobileThemeMode
+  type MobileThemeMode,
+  type MobileThemePreference
 } from "./tokens";
 
-type MobileThemeContextValue = {
+export type MobileThemeContextValue = {
+  /** V2 semantic theme used by new screens and style factories. */
+  theme: MobileSemanticTheme;
+  /** Alias for `theme`, useful when destructuring beside component styles. */
+  tokens: MobileSemanticTheme;
+  preference: MobileThemePreference;
+  themePreference: MobileThemePreference;
+  resolvedThemeMode: MobileThemeMode;
+  contrast: MobileContrastPreference;
+  isHighContrast: boolean;
+  hydrated: boolean;
+  setPreference: (value: MobileThemePreference) => void;
+  setThemePreference: (value: MobileThemePreference) => void;
+  setHighContrast: (enabled: boolean) => void;
+
+  /** V1 compatibility fields. */
   appearance: MobileAppearance;
   themeMode: MobileThemeMode;
   skin: MobileSkin;
@@ -21,43 +52,111 @@ type MobileThemeContextValue = {
 
 const MobileThemeContext = createContext<MobileThemeContextValue | null>(null);
 
+function resolvedSystemThemeMode(value: ReturnType<typeof useColorScheme>): MobileThemeMode {
+  return value === "light" ? "light" : "dark";
+}
+
+function useSystemHighContrast(): boolean {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void AccessibilityInfo.isHighTextContrastEnabled()
+      .then((value) => {
+        if (alive) setEnabled(value);
+      })
+      .catch(() => {
+        // High-text-contrast detection is not available on every platform.
+      });
+    const subscription = AccessibilityInfo.addEventListener(
+      "highTextContrastChanged",
+      setEnabled
+    );
+    return () => {
+      alive = false;
+      subscription.remove();
+    };
+  }, []);
+
+  return enabled;
+}
+
 export function MobileThemeProvider({ children }: { children: ReactNode }) {
-  const [themeMode, setThemeModeState] = useState<MobileThemeMode>(DEFAULT_THEME_MODE);
-  const [skin, setSkinState] = useState<MobileSkin>(DEFAULT_SKIN);
+  const systemThemeMode = resolvedSystemThemeMode(useColorScheme());
+  const systemHighContrast = useSystemHighContrast();
+  const [preference, setPreference] = useState<MobileThemePreference>(DEFAULT_THEME_PREFERENCE);
+  const [contrast, setContrast] = useState<MobileContrastPreference>(DEFAULT_CONTRAST_PREFERENCE);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    void loadAppearancePrefs()
+    void loadMobileThemePreferences(systemThemeMode)
       .then((prefs) => {
         if (!alive) return;
-        setThemeModeState(prefs.themeMode);
-        setSkinState(prefs.skin);
+        setPreference(prefs.preference);
+        setContrast(prefs.contrast);
+      })
+      .catch(() => {
+        // The in-memory system preference remains a safe fallback.
       })
       .finally(() => {
-        if (alive) {
-          setHydrated(true);
-        }
+        if (alive) setHydrated(true);
       });
     return () => {
       alive = false;
     };
+    // Preference hydration is intentionally a one-time storage operation.
+    // System appearance changes are resolved below without re-reading storage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const resolvedThemeMode = resolveMobileThemeMode(preference, systemThemeMode);
+  const isHighContrast = contrast === "high" || systemHighContrast;
+  const theme = useMemo(
+    () => getMobileSemanticTheme(resolvedThemeMode, isHighContrast ? "high" : "standard"),
+    [isHighContrast, resolvedThemeMode]
+  );
+  const skin: MobileSkin = isHighContrast ? "high_contrast" : "standard";
+  const appearance = useMemo(
+    () => mobileAppearanceFromSemanticTheme(theme, skin),
+    [skin, theme]
+  );
 
   useEffect(() => {
     if (!hydrated) return;
-    void saveAppearancePrefs({ themeMode, skin });
-  }, [hydrated, skin, themeMode]);
+    // Keep UIKit's trait collection in lockstep with the hydrated preference.
+    // Native tab/navigation material remains UIKit-owned and therefore adapts
+    // its Liquid Glass contrast instead of being painted by React Native.
+    Appearance.setColorScheme(preference === "system" ? "unspecified" : resolvedThemeMode);
+    void saveMobileThemePreferences({
+      preference,
+      contrast,
+      resolvedThemeMode
+    }).catch(() => {
+      // A storage failure must not make the active appearance unusable.
+    });
+  }, [contrast, hydrated, preference, resolvedThemeMode]);
 
   const value = useMemo<MobileThemeContextValue>(
     () => ({
-      appearance: getMobileAppearance(themeMode, skin),
-      themeMode,
+      theme,
+      tokens: theme,
+      preference,
+      themePreference: preference,
+      resolvedThemeMode,
+      contrast,
+      isHighContrast,
+      hydrated,
+      setPreference,
+      setThemePreference: setPreference,
+      setHighContrast: (enabled) => setContrast(enabled ? "high" : "standard"),
+      appearance,
+      themeMode: theme.mode,
       skin,
-      setThemeMode: setThemeModeState,
-      setSkin: setSkinState
+      setThemeMode: setPreference,
+      setSkin: (value) => setContrast(value === "high_contrast" ? "high" : "standard")
     }),
-    [skin, themeMode]
+    [appearance, contrast, hydrated, isHighContrast, preference, resolvedThemeMode, skin, theme]
   );
 
   return (
@@ -67,12 +166,27 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
   );
 }
 
+const fallbackTheme = getMobileSemanticTheme(DEFAULT_THEME_MODE);
+const fallbackAppearance = mobileAppearanceFromSemanticTheme(fallbackTheme);
+const noop = () => {};
+
 export function useMobileTheme(): MobileThemeContextValue {
   return useContext(MobileThemeContext) || {
-    appearance: DEFAULT_MOBILE_APPEARANCE,
+    theme: fallbackTheme,
+    tokens: fallbackTheme,
+    preference: DEFAULT_THEME_PREFERENCE,
+    themePreference: DEFAULT_THEME_PREFERENCE,
+    resolvedThemeMode: DEFAULT_THEME_MODE,
+    contrast: DEFAULT_CONTRAST_PREFERENCE,
+    isHighContrast: false,
+    hydrated: false,
+    setPreference: noop,
+    setThemePreference: noop,
+    setHighContrast: noop,
+    appearance: fallbackAppearance,
     themeMode: DEFAULT_THEME_MODE,
-    skin: DEFAULT_SKIN,
-    setThemeMode: () => {},
-    setSkin: () => {}
+    skin: "standard",
+    setThemeMode: noop,
+    setSkin: noop
   };
 }

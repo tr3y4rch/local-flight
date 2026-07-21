@@ -180,7 +180,7 @@ This is useful when the browser UI fits your display setup better or native Qt k
 
 ## Mobile App
 
-The mobile app runs on iPhone, iPad, and Android and has two modes. TestFlight iOS build 8 and Google Play Android versionCode 11 use the same `0.5.2` data and privacy contract as desktop, Linux server, and Pi hosts.
+The mobile app runs on iPhone, iPad, and Android and has two modes. TestFlight iOS build 9 and Google Play Android versionCode 12 use the same `0.5.2` data and privacy contract as desktop, Linux server, and Pi hosts.
 
 ### Companion
 
@@ -216,8 +216,8 @@ Use Standalone for:
 
 Standalone limits:
 
-- FIDS auto-refresh: 3 hours minimum
-- Radar refresh: 5 minutes minimum
+- Airline schedule target: about 1 hour
+- Open Radar traffic target: about 3 minutes
 - Radar ranges: `1`, `3`, `5`, and `10` NM
 - No Matrix, Admin, scheduler restart, server URL controls, LAN check-in, or WebSocket connection
 

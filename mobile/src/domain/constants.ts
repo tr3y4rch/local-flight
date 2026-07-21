@@ -4,6 +4,14 @@ import type { HistoryWindow, RadarRadius } from "./types";
 
 export const APP_VERSION = appVersion();
 export const COMPANION_PING_MS = 10 * 60 * 1000;
+export {
+  LAUNCH_AMBIENT_BREATH_MS,
+  LAUNCH_AMBIENT_SWEEP_MS,
+  LAUNCH_MIN_MS,
+  LAUNCH_NETWORK_CEILING_MS,
+  LAUNCH_REDUCED_MOTION_MS
+} from "./launchPresentation";
+export const LAUNCH_NATIVE_MIN_MS = 320;
 
 export const HISTORY_WINDOWS: HistoryWindow[] = [24, 72, 168, 720, 2160];
 export const RADAR_RADII: RadarRadius[] = [1, 2, 3, 5, 10, 20, 40];
@@ -169,18 +177,7 @@ export const MATRIX_PALETTE_OPTIONS: Array<{
   }
 ];
 
-export const LAUNCH_MIN_MS = 7800;
-export const LAUNCH_NATIVE_MIN_MS = 420;
 export const LAUNCH_ANIMATION_DELAY_MS = 180;
-export const LAUNCH_STATUS_STEPS = [
-  "Starting mobile",
-  "Loading saved server",
-  "Checking LAN link",
-  "Aligning FIDS rows",
-  "Priming radar sweep",
-  "Syncing local profile",
-  "Opening mobile"
-];
 
 export const REFRESH_OPTIONS: Array<{ seconds: number; label: string }> = [
   { seconds: 900, label: "15 min" },

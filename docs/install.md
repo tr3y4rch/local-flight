@@ -226,7 +226,7 @@ lf update
 
 ## Mobile App
 
-The mobile app is aligned to `0.5.2` using iOS build 8 and Android versionCode 11 for TestFlight and Google Play internal testing. Public availability is published at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development.
+The mobile app is aligned to `0.5.2` using iOS build 9 and Android versionCode 12 for TestFlight and Google Play internal testing. Public availability is published at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development.
 
 Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or Android device.
 
@@ -282,8 +282,9 @@ Choose **Standalone** if the phone should use the hosted Beacon Tools relay dire
 
 Standalone is intentionally simpler and rate-limited:
 
-- FIDS auto-refreshes no faster than every 3 hours.
-- Radar refreshes no faster than every 5 minutes.
+- Airline schedules usually refresh about once an hour.
+- Nearby traffic can refresh about every 3 minutes while Radar is open.
+- Board shows up to 50 current departures and 50 arrivals when supplied. Shared information may still be cached or delayed.
 - Radar range choices are `1`, `3`, `5`, and `10` NM.
 - No Matrix, Admin, scheduler restart, LAN server controls, or WebSocket connection.
 - History is stored locally on the phone for 30 days or 1,000 deduped movements.

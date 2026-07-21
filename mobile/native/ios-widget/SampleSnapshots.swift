@@ -43,8 +43,16 @@ enum LocalFlightWidgetSamples {
       mode: "lan_companion",
       stale: stale,
       airport: LocalFlightWidgetAirport(code: "ZRH", name: "Zurich Airport", view: "departures"),
-      source: LocalFlightWidgetSource(label: "relay", lastUpdatedLabel: stale ? "Stale" : "Updated now"),
-      preferences: LocalFlightWidgetPreferences(mediumRowCount: 3, showGateTerminal: true),
+      source: LocalFlightWidgetSource(
+        label: "relay",
+        lastUpdatedLabel: stale ? "Stale" : "Updated now",
+        updatedAt: formatter.string(from: now)
+      ),
+      preferences: LocalFlightWidgetPreferences(
+        mediumRowCount: 3,
+        showGateTerminal: true,
+        automaticRefresh: true
+      ),
       small: LocalFlightSmallWidgetSnapshot(source: pinned ? "pinned" : "empty", flight: pinned ? pinnedFlight : nil),
       medium: LocalFlightMediumWidgetSnapshot(rowCount: 3, rows: rows),
       liveActivity: LocalFlightLiveActivitySnapshot(flight: pinned ? pinnedFlight : nil, stale: stale || !pinned)

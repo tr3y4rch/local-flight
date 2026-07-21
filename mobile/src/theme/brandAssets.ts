@@ -4,12 +4,12 @@ import type { MobileThemeMode } from "./tokens";
 
 export const LOCAL_FLIGHT_BRAND_ASSETS = {
   dark: {
-    icon: require("../../assets/localflight-icon-dark.png"),
-    logo: require("../../assets/localflight-logo-dark.png")
+    icon: require("../../assets/localflight-mark-dark.png"),
+    logo: require("../../assets/localflight-splash-dark.png")
   },
   light: {
-    icon: require("../../assets/localflight-icon-light.png"),
-    logo: require("../../assets/localflight-logo-light.png")
+    icon: require("../../assets/localflight-mark-light.png"),
+    logo: require("../../assets/localflight-splash-light.png")
   }
 } as const satisfies Record<MobileThemeMode, Record<"icon" | "logo", ImageSourcePropType>>;
 

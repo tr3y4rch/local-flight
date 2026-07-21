@@ -1,0 +1,30 @@
+---
+import { Picture } from "astro:assets";
+
+interface Props {
+  src: ImageMetadata;
+  alt: string;
+  label: string;
+  meta?: string;
+  widths?: number[];
+  sizes?: string;
+  loading?: "eager" | "lazy";
+  className?: string;
+}
+
+const {
+  src,
+  alt,
+  label,
+  meta = "Real Local Flight interface",
+  widths = [640, 960, 1280, 1600],
+  sizes = "(max-width: 680px) 92vw, (max-width: 1100px) 80vw, 58vw",
+  loading = "lazy",
+  className = "",
+} = Astro.props;
+---
+
+<figure class:list={["media-stage", className]} data-reveal>
+  <Picture src={src} formats={["avif", "webp"]} widths={widths} sizes={sizes} alt={alt} loading={loading} />
+  <figcaption><strong>{label}</strong><span>{meta}</span></figcaption>
+</figure>

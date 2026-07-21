@@ -9,143 +9,158 @@ struct LFSmallWidgetViewV2: View {
     ZStack(alignment: .leading) {
       background
       content
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 12)
     }
     .lfWidgetBackground(scheme)
   }
 
   private var background: some View {
-    ZStack {
+    ZStack(alignment: .bottomTrailing) {
       scheme == .dark ? LFWidgetDesignV2.darkWidgetBg : LFWidgetDesignV2.lightWidgetBg
 
-      GeometryReader { geo in
-        let cx = geo.size.width * 0.92
-        let cy = geo.size.height * 0.90
-        ForEach([0.42, 0.30, 0.18] as [CGFloat], id: \.self) { radius in
-          Circle()
-            .stroke(
-              scheme == .dark
-                ? Color(red: 0.170, green: 0.929, blue: 0.976)
-                : Color(red: 0.102, green: 0.475, blue: 0.663),
-              lineWidth: 1
-            )
-            .opacity(Double(scheme == .dark ? 0.04 + radius * 0.06 : 0.05 + radius * 0.05))
-            .frame(width: geo.size.width * radius * 2.4)
-            .position(x: cx, y: cy)
-        }
+      Circle()
+        .fill(LFWidgetDesignV2.warmAccent(scheme).opacity(scheme == .dark ? 0.13 : 0.11))
+        .frame(width: 112, height: 112)
+        .offset(x: 45, y: 47)
+
+      ForEach([72, 98] as [CGFloat], id: \.self) { diameter in
+        Circle()
+          .stroke(LFWidgetDesignV2.warmAccent(scheme).opacity(0.12), lineWidth: 1)
+          .frame(width: diameter, height: diameter)
+          .offset(x: 32, y: 32)
       }
-      .allowsHitTesting(false)
+
+      Rectangle()
+        .fill(LFWidgetDesignV2.warmAccent(scheme).opacity(0.72))
+        .frame(width: 42, height: 3)
+        .clipShape(Capsule())
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.leading, 13)
+        .padding(.top, 7)
     }
+    .allowsHitTesting(false)
   }
 
   private var content: some View {
     VStack(alignment: .leading, spacing: 0) {
       header
-      divider.padding(.vertical, 7)
-      sectionLabel("PINNED FLIGHT")
-      Spacer(minLength: 4)
+      divider.padding(.vertical, 6)
       flightBody
-      Spacer(minLength: 8)
-      divider.padding(.bottom, 7)
+      Spacer(minLength: 4)
       footer
     }
   }
 
   private var header: some View {
-    HStack(alignment: .center, spacing: 0) {
-      Text("\(snapshot.airport.code) · \(snapshot.airport.view == "arrivals" ? "ARRIVALS" : "DEPARTURES")")
-        .font(LocalFlightWidgetFont.boardBold(size: 10))
+    HStack(alignment: .firstTextBaseline, spacing: 6) {
+      Text(snapshot.airport.code)
+        .font(LocalFlightWidgetFont.boardBold(size: 12))
+        .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
+      Text(snapshot.airport.view == "arrivals" ? "ARRIVALS" : "DEPARTURES")
+        .font(LocalFlightWidgetFont.boardBold(size: 7))
         .lineLimit(1)
-        .minimumScaleFactor(0.7)
+        .minimumScaleFactor(0.75)
         .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
-      Spacer()
-      if let flight = snapshot.small.flight {
-        LFStatusCapsuleV2(
-          label: flight.statusDisplay,
-          tone: flight.statusTone,
-          scheme: scheme
-        )
-      }
+      Spacer(minLength: 2)
+      Circle()
+        .fill(snapshot.stale
+          ? LFWidgetDesignV2.statusColor(tone: "delayed", scheme: scheme)
+          : LFWidgetDesignV2.statusColor(tone: "boarding", scheme: scheme))
+        .frame(width: 5, height: 5)
+      Text(snapshot.stale ? "STALE" : "READY")
+        .font(LocalFlightWidgetFont.boardBold(size: 7))
+        .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
     }
   }
 
   @ViewBuilder
   private var flightBody: some View {
     if let flight = snapshot.small.flight {
+      HStack(spacing: 5) {
+        Image(systemName: "pin.fill")
+          .font(.system(size: 7, weight: .bold))
+        Text("PINNED FLIGHT")
+          .font(LocalFlightWidgetFont.boardBold(size: 7))
+        Spacer(minLength: 4)
+        LFStatusCapsuleV2(
+          label: snapshot.stale ? "STALE" : flight.statusDisplay,
+          tone: snapshot.stale ? "delayed" : flight.statusTone,
+          scheme: scheme
+        )
+      }
+      .foregroundStyle(LFWidgetDesignV2.warmAccent(scheme))
+
       Text(flight.flightDisplay)
-        .font(LocalFlightWidgetFont.boardBold(size: 44))
+        .font(LocalFlightWidgetFont.boardBold(size: 31))
         .minimumScaleFactor(0.62)
         .lineLimit(1)
         .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
+        .padding(.top, 2)
 
       Text(flight.routeName)
-        .font(LocalFlightWidgetFont.uiBold(size: 19))
-        .minimumScaleFactor(0.75)
+        .font(LocalFlightWidgetFont.uiBold(size: 15))
+        .minimumScaleFactor(0.72)
         .lineLimit(1)
         .foregroundStyle(LFWidgetDesignV2.textSecondary(scheme))
-        .padding(.top, 2)
 
       HStack(spacing: 4) {
         Text(snapshot.airport.code)
-          .font(LocalFlightWidgetFont.boardBold(size: 12))
-          .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
-        Image(systemName: "arrow.right")
-          .font(.system(size: 9, weight: .bold))
-          .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
+        Image(systemName: flight.direction == "arr" ? "arrow.left" : "arrow.right")
+          .font(.system(size: 8, weight: .bold))
         if !flight.routeCode.isEmpty {
           Text(flight.routeCode)
-            .font(LocalFlightWidgetFont.boardBold(size: 12))
-            .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
         }
-        Text("· \(flight.displayTime)")
-          .font(LocalFlightWidgetFont.board(size: 12))
-          .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
+        Text("·")
+        Text(flight.displayTime)
       }
+      .font(LocalFlightWidgetFont.boardBold(size: 9))
       .lineLimit(1)
       .minimumScaleFactor(0.72)
-      .padding(.top, 3)
+      .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
+      .padding(.top, 2)
     } else {
-      Spacer()
+      Spacer(minLength: 3)
+      Image(systemName: "pin.slash")
+        .font(.system(size: 17, weight: .medium))
+        .foregroundStyle(LFWidgetDesignV2.warmAccent(scheme))
       Text("Pin a flight")
-        .font(LocalFlightWidgetFont.uiBold(size: 18))
+        .font(LocalFlightWidgetFont.uiBold(size: 17))
         .foregroundStyle(LFWidgetDesignV2.textSecondary(scheme))
-      Text("in Local Flight")
-        .font(LocalFlightWidgetFont.brand(size: 13))
-        .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
-      Spacer()
+        .padding(.top, 5)
+      Text("Open Local Flight to choose one")
+        .font(LocalFlightWidgetFont.ui(size: 10))
+        .lineLimit(2)
+        .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
+      Spacer(minLength: 3)
     }
   }
 
   private var footer: some View {
-    HStack {
-      if let flight = snapshot.small.flight,
-         let gate = flight.gate, !gate.isEmpty {
-        HStack(spacing: 4) {
-          sectionLabel("GATE")
-          Text(gate)
-            .font(LocalFlightWidgetFont.boardBold(size: 15))
-            .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
-        }
+    HStack(spacing: 5) {
+      if snapshot.preferences.showGateTerminal,
+         let flight = snapshot.small.flight,
+         let info = flight.gate ?? flight.terminal,
+         !info.isEmpty {
+        Text(flight.gate == nil ? "TERM" : "GATE")
+          .font(LocalFlightWidgetFont.boardBold(size: 7))
+          .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
+        Text(info.uppercased())
+          .font(LocalFlightWidgetFont.boardBold(size: 11))
+          .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
       }
-      Spacer()
+      Spacer(minLength: 4)
       Text(snapshot.source.lastUpdatedLabel.uppercased())
-        .font(LocalFlightWidgetFont.boardBold(size: 8))
+        .font(LocalFlightWidgetFont.boardBold(size: 7))
         .lineLimit(1)
-        .minimumScaleFactor(0.75)
+        .minimumScaleFactor(0.68)
         .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
     }
   }
 
   private var divider: some View {
     Rectangle()
-      .fill(LFWidgetDesignV2.separator(scheme))
+      .fill(LFWidgetDesignV2.separator(scheme).opacity(0.72))
       .frame(height: 1)
-  }
-
-  private func sectionLabel(_ text: String) -> some View {
-    Text(text)
-      .font(LocalFlightWidgetFont.boardBold(size: 8))
-      .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
   }
 }

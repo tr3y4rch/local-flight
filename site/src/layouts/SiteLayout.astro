@@ -1,0 +1,72 @@
+---
+import SiteHeader from "../components/SiteHeader.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import type { NavKey } from "../data/site";
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+  active?: NavKey;
+  bodyClass?: string;
+  image?: string;
+}
+
+const {
+  title,
+  description,
+  active = "home",
+  bodyClass = "",
+  image = "/assets/beacon-tools-icon-512.png",
+} = Astro.props;
+const pageTitle = title === "Beacon Tools" ? title : `${title} | Beacon Tools`;
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site) : Astro.url;
+const socialImage = Astro.site ? new URL(image, Astro.site) : image;
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#080c12" />
+    <meta name="color-scheme" content="dark light" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={socialImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="/assets/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/assets/beacon-tools-icon-512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png" />
+    <script is:inline>
+      (() => {
+        const key = "beacontools.theme";
+        let theme = "dark";
+        try {
+          const saved = localStorage.getItem(key);
+          if (saved === "light" || saved === "dark") theme = saved;
+          else if (matchMedia("(prefers-color-scheme: light)").matches) theme = "light";
+        } catch {}
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
+  </head>
+  <body class:list={[`page-${active}`, bodyClass]}>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <SiteHeader active={active} />
+    <main id="main-content">
+      <slot />
+    </main>
+    <SiteFooter />
+    <script>
+      import "../scripts/site";
+    </script>
+  </body>
+</html>

@@ -14,6 +14,8 @@ const products = read("src/iap/products.ts");
 const hook = read("src/iap/useSupportPurchases.ts");
 const api = read("src/api/iap.ts");
 const screens = read("src/screens/AppScreens.tsx");
+const more = read("src/v2/MoreScreenV2.tsx");
+const supportContent = read("src/iap/SupportPurchaseContent.tsx");
 const relay = fs.readFileSync(path.join(repoRoot, "relay/main.py"), "utf8");
 
 assert.equal(packageJson.dependencies["expo-iap"], "^4.4.1");
@@ -39,6 +41,13 @@ assert.match(api, /status == null \|\| status >= 500/, "Rate limits must not tri
 assert.doesNotMatch([hook, api, screens].join("\n"), /buymeacoffee|patreon|paypal/i);
 assert.match(screens, /Nothing is locked|unlocks no features/i);
 assert.match(screens, /Local Flight never receives card details/);
+assert.match(supportContent, /Nothing is locked or changed/);
+assert.match(supportContent, /Local Flight never receives card details/);
+assert.match(more, /Optional one-time support · unlocks nothing/);
+assert.ok(
+  more.indexOf("styles.supportFooter") > more.indexOf("styles.setupButton"),
+  "V2 support must remain a quiet final setting instead of a primary app feature."
+);
 assert.equal(
   (screens.match(/<SupportFooterButton\s/g) || []).length,
   2,

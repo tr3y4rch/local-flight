@@ -248,13 +248,15 @@ Standalone sends relay requests with:
 
 Standalone does not send local phone history to the relay. Manual reports go directly to the relay reporting gateway. Automatic standalone reports only send when the mobile diagnostics choice is `auto` or `auto_logs`.
 
-### Optional Mobile Support Purchases
+### Purchases and In-App Payments (IAP)
 
 The mobile app can offer three optional one-time consumable support products through Apple App Store or Google Play. Support unlocks no feature, creates no account, and creates no durable entitlement. Store-owned localized pricing is shown before the system purchase sheet opens.
 
 Apple or Google processes the payment and payment-card details under its own account and privacy terms. After the store reports success, Local Flight sends the product ID plus Apple transaction ID or Google purchase token over HTTPS to the Beacon Tools relay. The relay checks that evidence through Apple's App Store Server API or the Google Play Developer API. The app finishes/consumes the transaction only after verification succeeds, so an interrupted verification can be recovered without blindly accepting the client.
 
 The relay immediately derives a keyed hash and short reference. Its ledger retains only that hash/reference, product ID, platform/environment, install fingerprint, verification status, timestamps, attempt count, and a coarse error code. It does not retain the raw evidence, price, currency, card details, Apple ID, Google account, or signed Apple transaction body. Purchase evidence is never added to diagnostics, Linear reports, heartbeats, or Network Admin views.
+
+An unfinished purchase remains managed by Apple or Google until Local Flight can verify and finish/consume it. A pending, cancelled, rejected, refunded, or revoked purchase does not unlock or change any Local Flight feature. Removing Local Flight does not erase store records; store purchase history and refund requests remain subject to the applicable Apple or Google controls and terms. A Beacon Tools data request can use the public Support ID plus the short purchase reference or approximate purchase time to help locate the minimal verification record.
 
 ---
 

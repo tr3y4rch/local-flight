@@ -3,22 +3,19 @@ import {
   Animated,
   Linking,
   Modal,
+  Platform,
   Pressable,
-  RefreshControl,
-  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   View
 } from "react-native";
-import { useKeepAwake } from "expo-keep-awake";
 import * as SplashScreen from "expo-splash-screen";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BottomNav } from "../components/BottomNav";
 import { LaunchOverlay } from "../components/LaunchOverlay";
 import { accessibleButton, tapTargetHitSlop, useReducedMotionPreference } from "../accessibility/mobileA11y";
-import { AirportConfigSheet, CompanionSetupScreen, ConnectPrompt, ControlScreen, FidsScreen, FlightActionSheet, FlightDetailSheet, FullscreenFidsDisplay, Header, HistoryScreen, RadarScreen, ScreenActivity, ScreenError, StandaloneAirportSheet, StandaloneSettingsScreen, WeatherDetailsSheet, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
+import { AirportConfigSheet, CompanionSetupScreen, FlightActionSheet, FlightDetailSheet, StandaloneAirportSheet, WeatherDetailsSheet, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
 import { ACTION_ICONS, LocalFlightIcon } from "../theme/icons";
 import {
   getConnections,
@@ -43,7 +40,7 @@ import {
 import { completeRemoteCompanionPairing, testRemoteCompanionProbe } from "../api/remoteCompanion";
 import {
   getStandaloneRadarGround,
-  getStandaloneFids,
+  getStandaloneBoard,
   getStandaloneRadar,
   getStandaloneSummary,
   submitStandaloneFeedback,
@@ -61,7 +58,7 @@ import type {
   HistoryFlightRow,
   HistoryResponse,
   HistorySummary,
-  Metar,
+  MobileBoardResponse,
   RadarBlip,
   RadarMapResponse,
   RadarResponse
@@ -98,11 +95,12 @@ import type {
 import {
   buildWidgetExchangeSnapshot,
   deriveWidgetPreviewSnapshot,
-  widgetSnapshotStaleAfterMs
+  widgetSnapshotStaleAfterMs,
+  type WidgetFlightPreview
 } from "../domain/widgets";
 import { configureWidgetBackgroundRefresh } from "../background/widgetRefresh";
 import { useFlightDetail } from "../hooks/useFlightDetail";
-import { type LaunchHydration, useLaunchOverlay } from "../hooks/useLaunchOverlay";
+import { type LaunchDataOutcome, type LaunchHydration, useLaunchOverlay } from "../hooks/useLaunchOverlay";
 import { useMatrixCompanion } from "../hooks/useMatrixCompanion";
 import {
   type ConfigProfile,
@@ -134,16 +132,39 @@ import {
   saveWidgetPreferences
 } from "../storage/settings";
 import { clearStandaloneHistory, getStandaloneHistory, getStandaloneHistorySummary, storeStandaloneFidsRows } from "../storage/standaloneHistory";
-import { writeWidgetSnapshot } from "../storage/widgetSnapshot";
+import { readWidgetSnapshot, writeWidgetSnapshot } from "../storage/widgetSnapshot";
 import { useMobileTheme } from "../theme/runtime";
 import { useSupportPurchases } from "../iap/useSupportPurchases";
 import { setStyleBridge } from "../theme/styleBridge";
 import {
   DEFAULT_MOBILE_APPEARANCE,
+  NATIVE_FONT_FAMILY,
+  UI_FONT_FAMILY,
   type MobileAppearance
 } from "../theme/tokens";
 import { hapticLight, hapticSuccess, hapticWarning } from "../utils/haptics";
 import { useResponsiveLayout } from "../utils/layout";
+import { runtimeNativeNavigationCapabilities } from "../navigation/runtimeNativeNavigation";
+import {
+  endLocalFlightLiveActivity,
+  isLocalFlightLiveActivitySupported,
+  startLocalFlightLiveActivity
+} from "localflight-widget-bridge";
+import {
+  MobileNavigatorV2,
+  navigateMobileSection,
+  openMobileDisplay,
+  openMobileMorePanel
+} from "../navigation/MobileNavigatorV2";
+import {
+  MobileSessionProvider,
+  type MobileSection,
+  type MobileSessionValue
+} from "../session/MobileSessionProvider";
+import {
+  MOBILE_V2_NATIVE_NAVIGATION_ENABLED,
+  MOBILE_V2_ROLLOUT_ENABLED
+} from "../v2/featureGate";
 
 let palette: MobileAppearance = DEFAULT_MOBILE_APPEARANCE;
 let brand = DEFAULT_MOBILE_APPEARANCE.brand;
@@ -165,48 +186,6 @@ type WidgetPendingAirport = {
   key: string;
   baselineLastSuccess: string;
 };
-
-function NoticeCard({ notice, onAction }: { notice: ClientNotice; onAction: () => void }) {
-  const accent = notice.tone === "error"
-    ? "#ff6b6b"
-    : notice.tone === "warning"
-      ? "#f6c453"
-      : notice.tone === "success"
-        ? "#63d69d"
-        : "#72b7ff";
-  return (
-    <View
-      accessible
-      accessibilityRole="alert"
-      accessibilityLiveRegion="polite"
-      accessibilityLabel={[notice.message, notice.next_step].filter(Boolean).join(" ")}
-      style={{
-        marginHorizontal: 12,
-        marginTop: 8,
-        paddingHorizontal: 14,
-        paddingVertical: 11,
-        borderLeftWidth: 4,
-        borderLeftColor: accent,
-        borderRadius: 10,
-        backgroundColor: "rgba(13, 25, 38, 0.96)"
-      }}
-    >
-      <Text style={{ color: "#f7fbff", fontSize: 14, fontWeight: "700" }}>{notice.message}</Text>
-      {notice.next_step ? (
-        <Text style={{ color: "#c9d7e5", fontSize: 13, lineHeight: 18, marginTop: 3 }}>{notice.next_step}</Text>
-      ) : null}
-      {notice.action?.label ? (
-        <Pressable
-          {...accessibleButton({ label: notice.action.label })}
-          onPress={onAction}
-          style={{ alignSelf: "flex-start", marginTop: 8, minHeight: 44, justifyContent: "center" }}
-        >
-          <Text style={{ color: accent, fontSize: 13, fontWeight: "800" }}>{notice.action.label}</Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
 
 void SplashScreen.preventAutoHideAsync().catch(() => {
   // Ignore duplicate registration during fast refresh.
@@ -257,34 +236,66 @@ function widgetUpdatedLabel(value?: string | null): string {
   return `${Math.round(diffHours / 24)}d ago`;
 }
 
-function refreshActivityForTarget(target: Screen, landscapeFidsActive: boolean): ActivityStatus {
-  if (landscapeFidsActive || target === "fids") {
+function boardFreshnessLabel(value?: string | null, cached = false): string {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return cached ? "Cached" : "Waiting for an update";
+  const diffSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  const prefix = cached ? "Cached · " : "";
+  if (diffSeconds < 60) return `${prefix}Updated now`;
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return `${prefix}Updated ${diffMinutes} ${diffMinutes === 1 ? "minute" : "minutes"} ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${prefix}Updated ${diffHours} ${diffHours === 1 ? "hour" : "hours"} ago`;
+  const diffDays = Math.round(diffHours / 24);
+  return `${prefix}Updated ${diffDays} ${diffDays === 1 ? "day" : "days"} ago`;
+}
+
+function radarGroundSurfaceReady(payload: RadarMapResponse | null, requestedRadiusNm: number): boolean {
+  if (!payload) return false;
+  const centerLat = Number(payload.center?.lat);
+  const centerLon = Number(payload.center?.lon);
+  if (!Number.isFinite(centerLat) || !Number.isFinite(centerLon)) return false;
+  const surfaceState = String(payload.sources?.surface_cache_state || "").trim().toLowerCase();
+  if (surfaceState === "disabled") return true;
+  const coverage = Number(payload.coverage_radius_nm || payload.radius_nm || 0);
+  if (coverage > 0 && coverage + 0.05 < Math.min(5, requestedRadiusNm)) return false;
+  const drawableCount = [...(payload.runways || []), ...(payload.surface_features || [])]
+    .filter((feature) => Array.isArray(feature.points) && feature.points.length >= 2)
+    .length;
+  if (drawableCount > 0) return true;
+  // An empty payload advertised as ready previously blocked all subsequent
+  // surface attempts. Treat it as partial regardless of its cache label.
+  return false;
+}
+
+function refreshActivityForTarget(target: Screen): ActivityStatus {
+  if (target === "fids") {
     return {
-      label: "Refreshing FIDS",
-      detail: "Asking the Local Flight server for the latest board rows."
+      label: "Refreshing Board",
+      detail: "Asking Local Flight for the latest flights."
     };
   }
   if (target === "radar") {
     return {
       label: "Loading radar traffic",
-      detail: "Asking the Local Flight server for nearby aircraft and surface data."
+      detail: "Asking Local Flight for nearby aircraft."
     };
   }
   if (target === "history") {
     return {
       label: "Reading history",
-      detail: "Asking the Local Flight server for recent local flight records."
+      detail: "Reading recent local flight history."
     };
   }
   if (target === "control") {
     return {
-      label: "Syncing Control",
-      detail: "Reading host status and Matrix board live settings."
+      label: "Syncing host settings",
+      detail: "Reading Local Flight host and display settings."
     };
   }
   return {
     label: "Talking to Local Flight",
-    detail: "Checking the connected server over your LAN."
+    detail: "Checking the connected Local Flight host."
   };
 }
 
@@ -295,18 +306,21 @@ function screenNeedsDashboard(target: Screen, standalone: boolean): boolean {
 }
 
 export function AppShell() {
-  const { appearance, themeMode, skin, setThemeMode, setSkin } = useMobileTheme();
+  const { appearance, themeMode, skin, hydrated: themeHydrated, setThemeMode, setSkin } = useMobileTheme();
   const supportPurchases = useSupportPurchases();
   const layout = useResponsiveLayout();
-  const reduceMotion = useReducedMotionPreference();
-  const landscapeFidsActive = layout.isLandscape;
   const insets = useSafeAreaInsets();
+  const nativeNavigation = runtimeNativeNavigationCapabilities(
+    layout.sizeClass,
+    MOBILE_V2_ROLLOUT_ENABLED && MOBILE_V2_NATIVE_NAVIGATION_ENABLED
+  );
   const [screen, setScreen] = useState<Screen>("fids");
   const [view, setView] = useState<FlightView>("departures");
   const [historyDirection, setHistoryDirection] = useState<HistoryDirection>("both");
   const [historyHours, setHistoryHours] = useState<HistoryWindow>(24);
   const [historyCallsign, setHistoryCallsign] = useState("");
   const [historyAirline, setHistoryAirline] = useState("");
+  const [historyFilterRequestKey, setHistoryFilterRequestKey] = useState(0);
   const [historySummary, setHistorySummary] = useState<HistorySummary | null>(null);
   const [radarRadius, setRadarRadius] = useState<RadarRadius>(20);
   const [serverUrl, setServerUrl] = useState("");
@@ -314,8 +328,9 @@ export function AppShell() {
   const [connected, setConnected] = useState(false);
   const [companionTransport, setCompanionTransport] = useState<"lan" | "remote">("lan");
   const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activity, setActivity] = useState<ActivityStatus | null>(null);
+  const [refreshingByTarget, setRefreshingByTarget] = useState<Partial<Record<Screen, boolean>>>({});
+  const [refreshErrorByTarget, setRefreshErrorByTarget] = useState<Partial<Record<Screen, string | null>>>({});
+  const [, setActivity] = useState<ActivityStatus | null>(null);
   const [schedulerRestarting, setSchedulerRestarting] = useState(false);
   const [schedulerMessage, setSchedulerMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -352,6 +367,8 @@ export function AppShell() {
   const [widgetBackgroundState, setWidgetBackgroundState] = useState<"checking" | "active" | "restricted" | "off">("checking");
   const [widgetRefreshRequest, setWidgetRefreshRequest] = useState(0);
   const [widgetPendingAirport, setWidgetPendingAirport] = useState<WidgetPendingAirport | null>(null);
+  const [widgetSnapshotHydrated, setWidgetSnapshotHydrated] = useState(false);
+  const [liveActivitySupported, setLiveActivitySupported] = useState(false);
   const [radarDrawingLayers, setRadarDrawingLayers] = useState<MobileRadarDrawingLayers>({
     runways: true,
     surface: true,
@@ -359,6 +376,7 @@ export function AppShell() {
   });
   const [mobileSetupState, setMobileSetupState] = useState<MobileSetupState>(() => incompleteMobileSetupState());
   const [launchHydrated, setLaunchHydrated] = useState(false);
+  const [launchDataOutcome, setLaunchDataOutcome] = useState<LaunchDataOutcome>("pending");
   const [pairingUrl, setPairingUrl] = useState("");
   const [pairingExpectedServerFingerprint, setPairingExpectedServerFingerprint] = useState("");
   const [pairingRemoteInvite, setPairingRemoteInvite] = useState<RemoteCompanionInvite | null>(null);
@@ -370,13 +388,24 @@ export function AppShell() {
 
   const socketRef = useRef<WebSocket | null>(null);
   const initialPairingUrlRef = useRef<string | null>(null);
+  const pendingLaunchUrlRef = useRef<string | null>(null);
   const radarGroundCacheRef = useRef<Map<string, RadarMapResponse>>(new Map());
   const refreshInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
+  const dashboardRequestGenerationRef = useRef(0);
+  const targetRequestGenerationByTargetRef = useRef<Map<Screen, number>>(new Map());
+  const foregroundRefreshGenerationByTargetRef = useRef<Map<Screen, number>>(new Map());
+  const foregroundRefreshCountByTargetRef = useRef<Map<Screen, number>>(new Map());
+  const fidsRequestGenerationRef = useRef(0);
+  const historyRequestGenerationRef = useRef(0);
+  const radarRequestGenerationRef = useRef(0);
+  const lastFidsRefreshAtRef = useRef(0);
   const lastRadarRefreshAfterRef = useRef<number | null>(null);
   const widgetSnapshotWasReadyRef = useRef(false);
+  const lastPinnedWidgetFlightRef = useRef<WidgetFlightPreview | null>(null);
+  const liveActivityStartFlightRef = useRef("");
   const previousWidgetAirportKeyRef = useRef("");
-  const screenOpacity = useRef(new Animated.Value(1)).current;
-  const screenLift = useRef(new Animated.Value(0)).current;
+  const standaloneBoardRef = useRef<MobileBoardResponse | null>(null);
+  const standaloneBoardReadAtRef = useRef(0);
   const flightDetail = useFlightDetail(serverUrl);
   const matrix = useMatrixCompanion(serverUrl);
   const {
@@ -406,6 +435,17 @@ export function AppShell() {
     installGlobalCrashReporter();
   }, []);
 
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    let alive = true;
+    void isLocalFlightLiveActivitySupported().then((result) => {
+      if (alive) setLiveActivitySupported(result.supported && result.enabled);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   if (palette.key !== appearance.key) {
     palette = appearance;
     brand = appearance.brand;
@@ -413,30 +453,6 @@ export function AppShell() {
     styles = createStyles();
     setStyleBridge(styles, palette);
   }
-
-  useEffect(() => {
-    if (reduceMotion) {
-      screenOpacity.setValue(1);
-      screenLift.setValue(0);
-      return;
-    }
-    screenOpacity.setValue(0);
-    screenLift.setValue(4);
-    Animated.parallel([
-      Animated.timing(screenOpacity, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true
-      }),
-      Animated.spring(screenLift, {
-        toValue: 0,
-        damping: 18,
-        stiffness: 190,
-        mass: 0.7,
-        useNativeDriver: true
-      })
-    ]).start();
-  }, [screen, screenLift, screenOpacity, reduceMotion]);
 
   const onLaunchHydrated = useCallback(
     ({
@@ -469,11 +485,16 @@ export function AppShell() {
       setCompanionIdentity(identity);
       setMobileDiagnosticsMode(hydratedDiagnosticsMode);
       setMobileSetupState(setupState);
+      setLaunchDataOutcome(
+        isMobileSetupComplete(setupState, effectiveSavedUrl || "", hydratedDiagnosticsMode)
+          ? "pending"
+          : "setup"
+      );
       setLaunchHydrated(true);
     },
     []
   );
-  const launch = useLaunchOverlay(onLaunchHydrated);
+  const launch = useLaunchOverlay(onLaunchHydrated, launchDataOutcome, themeHydrated);
   const mobileSetupComplete = launchHydrated && isMobileSetupComplete(mobileSetupState, serverUrl, mobileDiagnosticsMode);
   const dismissSetupSuccess = useCallback(() => setSetupSuccess(null), []);
   const isStandalone = mobileSetupState.mode === "standalone";
@@ -544,6 +565,7 @@ export function AppShell() {
   const handlePairingUrl = useCallback((incomingUrl: string) => {
     if (/^localflight:\/\/widgets(?:[/?#]|$)/i.test(incomingUrl)) {
       setScreen(isStandalone ? "settings" : "control");
+      openMobileMorePanel("widgets");
       if (/[?&]refresh=1(?:&|$)/i.test(incomingUrl)) {
         setWidgetRefreshRequest((value) => value + 1);
       }
@@ -572,6 +594,7 @@ export function AppShell() {
 
     if (mobileSetupComplete) {
       setScreen("control");
+      openMobileMorePanel("host");
       setServerPanelRequest((value) => value + 1);
       setPairingNotice(
         parsed.remoteCompanionInvite
@@ -585,22 +608,37 @@ export function AppShell() {
     hapticLight();
   }, [closeFlightDetail, isStandalone, mobileSetupComplete]);
 
+  const queueOrHandlePairingUrl = useCallback((incomingUrl: string) => {
+    if (!launchHydrated) {
+      pendingLaunchUrlRef.current = incomingUrl;
+      return;
+    }
+    handlePairingUrl(incomingUrl);
+  }, [handlePairingUrl, launchHydrated]);
+
+  useEffect(() => {
+    if (!launchHydrated || !pendingLaunchUrlRef.current) return;
+    const pendingUrl = pendingLaunchUrlRef.current;
+    pendingLaunchUrlRef.current = null;
+    handlePairingUrl(pendingUrl);
+  }, [handlePairingUrl, launchHydrated]);
+
   useEffect(() => {
     let alive = true;
     void Linking.getInitialURL().then((url) => {
       if (alive && url && initialPairingUrlRef.current !== url) {
         initialPairingUrlRef.current = url;
-        handlePairingUrl(url);
+        queueOrHandlePairingUrl(url);
       }
     });
     const subscription = Linking.addEventListener("url", (event) => {
-      handlePairingUrl(event.url);
+      queueOrHandlePairingUrl(event.url);
     });
     return () => {
       alive = false;
       subscription.remove();
     };
-  }, [handlePairingUrl]);
+  }, [queueOrHandlePairingUrl]);
 
   const chooseMobileDiagnosticsMode = useCallback(async (mode: MobileDiagnosticsMode) => {
     await saveMobileDiagnosticsMode(mode);
@@ -629,13 +667,25 @@ export function AppShell() {
 
   useEffect(() => {
     let alive = true;
-    void Promise.all([loadWeatherDisplayMode(), loadRadarDrawingLayers(), loadWidgetPreferences()]).then(([mode, layers, widgets]) => {
-      if (alive) {
+    void Promise.all([
+      loadWeatherDisplayMode(),
+      loadRadarDrawingLayers(),
+      loadWidgetPreferences(),
+      readWidgetSnapshot()
+    ])
+      .then(([mode, layers, widgets, existingWidgetSnapshot]) => {
+        if (!alive) return;
         setWeatherDisplayMode(mode);
         setRadarDrawingLayers(layers);
         setWidgetPreferences(widgets);
-      }
-    });
+        if (existingWidgetSnapshot?.small.flight) {
+          lastPinnedWidgetFlightRef.current = existingWidgetSnapshot.small.flight;
+        }
+        widgetSnapshotWasReadyRef.current = Boolean(existingWidgetSnapshot);
+      })
+      .finally(() => {
+        if (alive) setWidgetSnapshotHydrated(true);
+      });
     return () => {
       alive = false;
     };
@@ -649,6 +699,10 @@ export function AppShell() {
   const chooseWidgetPreferences = useCallback(async (next: MobileWidgetPreferences) => {
     const normalized = await saveWidgetPreferences(next);
     setWidgetPreferences(normalized);
+    if (!normalized.liveActivityEnabled) {
+      liveActivityStartFlightRef.current = "";
+      await endLocalFlightLiveActivity().catch(() => undefined);
+    }
   }, []);
 
   useEffect(() => {
@@ -663,13 +717,14 @@ export function AppShell() {
     };
   }, [launchHydrated, mobileSetupComplete, widgetPreferences.automaticRefresh]);
 
-  const fetchDashboard = useCallback(async (normalized: string) => {
+  const fetchDashboard = useCallback(async (normalized: string, requestGeneration: number) => {
     if (standaloneCredentials) {
       const summary = await getStandaloneSummary(standaloneCredentials);
       const config = summary.config;
       if (!config) {
         throw new Error("Standalone relay summary did not include config.");
       }
+      if (requestGeneration !== dashboardRequestGenerationRef.current) return;
       setAirportDetail({
         ...standaloneCredentials.airport,
         type: "large_airport"
@@ -705,26 +760,59 @@ export function AppShell() {
     }
 
     const fallbackAirport = airportFallbackFromConfig(config);
+    if (requestGeneration !== dashboardRequestGenerationRef.current) return;
     setAirportDetail((previous) =>
       resolvedAirport || (airportMatchesConfig(previous, config) ? previous : null) || fallbackAirport
     );
     setSnapshot(summary);
-    await saveCachedLanConfig(config);
-    if (resolvedAirport) {
-      await saveCachedLanAirport(resolvedAirport);
-    }
     setConnected(true);
+    await saveCachedLanConfig(config).catch(() => undefined);
+    if (resolvedAirport) {
+      await saveCachedLanAirport(resolvedAirport).catch(() => undefined);
+    }
   }, [standaloneCredentials]);
 
   const fetchFidsData = useCallback(async (normalized: string, nextView: FlightView) => {
+    const requestGeneration = ++fidsRequestGenerationRef.current;
     if (standaloneCredentials) {
-      const fids = await getStandaloneFids(standaloneCredentials, nextView);
-      setRows(fids);
-      await storeStandaloneFidsRows(standaloneCredentials.airport, fids);
+      const existing = standaloneBoardRef.current;
+      const existingAgeMs = Date.now() - standaloneBoardReadAtRef.current;
+      if (existing && existingAgeMs < Math.max(60, existing.refresh_after_s) * 1000) {
+        if (requestGeneration === fidsRequestGenerationRef.current) {
+          setRows(nextView === "arrivals" ? existing.arrivals : existing.departures);
+          setLaunchDataOutcome((current) => current === "pending" ? "cached" : current);
+        }
+        return;
+      }
+      const board = await getStandaloneBoard(standaloneCredentials);
+      standaloneBoardRef.current = board;
+      standaloneBoardReadAtRef.current = Date.now();
+      await Promise.all([
+        storeStandaloneFidsRows(standaloneCredentials.airport, board.departures),
+        storeStandaloneFidsRows(standaloneCredentials.airport, board.arrivals)
+      ]);
+      lastFidsRefreshAtRef.current = Date.now();
+      if (requestGeneration === fidsRequestGenerationRef.current) {
+        setRows(nextView === "arrivals" ? board.arrivals : board.departures);
+        setSnapshot((current) => ({
+          ...current,
+          state: {
+            ...(current.state || { ok: true }),
+            ok: current.state?.ok !== false,
+            last_success_utc: board.generated_at,
+            source_name: current.state?.source_name || "relay_standalone"
+          }
+        }));
+        setLaunchDataOutcome((current) => current === "pending" ? "live" : current);
+      }
       return;
     }
     const fids = await getFids(normalized, nextView);
-    setRows(fids);
+    lastFidsRefreshAtRef.current = Date.now();
+    if (requestGeneration === fidsRequestGenerationRef.current) {
+      setRows(fids);
+      setLaunchDataOutcome((current) => current === "pending" ? "live" : current);
+    }
   }, [standaloneCredentials]);
 
   const fetchHistoryData = useCallback(
@@ -735,6 +823,7 @@ export function AppShell() {
       nextCallsign = "",
       nextAirline = ""
     ) => {
+      const requestGeneration = ++historyRequestGenerationRef.current;
       if (standaloneCredentials) {
         const [data, summary] = await Promise.all([
           getStandaloneHistory(standaloneCredentials.airport, {
@@ -751,8 +840,10 @@ export function AppShell() {
             airline_iata: nextAirline
           }).catch(() => null)
         ]);
-        setHistoryData(data);
-        setHistorySummary(summary);
+        if (requestGeneration === historyRequestGenerationRef.current) {
+          setHistoryData(data);
+          setHistorySummary(summary);
+        }
         return;
       }
       const [data, summary] = await Promise.all([
@@ -770,8 +861,10 @@ export function AppShell() {
           airline_iata: nextAirline
         }).catch(() => null)
       ]);
-      setHistoryData(data);
-      setHistorySummary(summary);
+      if (requestGeneration === historyRequestGenerationRef.current) {
+        setHistoryData(data);
+        setHistorySummary(summary);
+      }
     },
     [standaloneCredentials]
   );
@@ -781,14 +874,17 @@ export function AppShell() {
     nextRadius: RadarRadius,
     forceGround = false
   ) => {
+    const requestGeneration = ++radarRequestGenerationRef.current;
+    const isCurrentRadarRequest = () => requestGeneration === radarRequestGenerationRef.current;
     setActivity({
       label: "Loading radar traffic",
       detail: standaloneCredentials
         ? `Asking the hosted relay for standalone tracks inside ${nextRadius} NM.`
-        : `Asking the Local Flight server for tracks inside ${nextRadius} NM.`
+        : `Asking the Local Flight host for tracks inside ${nextRadius} NM.`
     });
     if (standaloneCredentials) {
       const data = await getStandaloneRadar(standaloneCredentials, nextRadius);
+      if (!isCurrentRadarRequest()) return;
       lastRadarRefreshAfterRef.current = Number(data.refresh_after_s || 0) || null;
       setRadarData(data);
       const cacheKey = [
@@ -798,8 +894,10 @@ export function AppShell() {
         Number(data.center?.lat || standaloneCredentials.airport.lat || 0).toFixed(5),
         Number(data.center?.lon || standaloneCredentials.airport.lon || 0).toFixed(5)
       ].join("|");
-      if (data.radar_map) {
+      if (data.radar_map && radarGroundSurfaceReady(data.radar_map, nextRadius)) {
         radarGroundCacheRef.current.set(cacheKey, data.radar_map);
+      } else if (data.radar_map) {
+        setRadarGroundData(data.radar_map);
       }
       const cachedGround = radarGroundCacheRef.current.get(cacheKey) || null;
       if (cachedGround && !forceGround) {
@@ -813,16 +911,21 @@ export function AppShell() {
           detail: "Fetching the relay's shared airport surface snapshot."
         });
         const ground = await getStandaloneRadarGround(standaloneCredentials, Math.min(10, nextRadius));
-        radarGroundCacheRef.current.set(cacheKey, ground);
+        if (!isCurrentRadarRequest()) return;
+        if (radarGroundSurfaceReady(ground, Math.min(10, nextRadius))) {
+          radarGroundCacheRef.current.set(cacheKey, ground);
+        }
         setRadarGroundData(ground);
-        setRadarGroundError(null);
+        setRadarGroundError(radarGroundSurfaceReady(ground, Math.min(10, nextRadius)) ? null : "Surface loading");
       } catch (exc) {
+        if (!isCurrentRadarRequest()) return;
         setRadarGroundData(cachedGround);
         setRadarGroundError(cachedGround ? null : errorMessage(exc));
       }
       return;
     }
     const data = await getRadar(normalized, nextRadius);
+    if (!isCurrentRadarRequest()) return;
     lastRadarRefreshAfterRef.current = Number(data.refresh_after_s || 0) || null;
     setRadarData(data);
 
@@ -843,13 +946,17 @@ export function AppShell() {
     try {
       setActivity({
         label: "Loading airport ground layer",
-        detail: "Fetching runway and surface geometry through the Local Flight server."
+        detail: "Fetching runway and surface geometry through the Local Flight host."
       });
       const ground = await getRadarGround(normalized, nextRadius, radarDrawingLayers.terrain);
-      radarGroundCacheRef.current.set(cacheKey, ground);
+      if (!isCurrentRadarRequest()) return;
+      if (radarGroundSurfaceReady(ground, nextRadius)) {
+        radarGroundCacheRef.current.set(cacheKey, ground);
+      }
       setRadarGroundData(ground);
-      setRadarGroundError(null);
+      setRadarGroundError(radarGroundSurfaceReady(ground, nextRadius) ? null : "Surface loading");
     } catch (exc) {
+      if (!isCurrentRadarRequest()) return;
       setRadarGroundData(cachedGround);
       setRadarGroundError(cachedGround ? null : errorMessage(exc));
     }
@@ -862,13 +969,20 @@ export function AppShell() {
       nextView = view,
       nextHistoryDirection = historyDirection,
       nextHistoryHours = historyHours,
+      nextHistoryCallsign = historyCallsign,
+      nextHistoryAirline = historyAirline,
       nextRadarRadius = radarRadius,
       forceRadarGround = false,
-      includeDashboard = true
+      includeDashboard = true,
+      includeBoardSnapshot = false,
+      background = false
     }: RefreshOptions = {}) => {
       const normalized = normalizeServerUrl(nextUrl);
       if (!normalized && !standaloneCredentials) {
-        setError(isStandalone ? "Finish Standalone setup before loading relay data." : "Enter the Local Flight server URL in Settings.");
+        setError(isStandalone ? "Finish Standalone setup before loading relay data." : "Enter the Local Flight host address in More.");
+        if (target === "fids") {
+          setLaunchDataOutcome((current) => current === "pending" ? "offline" : current);
+        }
         return;
       }
       const refreshKey = [
@@ -877,62 +991,107 @@ export function AppShell() {
         nextView,
         nextHistoryDirection,
         nextHistoryHours,
-        historyCallsign,
-        historyAirline,
+        nextHistoryCallsign,
+        nextHistoryAirline,
         nextRadarRadius,
         forceRadarGround ? "ground" : "normal",
-        includeDashboard ? "dashboard" : "screen"
+        includeDashboard ? "dashboard" : "screen",
+        includeBoardSnapshot ? "board" : "target",
+        background ? "background" : "foreground"
       ].join("|");
       const existing = refreshInFlightRef.current.get(refreshKey);
       if (existing) {
         await existing;
         return;
       }
+      if (background && (foregroundRefreshCountByTargetRef.current.get(target) || 0) > 0) return;
 
+      const refreshGeneration = background
+        ? 0
+        : (foregroundRefreshGenerationByTargetRef.current.get(target) || 0) + 1;
+      if (!background) foregroundRefreshGenerationByTargetRef.current.set(target, refreshGeneration);
+      const isCurrentForegroundRefresh = () =>
+        !background && refreshGeneration === foregroundRefreshGenerationByTargetRef.current.get(target);
+      const dashboardGeneration = includeDashboard ? ++dashboardRequestGenerationRef.current : 0;
+      const isCurrentDashboardRequest = () =>
+        includeDashboard && dashboardGeneration === dashboardRequestGenerationRef.current;
+      const targetGeneration = (targetRequestGenerationByTargetRef.current.get(target) || 0) + 1;
+      targetRequestGenerationByTargetRef.current.set(target, targetGeneration);
+      const isCurrentTargetRequest = () =>
+        targetGeneration === targetRequestGenerationByTargetRef.current.get(target);
       const task = (async () => {
-        setRefreshing(true);
-        setActivity(includeDashboard ? {
-          label: "Talking to Local Flight",
-          detail: "Checking server health, config, budget, and live connections."
-        } : refreshActivityForTarget(target, landscapeFidsActive));
-        setError(null);
+        if (!background) {
+          const activeCount = (foregroundRefreshCountByTargetRef.current.get(target) || 0) + 1;
+          foregroundRefreshCountByTargetRef.current.set(target, activeCount);
+          setRefreshingByTarget((previous) => ({ ...previous, [target]: true }));
+          setRefreshErrorByTarget((previous) => ({ ...previous, [target]: null }));
+          setActivity(includeDashboard ? {
+            label: "Talking to Local Flight",
+            detail: "Checking Local Flight host health, settings, budget, and live connections."
+          } : refreshActivityForTarget(target));
+          setError(null);
+        }
 
         try {
           if (includeDashboard) {
             try {
-              await fetchDashboard(normalized);
-              if (!isStandalone) {
+              await fetchDashboard(normalized, dashboardGeneration);
+              if (!isStandalone && isCurrentDashboardRequest()) {
                 setCompanionTransport(getLastCompanionTransport());
               }
             } catch (exc) {
-              setConnected(false);
-              setError(errorMessage(exc));
-              return;
+              if (isCurrentDashboardRequest()) {
+                setConnected(false);
+                if (isCurrentForegroundRefresh()) {
+                  setRefreshErrorByTarget((previous) => ({ ...previous, [target]: errorMessage(exc) }));
+                }
+                if (target === "fids") {
+                  setLaunchDataOutcome((current) => current === "pending" ? "offline" : current);
+                }
+                return;
+              }
+              if (!isCurrentTargetRequest()) return;
             }
           }
 
+          if (!isCurrentTargetRequest()) return;
+
           try {
-            setActivity(refreshActivityForTarget(target, landscapeFidsActive));
-            if (landscapeFidsActive) {
-              await fetchFidsData(normalized, nextView);
-            } else if (target === "fids") {
+            if (isCurrentForegroundRefresh()) setActivity(refreshActivityForTarget(target));
+            if (target === "fids") {
               await fetchFidsData(normalized, nextView);
             } else if (target === "history") {
-              await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours, historyCallsign, historyAirline);
+              await fetchHistoryData(normalized, nextHistoryDirection, nextHistoryHours, nextHistoryCallsign, nextHistoryAirline);
             } else if (target === "radar") {
               await fetchRadarData(normalized, nextRadarRadius, forceRadarGround);
             } else if (target === "control") {
               await fetchMatrixRuntime(normalized);
             }
+            if (includeBoardSnapshot && target !== "fids") {
+              await fetchFidsData(normalized, nextView);
+            }
             if (!isStandalone) {
               setCompanionTransport(getLastCompanionTransport());
             }
           } catch (exc) {
-            setError(errorMessage(exc));
+            if (isCurrentForegroundRefresh()) {
+              setRefreshErrorByTarget((previous) => ({ ...previous, [target]: errorMessage(exc) }));
+            }
+            if (target === "fids") {
+              setLaunchDataOutcome((current) => current === "pending" ? "offline" : current);
+            }
           }
         } finally {
-          setRefreshing(false);
-          setActivity(null);
+          if (!background) {
+            const remaining = Math.max(0, (foregroundRefreshCountByTargetRef.current.get(target) || 1) - 1);
+            if (remaining) foregroundRefreshCountByTargetRef.current.set(target, remaining);
+            else foregroundRefreshCountByTargetRef.current.delete(target);
+            const stillRefreshing = remaining > 0;
+            setRefreshingByTarget((previous) => ({ ...previous, [target]: stillRefreshing }));
+            const anyForegroundRefresh = Array.from(foregroundRefreshCountByTargetRef.current.values())
+              .some((count) => count > 0);
+            if (!anyForegroundRefresh) setActivity(null);
+          }
         }
       })();
       refreshInFlightRef.current.set(refreshKey, task);
@@ -953,7 +1112,6 @@ export function AppShell() {
       historyDirection,
       historyHours,
       isStandalone,
-      landscapeFidsActive,
       radarRadius,
       screen,
       standaloneCredentials,
@@ -980,8 +1138,8 @@ export function AppShell() {
     const normalized = normalizeServerUrl(candidateUrl);
     setLoading(true);
     setActivity({
-      label: "Testing server URL",
-      detail: "Asking the Local Flight server to confirm mobile access."
+      label: "Checking Local Flight host address",
+      detail: "Asking the Local Flight host to confirm access for this device."
     });
     setError(null);
 
@@ -1053,7 +1211,7 @@ export function AppShell() {
     setPairingNonce((value) => value + 1);
     setPairingNotice(
       pairing.remoteCompanionInvite
-        ? `Remote Companion QR loaded. Connecting to ${pairing.serverUrl} while this phone is on the LAN.`
+        ? `Remote Companion QR loaded. Connecting to ${pairing.serverUrl} while this device is on the same Wi-Fi.`
         : `Pairing QR loaded. Connecting this mobile app to ${pairing.serverUrl}.`
     );
     void connect(pairing.serverUrl, pairing.expectedServerFingerprint, pairing.remoteCompanionInvite || null);
@@ -1115,7 +1273,7 @@ export function AppShell() {
       setSetupSuccess({
         mode: "standalone",
         title: "You are ready",
-        body: "Standalone board is set up for this phone.",
+        body: "Standalone is set up for this device.",
         meta: airport.iata || airport.icao || airport.name
       });
       hapticSuccess();
@@ -1123,7 +1281,7 @@ export function AppShell() {
     }
 
     if (!nextServerUrl || !config) {
-      throw new Error("Mobile setup did not return a server URL and config.");
+      throw new Error("Mobile setup did not return a Local Flight host address and settings.");
     }
     const normalized = normalizeServerUrl(nextServerUrl);
     const remoteGrantAlreadyVerified = Boolean(pendingRemoteCompanionGrant);
@@ -1171,7 +1329,7 @@ export function AppShell() {
     setSetupSuccess({
       mode: "lan_companion",
       title: "You are connected",
-      body: "This phone is paired with your Local Flight host.",
+      body: "This device is paired with your Local Flight host.",
       meta: normalized
     });
     hapticSuccess();
@@ -1216,21 +1374,21 @@ export function AppShell() {
     setPendingRemoteCompanionGrant(null);
     configureRemoteCompanionGrant(null);
     setCompanionTransport("lan");
-    setPairingNotice("Remote Companion fallback forgotten on this phone. Pair again from Local Flight Settings to restore away-from-LAN access.");
+    setPairingNotice("Remote Companion fallback forgotten on this device. Pair again from Local Flight Settings to restore access away from the same Wi-Fi.");
   }, [isStandalone, mobileSetupState]);
 
   const restartSchedulerNow = useCallback(async () => {
     const normalized = normalizeServerUrl(serverUrl);
     if (!normalized) {
-      setSchedulerMessage("Set the Local Flight server URL first.");
+      setSchedulerMessage("Set the Local Flight host address first.");
       return;
     }
 
     setSchedulerRestarting(true);
     setSchedulerMessage("Restarting scheduler...");
     setActivity({
-      label: "Restarting server fetch",
-      detail: "Asking the Local Flight server scheduler for a fresh cycle."
+      label: "Restarting Local Flight host update",
+      detail: "Asking the Local Flight host for a fresh update."
     });
     setError(null);
 
@@ -1251,7 +1409,7 @@ export function AppShell() {
   const applySettingsProfile = useCallback(async (profile: ConfigProfile) => {
     const normalized = normalizeServerUrl(serverUrl);
     if (!normalized) {
-      setError("Set the Local Flight server URL first.");
+      setError("Set the Local Flight host address first.");
       return;
     }
 
@@ -1266,7 +1424,7 @@ export function AppShell() {
     setApplyingProfileId(profile.id);
     setActivity({
       label: `Switching to ${profile.name}`,
-      detail: "Saving the profile on the Local Flight server and requesting a fresh fetch."
+      detail: "Saving the profile on the Local Flight host and requesting a fresh update."
     });
     setError(null);
 
@@ -1338,7 +1496,7 @@ export function AppShell() {
     setAutoReportMessage(
       sent
         ? "Auto-report test sent with the crash route."
-        : "Automatic diagnostics are disabled on the connected Local Flight server."
+        : "Automatic diagnostics are disabled on the connected Local Flight host."
     );
   }, [companionIdentity, serverUrl, snapshot]);
 
@@ -1346,24 +1504,34 @@ export function AppShell() {
     async (row: FidsRow) => {
       const key = flightPinKey(row);
       const next = pinnedCallsign === key ? "" : key;
+      liveActivityStartFlightRef.current = next && widgetPreferences.liveActivityEnabled ? next : "";
+      if (!next) {
+        // Unpinning is an explicit user dismissal. End immediately instead of
+        // waiting for the next bounded snapshot write to reconcile ActivityKit.
+        await endLocalFlightLiveActivity().catch(() => undefined);
+      }
       setPinnedCallsign(next);
       setActionRow(null);
       await savePinnedFlight(next);
     },
-    [pinnedCallsign]
+    [pinnedCallsign, widgetPreferences.liveActivityEnabled]
   );
 
-  useEffect(() => {
-    if (!landscapeFidsActive) return;
-
+  const pinAndShowOnLockScreen = useCallback(async (row: FidsRow) => {
+    const key = flightPinKey(row);
+    const nextPreferences = await saveWidgetPreferences({
+      ...widgetPreferences,
+      liveActivityEnabled: true
+    });
+    setWidgetPreferences(nextPreferences);
+    liveActivityStartFlightRef.current = key;
+    setPinnedCallsign(key);
     setActionRow(null);
-    setConfigSheetVisible(false);
-    closeFlightDetail();
-
-    if (dataReady) {
-      void refreshScreen({ target: "fids" });
-    }
-  }, [closeFlightDetail, dataReady, landscapeFidsActive, refreshScreen]);
+    await savePinnedFlight(key);
+    hapticSuccess();
+    // The snapshot writer starts ActivityKit only after the pinned snapshot is
+    // safely in the shared app-group container. No extension performs a fetch.
+  }, [widgetPreferences]);
 
   useEffect(() => {
     if (!dataReady) return;
@@ -1397,46 +1565,75 @@ export function AppShell() {
 
   useEffect(() => {
     if (isStandalone || !serverUrl || !connected) return;
-    const socket = new WebSocket(wsUrl(serverUrl));
-    socketRef.current = socket;
+    let disposed = false;
+    let retryAttempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeSocket: WebSocket | null = null;
 
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(String(event.data)) as {
-          type?: string;
-          config?: AppConfig;
-          message?: string;
-          ok?: boolean;
-        };
-        if (message.type === "snapshot_updated") {
-          void refreshScreen({ target: screen, includeDashboard: screenNeedsDashboard(screen, isStandalone) });
-          if (detailVisible && detailCallsign) {
-            refreshFlightDetail();
+    const connectSocket = () => {
+      if (disposed) return;
+      const socket = new WebSocket(wsUrl(serverUrl));
+      activeSocket = socket;
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        retryAttempt = 0;
+      };
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(String(event.data)) as {
+            type?: string;
+            config?: AppConfig;
+            message?: string;
+            ok?: boolean;
+          };
+          if (message.type === "snapshot_updated") {
+            void refreshScreen({
+              target: screen,
+              includeDashboard: true,
+              includeBoardSnapshot: true,
+              background: true
+            });
+            if (detailVisible && detailCallsign) {
+              refreshFlightDetail();
+            }
+          } else if (message.type === "config_updated") {
+            if (message.config) {
+              setSnapshot((prev) => ({ ...prev, config: message.config || prev.config }));
+            }
+            radarGroundCacheRef.current.clear();
+            setRadarGroundData(null);
+            setRadarGroundError(null);
+            void refreshScreen({ target: screen, background: true });
+          } else if (message.type === "scheduler_restarted") {
+            setSchedulerMessage(message.message || (message.ok ? "Scheduler restarted." : "Scheduler is still stopping."));
+            void refreshScreen({
+              target: screen,
+              includeDashboard: screenNeedsDashboard(screen, isStandalone),
+              background: true
+            });
           }
-        } else if (message.type === "config_updated") {
-          if (message.config) {
-            setSnapshot((prev) => ({ ...prev, config: message.config || prev.config }));
-          }
-          radarGroundCacheRef.current.clear();
-          setRadarGroundData(null);
-          setRadarGroundError(null);
-          void refreshScreen({ target: screen });
-        } else if (message.type === "scheduler_restarted") {
-          setSchedulerMessage(message.message || (message.ok ? "Scheduler restarted." : "Scheduler is still stopping."));
-          void refreshScreen({ target: screen, includeDashboard: screenNeedsDashboard(screen, isStandalone) });
+        } catch {
+          // Ignore non-JSON messages.
         }
-      } catch {
-        // Ignore non-JSON messages.
-      }
+      };
+      socket.onerror = () => socket.close();
+      socket.onclose = () => {
+        if (socketRef.current === socket) socketRef.current = null;
+        if (disposed || activeSocket !== socket) return;
+        const retryDelayMs = Math.min(30_000, 1_000 * (2 ** Math.min(retryAttempt, 5)));
+        retryAttempt += 1;
+        retryTimer = setTimeout(connectSocket, retryDelayMs);
+      };
     };
 
-    socket.onerror = () => socket.close();
+    connectSocket();
 
     return () => {
-      socket.close();
-      if (socketRef.current === socket) {
-        socketRef.current = null;
-      }
+      disposed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (activeSocket) activeSocket.close();
+      if (socketRef.current === activeSocket) socketRef.current = null;
     };
   }, [connected, detailCallsign, detailVisible, isStandalone, refreshFlightDetail, refreshScreen, screen, serverUrl]);
 
@@ -1472,7 +1669,7 @@ export function AppShell() {
         ? [cfg?.airport_iata, cfg?.airport_icao].filter(Boolean).join(" / ")
         : rows.length || serverUrl || isStandalone
           ? "Tap to set airport"
-          : "Connect your server";
+          : "Connect to a Local Flight host";
   const airportName = currentAirportDetail?.name || fallbackDisplayName;
   const airportLocation = [currentAirportDetail?.city, currentAirportDetail?.country].filter(Boolean).join(" · ");
   const sourceLabel = state?.source_name || cfg?.source || "VATSIM";
@@ -1486,18 +1683,35 @@ export function AppShell() {
   const widgetRowsPendingAirport =
     widgetAirportChangedBeforeEffect || widgetPendingAirport?.key === widgetAirportKey;
   const widgetRowsForPreview = useMemo(
-    () => widgetRowsPendingAirport ? [] : rows,
-    [rows, widgetRowsPendingAirport]
+    () => widgetRowsPendingAirport
+      ? []
+      : rows.filter((row) => (row.view === "arrivals" ? "arrivals" : "departures") === view),
+    [rows, view, widgetRowsPendingAirport]
   );
-  const widgetPreview = useMemo(() => deriveWidgetPreviewSnapshot({
-    rows: widgetRowsForPreview,
-    pinnedCallsign,
-    airportCode,
-    airportName,
-    updatedLabel: widgetUpdatedLabel(state?.last_success_utc),
-    view,
-    preferences: widgetPreferences
-  }), [
+  const widgetPreview = useMemo(() => {
+    const next = deriveWidgetPreviewSnapshot({
+      rows: widgetRowsForPreview,
+      pinnedCallsign,
+      airportCode,
+      airportName,
+      updatedLabel: widgetUpdatedLabel(state?.last_success_utc),
+      view,
+      preferences: widgetPreferences
+    });
+    if (next.pinnedFlight) {
+      lastPinnedWidgetFlightRef.current = next.pinnedFlight;
+      return next;
+    }
+    if (pinnedCallsign && lastPinnedWidgetFlightRef.current?.id === pinnedCallsign) {
+      return {
+        ...next,
+        smallSource: "pinned" as const,
+        pinnedFlight: lastPinnedWidgetFlightRef.current
+      };
+    }
+    if (!pinnedCallsign) lastPinnedWidgetFlightRef.current = null;
+    return next;
+  }, [
     airportCode,
     airportName,
     pinnedCallsign,
@@ -1506,16 +1720,29 @@ export function AppShell() {
     view,
     widgetPreferences
   ]);
+  const refreshing = Boolean(refreshingByTarget[screen]);
+  const visibleError = refreshErrorByTarget[screen] || error;
+  const boardError = refreshErrorByTarget.fids || error;
+  const radarError = refreshErrorByTarget.radar || error;
+  const historyError = refreshErrorByTarget.history || error;
   const isLive = connected && state?.ok !== false;
-  const connectionState: ConnectionState = error
-    ? refreshing ? "retrying" : "offline"
-    : isLive ? (isStandalone ? "live" : companionTransport) : "offline";
+  const connectionState: ConnectionState = isLive
+    ? (isStandalone ? "live" : companionTransport)
+    : refreshing && visibleError ? "retrying" : "offline";
   const radarSyncIntervalMs = Math.min(
     30 * 60 * 1000,
     Math.max(60 * 1000, (lastRadarRefreshAfterRef.current || 60) * 1000)
   );
+  const standaloneBoardIntervalMs = Math.max(
+    60 * 1000,
+    Number(snapshot.standalone_policy?.board_refresh_seconds || 3600) * 1000
+  );
+  const standaloneRadarIntervalMs = Math.max(
+    60 * 1000,
+    Number(snapshot.standalone_policy?.radar_refresh_seconds || 180) * 1000
+  );
   const syncIntervalMs = isStandalone
-    ? (screen === "radar" ? 5 * 60 * 1000 : 3 * 60 * 60 * 1000)
+    ? (screen === "radar" ? standaloneRadarIntervalMs : standaloneBoardIntervalMs)
     : (screen === "radar" ? radarSyncIntervalMs : companionSyncMs(cfg?.refresh_seconds));
   const widgetAutomaticLabel = widgetBackgroundState === "active"
     ? "automatic refresh on"
@@ -1584,7 +1811,7 @@ export function AppShell() {
   }, [widgetAirportKey, widgetLastSuccess, widgetPendingAirport]);
 
   useEffect(() => {
-    if (!launchHydrated) return;
+    if (!launchHydrated || !widgetSnapshotHydrated) return;
     if (!mobileSetupComplete && !widgetSnapshotWasReadyRef.current) {
       setWidgetSnapshotStatus({ state: "waiting", detail: "setup" });
       return;
@@ -1604,7 +1831,7 @@ export function AppShell() {
       preview: writePreview,
       preferences: widgetPreferences,
       mode: isStandalone ? "standalone" : "lan_companion",
-      stale: !mobileSetupComplete || !connected || Boolean(error) || widgetRowsPendingAirport,
+      stale: !mobileSetupComplete || !connected || Boolean(boardError) || widgetRowsPendingAirport || Boolean(pinnedCallsign && !rows.some((row) => flightPinKey(row) === pinnedCallsign)),
       sourceLabel,
       sourceUpdatedAt: widgetLastSuccess || null,
       staleAfterMs: widgetSnapshotStaleAfterMs(
@@ -1624,6 +1851,11 @@ export function AppShell() {
             state: payload.stale ? "stale" : "ready",
             detail: result.sharedContainer ? "app group" : "app sandbox"
           });
+          const requestedFlight = liveActivityStartFlightRef.current;
+          if (requestedFlight && payload.liveActivity.flight?.id === requestedFlight) {
+            liveActivityStartFlightRef.current = "";
+            void startLocalFlightLiveActivity();
+          }
         } else {
           setWidgetSnapshotStatus({
             state: "waiting",
@@ -1643,24 +1875,68 @@ export function AppShell() {
     };
   }, [
     connected,
-    error,
+    boardError,
     isStandalone,
     launchHydrated,
     mobileSetupComplete,
     sourceLabel,
     view,
     widgetRowsPendingAirport,
+    pinnedCallsign,
+    rows,
     widgetPreferences,
-    widgetPreview
+    widgetPreview,
+    widgetSnapshotHydrated
   ]);
 
   useEffect(() => {
-    if (!dataReady || !connected) return;
+    if (!dataReady) return;
+    const retryIntervalMs = isStandalone ? 5 * 60 * 1000 : 60 * 1000;
+    const effectiveIntervalMs = connected ? syncIntervalMs : Math.min(syncIntervalMs, retryIntervalMs);
     const timer = setInterval(() => {
-      void refreshScreen({ target: screen, includeDashboard: screenNeedsDashboard(screen, isStandalone) });
-    }, syncIntervalMs);
+      void refreshScreen({
+        target: screen,
+        includeDashboard: true,
+        // Companion snapshots can update the Board opportunistically. Standalone
+        // Board traffic remains on its conservative three-hour schedule even
+        // while Radar refreshes more frequently.
+        includeBoardSnapshot: !isStandalone,
+        background: true
+      });
+    }, effectiveIntervalMs);
     return () => clearInterval(timer);
   }, [connected, dataReady, isStandalone, refreshScreen, screen, syncIntervalMs]);
+
+  useEffect(() => {
+    if (!dataReady || !connected || !isStandalone || screen === "fids") return;
+    const boardIntervalMs = standaloneBoardIntervalMs;
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const scheduleBoardRefresh = (minimumDelayMs = 1_000) => {
+      if (cancelled) return;
+      const elapsed = lastFidsRefreshAtRef.current
+        ? Date.now() - lastFidsRefreshAtRef.current
+        : boardIntervalMs;
+      const delay = Math.max(minimumDelayMs, boardIntervalMs - elapsed);
+      timeout = setTimeout(() => {
+        if (cancelled) return;
+        const elapsedAtFire = lastFidsRefreshAtRef.current
+          ? Date.now() - lastFidsRefreshAtRef.current
+          : boardIntervalMs;
+        if (elapsedAtFire < boardIntervalMs) {
+          scheduleBoardRefresh();
+          return;
+        }
+        void refreshScreen({ target: "fids", includeDashboard: false, background: true })
+          .finally(() => scheduleBoardRefresh(5 * 60 * 1000));
+      }, delay);
+    };
+    scheduleBoardRefresh();
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [connected, dataReady, isStandalone, refreshScreen, screen, standaloneBoardIntervalMs]);
 
   useEffect(() => {
     if (isStandalone || !serverUrl || !connected || !companionIdentity) return;
@@ -1696,13 +1972,12 @@ export function AppShell() {
     };
   }, [companionIdentity, connected, isStandalone, serverUrl]);
 
-  const contentWidth = Math.min(layout.contentMaxWidth, layout.width - 24);
-  const pinnedRow = pinnedCallsign
-    ? rows.find((row) => flightPinKey(row) === pinnedCallsign) || null
-    : null;
-  const islandRow =
-    pinnedRow || rows.find((row) => /board|gate|approach/i.test(row.status_display)) || rows[0] || null;
-  const screenContentPadding = Math.max(20, insets.bottom + 14);
+  // UIKit owns the compact iPhone tab-bar inset on the Liquid Glass path. The
+  // V2 lists opt into automatic adjustment there; every fallback retains the
+  // explicit safe-area padding used by the adaptive React Navigation bar.
+  const screenContentPadding = nativeNavigation.usesNativeLiquidGlassTabs
+    ? 20
+    : Math.max(20, insets.bottom + 14);
   const effectiveRadarDrawingLayers = radarDrawingLayers;
   const statusBarStyle = themeMode === "light" ? "dark-content" : "light-content";
   const visibleNotices = [
@@ -1718,12 +1993,24 @@ export function AppShell() {
     }
     if (action.kind === "settings" || action.kind === "logs" || action.kind === "report") {
       setScreen(isStandalone ? "settings" : "control");
+      openMobileMorePanel(action.kind === "settings" ? undefined : "advanced");
       return;
     }
-    const target = action.target || "";
-    if (target === "/radar") setScreen("radar");
-    else if (target === "/fids" || target === "/display") setScreen("fids");
-    else if (target === "/history") setScreen("history");
+    const target = ((action.target || "").split(/[?#]/, 1)[0] || "").replace(/\/$/, "");
+    if (target === "/radar") navigateMobileSection("radar");
+    else if (target === "/display") openMobileDisplay();
+    else if (target === "/fids") navigateMobileSection("board");
+    else if (target === "/history") navigateMobileSection("history");
+    else if (target === "/settings" || target === "/control") openMobileMorePanel();
+    else if (target === "/admin" || target === "/logs" || target === "/feedback") {
+      setScreen(isStandalone ? "settings" : "control");
+      openMobileMorePanel("advanced");
+    } else if (target === "/matrix-preview" || target === "/matrix") {
+      setScreen(isStandalone ? "settings" : "control");
+      openMobileMorePanel(isStandalone ? "advanced" : "host");
+    } else if (target === "/setup") {
+      void rerunCompanionSetup();
+    }
     else setScreen(isStandalone ? "settings" : "control");
   };
 
@@ -1751,17 +2038,17 @@ export function AppShell() {
           opacity={launch.opacity}
           shift={launch.shift}
           scale={launch.scale}
-          progress={launch.progress}
-          pulse={launch.pulse}
-          beacon={launch.beacon}
-          sweep={launch.sweep}
-          orbitFast={launch.orbitFast}
-          orbitMedium={launch.orbitMedium}
-          orbitSlow={launch.orbitSlow}
+          sequence={launch.sequence}
+          ambientSweep={launch.ambientSweep}
+          logoBreath={launch.logoBreath}
+          sequenceComplete={launch.sequenceComplete}
+          reduceMotion={launch.reduceMotion}
           ready={launch.ready}
           onEnter={launch.enter}
           status={launch.status}
-          styles={styles}
+          qualifier={launch.qualifier}
+          entryLabel="Continue setup"
+          onFirstFrame={launch.markFirstFrameReady}
         />
       </SafeAreaView>
     );
@@ -1776,324 +2063,169 @@ export function AppShell() {
     );
   }
 
-  if (landscapeFidsActive) {
+  if (!MOBILE_V2_ROLLOUT_ENABLED) {
     return (
-      <LandscapeFidsMode
-        rows={rows}
-        view={view}
-        loading={refreshing}
-        error={error}
-        live={isLive}
-        airportCode={airportCode}
-        airportName={airportName}
-        sourceLabel={sourceLabel}
-        utcTime={utcTime}
-        localTime={localTime}
-        metar={snapshot.metar}
-        weatherDisplayMode={weatherDisplayMode}
-        pinnedCallsign={pinnedCallsign}
-      />
+      <SafeAreaView style={styles.setupSafe} edges={["top", "bottom", "left", "right"]}>
+        <StatusBar barStyle={statusBarStyle} hidden={false} />
+        <View style={styles.setupSuccessCard}>
+          <Text style={styles.setupSuccessTitle}>Mobile V2 is disabled for this internal build.</Text>
+        </View>
+      </SafeAreaView>
     );
   }
+
+  const connectionLabel = connectionState === "lan"
+    ? "Connected nearby"
+    : connectionState === "remote" || connectionState === "live"
+      ? "Connected remotely"
+      : "Offline";
+  const freshnessLabel = boardFreshnessLabel(state?.last_success_utc, !isLive || Boolean(boardError));
+  const handleV2SectionFocus = (section: MobileSection) => {
+    const target: Screen = section === "board"
+      ? "fids"
+      : section === "radar"
+        ? "radar"
+        : section === "history"
+          ? "history"
+          : isStandalone
+            ? "settings"
+            : "control";
+    setScreen(target);
+  };
+
+  const mobileSession: MobileSessionValue = {
+    board: {
+      rows,
+      view,
+      airportCode,
+      airportName,
+      airportLocation,
+      localTime,
+      utcTime,
+      updatedLabel: freshnessLabel,
+      connectionLabel,
+      metar: snapshot.metar,
+      pinnedCallsign,
+      refreshing: Boolean(refreshingByTarget.fids),
+      error: boardError,
+      layoutClass: layout.sizeClass,
+      contentPaddingBottom: screenContentPadding,
+      nativeNavigation: nativeNavigation.usesNativeLiquidGlassTabs,
+      displayPageSeconds: snapshot.standalone_policy?.display_page_seconds || cfg?.web_rotation_seconds || 8,
+      onRefresh: () => { hapticLight(); void refreshScreen({ target: "fids" }); },
+      onViewChange: setView,
+      onOpenDetail: openFidsDetail,
+      onOpenActions: setActionRow,
+      onTogglePin: (row) => void togglePinnedFlight(row),
+      onOpenAirport: () => isStandalone ? setStandaloneAirportSheetVisible(true) : setConfigSheetVisible(true),
+      onOpenWeather: () => setWeatherSheetVisible(true),
+      onOpenDisplay: openMobileDisplay
+    },
+    radar: {
+      data: radarData,
+      groundData: radarGroundData,
+      groundError: radarGroundError,
+      metar: snapshot.metar,
+      radiusNm: radarRadius,
+      radiusOptions: isStandalone ? [1, 3, 5, 10] : [1, 2, 3, 5, 10, 20, 40],
+      drawingLayers: effectiveRadarDrawingLayers,
+      standalone: isStandalone,
+      refreshing: Boolean(refreshingByTarget.radar),
+      error: radarError,
+      updatedLabel: freshnessLabel,
+      layoutClass: layout.sizeClass,
+      contentPaddingBottom: screenContentPadding,
+      nativeNavigation: nativeNavigation.usesNativeLiquidGlassTabs,
+      onRefresh: () => { hapticLight(); void refreshScreen({ target: "radar", forceRadarGround: true }); },
+      onRadiusChange: setRadarRadius,
+      onDrawingLayersChange: chooseRadarDrawingLayers,
+      onOpenDetail: openRadarDetail,
+      onOpenWeather: () => setWeatherSheetVisible(true)
+    },
+    history: {
+      data: historyData,
+      summary: historySummary,
+      direction: historyDirection,
+      hours: historyHours,
+      callsign: historyCallsign,
+      airline: historyAirline,
+      refreshing: Boolean(refreshingByTarget.history),
+      error: historyError,
+      layoutClass: layout.sizeClass,
+      contentPaddingBottom: screenContentPadding,
+      nativeNavigation: nativeNavigation.usesNativeLiquidGlassTabs,
+      filterRequestKey: historyFilterRequestKey,
+      onRefresh: () => { hapticLight(); void refreshScreen({ target: "history" }); },
+      onApplyFilters: (filters) => {
+        const unchanged = filters.direction === historyDirection
+          && filters.hours === historyHours
+          && filters.callsign === historyCallsign
+          && filters.airline === historyAirline;
+        setHistoryDirection(filters.direction);
+        setHistoryHours(filters.hours);
+        setHistoryCallsign(filters.callsign);
+        setHistoryAirline(filters.airline);
+        if (unchanged) void refreshScreen({ target: "history" });
+      },
+      onOpenDetail: openHistoryDetail
+    },
+    notices: visibleNotices,
+    onNoticeAction: handleNoticeAction,
+    onSectionFocus: handleV2SectionFocus,
+    onRefreshCurrent: () => void refreshScreen({
+      target: screen,
+      forceRadarGround: screen === "radar",
+      includeDashboard: screenNeedsDashboard(screen, isStandalone)
+    }),
+    onOpenSearchOrFilter: () => {
+      navigateMobileSection("history");
+      setHistoryFilterRequestKey((value) => value + 1);
+    },
+    onDismissTransientSurface: () => {
+      setActionRow(null);
+      setConfigSheetVisible(false);
+      setWeatherSheetVisible(false);
+      setStandaloneAirportSheetVisible(false);
+      closeFlightDetail();
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <StatusBar barStyle={statusBarStyle} hidden={false} />
-      <View style={[styles.appFrame, { maxWidth: contentWidth }]}>
-        <Header
-          variant={screen === "fids" ? "expanded" : "compact"}
-          airportCode={airportCode}
-          airportIcao={airportIcao}
-          airportName={airportName}
-          airportLocation={airportLocation}
-          connectionState={connectionState}
-          live={isLive}
-          error={error}
-          utcTime={utcTime}
-          localTime={localTime}
-          metar={snapshot.metar}
-          weatherDisplayMode={weatherDisplayMode}
-          pinnedRow={islandRow}
-          islandPinned={Boolean(islandRow && flightPinKey(islandRow) === pinnedCallsign)}
-          onOpenDetail={openFidsDetail}
-          onOpenActions={setActionRow}
-          onTogglePin={togglePinnedFlight}
-          onOpenConfig={() => {
-            if (isStandalone) {
-              setStandaloneAirportSheetVisible(true);
-              return;
-            }
-            setConfigSheetVisible(true);
+      <MobileSessionProvider value={mobileSession}>
+        <MobileNavigatorV2
+          nativeNavigation={nativeNavigation}
+          more={{
+            airportCode,
+            airportName,
+            connectionLabel,
+            standalone: isStandalone,
+            layoutClass: layout.sizeClass,
+            refreshing,
+            widgetRefreshing: Boolean(refreshingByTarget.fids),
+            contentPaddingBottom: screenContentPadding,
+            nativeNavigation: nativeNavigation.usesNativeLiquidGlassTabs,
+            supportPurchases,
+            widgetPreview,
+            widgetPreferences,
+            widgetSnapshotLabel,
+            liveActivitySupported,
+            weatherDisplayMode,
+            diagnosticsMode: mobileDiagnosticsMode,
+            onRefresh: () => void refreshScreen({
+              target: isStandalone ? "settings" : "control",
+              includeDashboard: true
+            }),
+            onRefreshWidget: () => void refreshWidgetSnapshotNow(),
+            onWidgetPreferencesChange: (next) => void chooseWidgetPreferences(next),
+            onWeatherDisplayModeChange: (next) => void chooseWeatherDisplayMode(next),
+            onDiagnosticsModeChange: (next) => void chooseMobileDiagnosticsMode(next),
+            onOpenAirport: () => isStandalone ? setStandaloneAirportSheetVisible(true) : setConfigSheetVisible(true),
+            onRerunSetup: rerunCompanionSetup
           }}
-          onOpenWeather={() => setWeatherSheetVisible(true)}
-          onOpenBoard={() => setScreen("fids")}
         />
-
-        {visibleNotices.map((notice) => (
-          <NoticeCard key={notice.code} notice={notice} onAction={() => handleNoticeAction(notice)} />
-        ))}
-
-        <Animated.View
-          style={[
-            styles.mainArea,
-            {
-              opacity: screenOpacity,
-              transform: [{ translateY: screenLift }]
-            }
-          ]}
-        >
-          {screen === "fids" ? (
-            <FidsScreen
-              rows={rows}
-              view={view}
-              loading={refreshing}
-              refreshing={refreshing}
-              activity={activity}
-              error={error}
-              showConnectPrompt={!dataReady && !isStandalone}
-              standalone={isStandalone}
-              onOpenSettings={() => setScreen(isStandalone ? "settings" : "control")}
-              onRefresh={() => { hapticLight(); refreshScreen({ target: "fids" }); }}
-              onViewChange={setView}
-              onOpenDetail={openFidsDetail}
-              onOpenActions={setActionRow}
-              pinnedCallsign={pinnedCallsign}
-              sourceLabel={sourceLabel}
-              snapshotPulse={state?.last_success_utc || (rows.length ? `rows:${rows.length}` : "waiting")}
-              contentPaddingBottom={screenContentPadding}
-            />
-          ) : null}
-
-          {screen === "history" ? (
-            <HistoryScreen
-              data={historyData}
-              summary={historySummary}
-              direction={historyDirection}
-              hours={historyHours}
-              callsign={historyCallsign}
-              airline={historyAirline}
-              loading={refreshing}
-              refreshing={refreshing}
-              activity={activity}
-              error={error}
-              showConnectPrompt={!dataReady && !isStandalone}
-              standalone={isStandalone}
-              onOpenSettings={() => setScreen(isStandalone ? "settings" : "control")}
-              onRefresh={() => { hapticLight(); refreshScreen({ target: "history" }); }}
-              onDirectionChange={setHistoryDirection}
-              onHoursChange={setHistoryHours}
-              onCallsignChange={setHistoryCallsign}
-              onAirlineChange={setHistoryAirline}
-              onApplyFilters={() => refreshScreen({ target: "history" })}
-              onOpenDetail={openHistoryDetail}
-              contentPaddingBottom={screenContentPadding}
-            />
-          ) : null}
-
-          {screen === "radar" ? (
-            <RadarScreen
-              data={radarData}
-              groundData={radarGroundData}
-              groundError={radarGroundError}
-              metar={snapshot.metar}
-              weatherDisplayMode={weatherDisplayMode}
-              radiusNm={radarRadius}
-              loading={refreshing}
-              refreshing={refreshing}
-              activity={activity}
-              error={error}
-              showConnectPrompt={!dataReady && !isStandalone}
-              onOpenSettings={() => setScreen(isStandalone ? "settings" : "control")}
-              onRefresh={() => { hapticLight(); refreshScreen({ target: "radar", forceRadarGround: true }); }}
-              onRadiusChange={setRadarRadius}
-              radiusOptions={isStandalone ? [1, 3, 5, 10] : undefined}
-              drawingLayers={effectiveRadarDrawingLayers}
-              standalone={isStandalone}
-              onDrawingLayersChange={chooseRadarDrawingLayers}
-              onOpenDetail={openRadarDetail}
-              compact={false}
-              contentPaddingBottom={screenContentPadding}
-            />
-          ) : null}
-
-          {screen === "control" || screen === "settings" ? (
-            <ScrollView
-              style={styles.screenScroll}
-              contentContainerStyle={[styles.screenContent, { paddingBottom: screenContentPadding }]}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  tintColor={palette.blue}
-                  onRefresh={() => refreshScreen({ target: screen, includeDashboard: screenNeedsDashboard(screen, isStandalone) })}
-                />
-              }
-            >
-              {!dataReady && !isStandalone ? (
-                <ConnectPrompt onSettings={() => setScreen("control")} />
-              ) : null}
-
-              {activity && !error && !refreshing ? <ScreenActivity activity={activity} /> : null}
-
-              {error && !refreshing ? (
-                <ScreenError
-                  message={error}
-                  retrying={false}
-                  onRetry={() => { hapticLight(); refreshScreen({ target: screen }); }}
-                />
-              ) : null}
-
-              {screen === "settings" && isStandalone ? (
-                <StandaloneSettingsScreen
-                  snapshot={snapshot}
-                  rows={rows}
-                  view={view}
-                  pinnedCallsign={pinnedCallsign}
-                  companionIdentity={companionIdentity}
-                  connected={isLive}
-                  airportCode={airportCode}
-                  airportName={airportName}
-                  relayTokenPrefix={mobileSetupState.relayActivationToken?.slice(0, 10) || "not set"}
-                  themeMode={themeMode}
-                  skin={skin}
-                  weatherDisplayMode={weatherDisplayMode}
-                  widgetPreferences={widgetPreferences}
-                  widgetSnapshotLabel={widgetSnapshotLabel}
-                  widgetRefreshing={refreshing}
-                  mobileDiagnosticsMode={mobileDiagnosticsMode}
-                  supportPurchases={supportPurchases}
-                  feedbackTitle={feedbackTitle}
-                  feedbackDescription={feedbackDescription}
-                  feedbackSending={feedbackSending}
-                  feedbackMessage={feedbackMessage}
-                  feedbackTone={feedbackTone}
-                  onThemeModeChange={setThemeMode}
-                  onSkinChange={setSkin}
-                  onWeatherDisplayModeChange={chooseWeatherDisplayMode}
-                  onWidgetPreferencesChange={(next) => void chooseWidgetPreferences(next)}
-                  onRefreshWidget={() => void refreshWidgetSnapshotNow()}
-                  onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
-                  onRerunSetup={rerunCompanionSetup}
-                  onFeedbackTitleChange={setFeedbackTitle}
-                  onFeedbackDescriptionChange={setFeedbackDescription}
-                  onSubmitFeedback={sendFeedbackReport}
-                />
-              ) : null}
-
-              {screen === "control" && !isStandalone ? (
-                <ControlScreen
-                  snapshot={snapshot}
-                  rows={rows}
-                  view={view}
-                  pinnedCallsign={pinnedCallsign}
-                  error={error}
-                  serverUrl={serverUrl}
-                  draftUrl={draftUrl}
-                  loading={loading}
-                  isTablet={layout.isTablet}
-                  isLandscape={layout.isLandscape}
-                  themeMode={themeMode}
-                  skin={skin}
-                  weatherDisplayMode={weatherDisplayMode}
-                  widgetPreferences={widgetPreferences}
-                  widgetSnapshotLabel={widgetSnapshotLabel}
-                  widgetRefreshing={refreshing}
-                  mobileDiagnosticsMode={mobileDiagnosticsMode}
-                  supportPurchases={supportPurchases}
-                  profiles={profiles}
-                  activeProfileId={activeProfileId}
-                  applyingProfileId={applyingProfileId}
-                  outputs={snapshot.config?.display_outputs || []}
-                  refreshSeconds={snapshot.config?.refresh_seconds ?? null}
-                  schedulerRestarting={schedulerRestarting}
-                  schedulerMessage={schedulerMessage}
-                  pairingNotice={pairingNotice}
-                  serverPanelRequest={serverPanelRequest}
-                  matrixRuntime={matrixRuntime}
-                  matrixDirty={matrixDirty}
-                  matrixSaving={matrixSaving}
-                  matrixSaveMessage={matrixSaveMessage}
-                  matrixSaveTone={matrixSaveTone}
-                  companionIdentity={companionIdentity}
-                  connected={isLive}
-                  connectionState={connectionState}
-                  remoteCompanionGrant={mobileSetupState.remoteCompanion || null}
-                  onThemeModeChange={setThemeMode}
-                  onSkinChange={setSkin}
-                  onWeatherDisplayModeChange={chooseWeatherDisplayMode}
-                  onWidgetPreferencesChange={(next) => void chooseWidgetPreferences(next)}
-                  onRefreshWidget={() => void refreshWidgetSnapshotNow()}
-                  onMobileDiagnosticsModeChange={chooseMobileDiagnosticsMode}
-                  onMatrixPresetChange={(preset) => updateMatrixDraft({ preset })}
-                  onMatrixViewChange={(nextView) => updateMatrixDraft({ default_view: nextView })}
-                  onMatrixWeatherToggle={(enabled) => updateMatrixDraft({
-                    options: {
-                      ...matrixRuntime.options,
-                      show_metar: enabled,
-                      show_weather: enabled
-                    }
-                  })}
-                  onMatrixGateToggle={(enabled) => updateMatrixDraft({
-                    show_gate_info: enabled,
-                    options: {
-                      ...matrixRuntime.options,
-                      show_gate_info: enabled
-                    }
-                  })}
-                  onMatrixPaletteChange={(nextPalette) => updateMatrixDraft({
-                    palette: nextPalette,
-                    options: {
-                      ...matrixRuntime.options,
-                      palette: nextPalette
-                    }
-                  })}
-                  onMatrixBrightnessChange={(brightness) => updateMatrixDraft({ brightness })}
-                  onMatrixRowsChange={(maxRows) => updateMatrixDraft({ max_rows: maxRows })}
-                  onMatrixRotationChange={(pageRotationSeconds) => updateMatrixDraft({ page_rotation_seconds: pageRotationSeconds })}
-                  onMatrixAnimationModeChange={(animationMode) => updateMatrixDraft({
-                    animation_enabled: animationMode !== "static",
-                    animation_mode: animationMode,
-                    options: {
-                      ...matrixRuntime.options,
-                      animation_mode: animationMode
-                    }
-                  })}
-                  onMatrixAnimationSpeedChange={(animationSpeed) => updateMatrixDraft({ animation_speed: animationSpeed })}
-                  onMatrixStatusAnimationToggle={(enabled) => updateMatrixDraft({ status_animation_enabled: enabled })}
-                  onMatrixRefreshChange={(nextRefreshSeconds) => updateMatrixDraft({ refresh_seconds: nextRefreshSeconds })}
-                  onMatrixSave={() => void saveMatrixDraftNow()}
-                  onMatrixReset={() => void resetMatrixDraft()}
-                  onApplyProfile={(profile) => void applySettingsProfile(profile)}
-                  onOpenConfig={() => setConfigSheetVisible(true)}
-                  feedbackTitle={feedbackTitle}
-                  feedbackDescription={feedbackDescription}
-                  feedbackSending={feedbackSending}
-                  feedbackMessage={feedbackMessage}
-                  feedbackTone={feedbackTone}
-                  onFeedbackTitleChange={setFeedbackTitle}
-                  onFeedbackDescriptionChange={setFeedbackDescription}
-                  onSubmitFeedback={sendFeedbackReport}
-                  onRestartScheduler={restartSchedulerNow}
-                  onRerunSetup={rerunCompanionSetup}
-                  onForgetRemoteCompanion={() => void forgetRemoteCompanion()}
-                  onChangeUrl={setDraftUrl}
-                  onPairingUrl={connectPairingUrl}
-                  onConnect={() => void connect()}
-                />
-              ) : null}
-
-            </ScrollView>
-          ) : null}
-        </Animated.View>
-
-        <BottomNav
-          active={screen}
-          onChange={setScreen}
-          insetBottom={insets.bottom}
-          palette={palette}
-          styles={styles}
-          standalone={isStandalone}
-        />
-      </View>
+      </MobileSessionProvider>
 
       <FlightDetailSheet
         visible={detailVisible}
@@ -2119,13 +2251,15 @@ export function AppShell() {
       <FlightActionSheet
         row={actionRow}
         visible={Boolean(actionRow)}
-        isPinned={Boolean(actionRow && flightPinKey(actionRow) === pinnedCallsign)}
+        isPinned={actionRow ? flightPinKey(actionRow) === pinnedCallsign : false}
         onClose={() => setActionRow(null)}
         onOpenDetail={(callsign) => {
           setActionRow(null);
           openFidsDetail(callsign, actionRow || undefined);
         }}
         onTogglePin={togglePinnedFlight}
+        onPinAndShow={pinAndShowOnLockScreen}
+        canShowLiveActivity={liveActivitySupported}
       />
 
       <AirportConfigSheet
@@ -2139,7 +2273,7 @@ export function AppShell() {
           setSnapshot((prev) => ({ ...prev, config: newConfig }));
           void saveCachedLanConfig(newConfig);
           setConfigSheetVisible(false);
-          setSchedulerMessage("Server config saved. Asking the Pi for a fresh fetch...");
+          setSchedulerMessage("Host settings saved. Asking Local Flight for a fresh board…");
           void restartSchedulerNow();
         }}
         onProfilesChange={setProfiles}
@@ -2157,12 +2291,11 @@ export function AppShell() {
             airport,
             diagnosticsMode: mobileDiagnosticsMode
           });
-          await Promise.all([
-            saveStandaloneAirport(airport),
-            saveMobileSetupState(nextSetupState)
-          ]);
+          await Promise.all([saveStandaloneAirport(airport), saveMobileSetupState(nextSetupState)]);
           setMobileSetupState(nextSetupState);
           setAirportDetail({ ...airport, type: "large_airport" });
+          standaloneBoardRef.current = null;
+          standaloneBoardReadAtRef.current = 0;
           setRows([]);
           setHistoryData(null);
           setHistorySummary(null);
@@ -2172,6 +2305,7 @@ export function AppShell() {
           radarGroundCacheRef.current.clear();
           setStandaloneAirportSheetVisible(false);
           setScreen("fids");
+          navigateMobileSection("board");
           hapticSuccess();
         }}
       />
@@ -2181,17 +2315,17 @@ export function AppShell() {
         opacity={launch.opacity}
         shift={launch.shift}
         scale={launch.scale}
-        progress={launch.progress}
-        pulse={launch.pulse}
-        beacon={launch.beacon}
-        sweep={launch.sweep}
-        orbitFast={launch.orbitFast}
-        orbitMedium={launch.orbitMedium}
-        orbitSlow={launch.orbitSlow}
+        sequence={launch.sequence}
+        ambientSweep={launch.ambientSweep}
+        logoBreath={launch.logoBreath}
+        sequenceComplete={launch.sequenceComplete}
+        reduceMotion={launch.reduceMotion}
         ready={launch.ready}
         onEnter={launch.enter}
         status={launch.status}
-        styles={styles}
+        qualifier={launch.qualifier}
+        entryLabel="Open Board"
+        onFirstFrame={launch.markFirstFrameReady}
       />
     </SafeAreaView>
   );
@@ -2282,90 +2416,6 @@ function SetupCompleteOverlay({
   );
 }
 
-function LandscapeFidsMode({
-  rows,
-  view,
-  loading,
-  error,
-  live,
-  airportCode,
-  airportName,
-  sourceLabel,
-  utcTime,
-  localTime,
-  metar,
-  weatherDisplayMode,
-  pinnedCallsign
-}: {
-  rows: FidsRow[];
-  view: FlightView;
-  loading: boolean;
-  error: string | null;
-  live: boolean;
-  airportCode: string;
-  airportName: string;
-  sourceLabel: string;
-  utcTime: string;
-  localTime: string;
-  metar: Metar | null;
-  weatherDisplayMode: MobileWeatherDisplayMode;
-  pinnedCallsign: string;
-}) {
-  useKeepAwake("localflight-landscape-fids", { suppressDeactivateWarnings: true });
-  const reduceMotion = useReducedMotionPreference();
-  const landscapeOpacity = useRef(new Animated.Value(0)).current;
-  const landscapeScale = useRef(new Animated.Value(0.985)).current;
-
-  useEffect(() => {
-    if (reduceMotion) {
-      landscapeOpacity.setValue(1);
-      landscapeScale.setValue(1);
-      return;
-    }
-    Animated.parallel([
-      Animated.timing(landscapeOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
-      Animated.spring(landscapeScale, {
-        toValue: 1,
-        damping: 18,
-        stiffness: 180,
-        mass: 0.7,
-        useNativeDriver: true
-      })
-    ]).start();
-  }, [landscapeOpacity, landscapeScale, reduceMotion]);
-
-  return (
-    <SafeAreaView style={styles.landscapeSafe} edges={["left", "right"]}>
-      <StatusBar hidden />
-      <Animated.View
-        style={[
-          styles.landscapeFidsTransition,
-          {
-            opacity: landscapeOpacity,
-            transform: [{ scale: landscapeScale }]
-          }
-        ]}
-      >
-        <FullscreenFidsDisplay
-          rows={rows}
-          view={view}
-          loading={loading}
-          error={error}
-          live={live}
-          airportCode={airportCode}
-          airportName={airportName}
-          sourceLabel={sourceLabel}
-          utcTime={utcTime}
-          localTime={localTime}
-          metar={metar}
-          weatherDisplayMode={weatherDisplayMode}
-          pinnedCallsign={pinnedCallsign}
-        />
-      </Animated.View>
-    </SafeAreaView>
-  );
-}
-
 function createStyles() {
   const accent06 = hexToRgba(palette.blue, 0.06);
   const accent08 = hexToRgba(palette.blue, 0.08);
@@ -2407,33 +2457,21 @@ function createStyles() {
   const scopeField = lightMode ? palette.shell : "rgba(0,0,0,0.18)";
   const modalPanel = palette.shell;
   const handleColor = lightMode ? hexToRgba(palette.line, 0.5) : "rgba(255,255,255,0.18)";
+  // Companion onboarding still shares this restrained brand palette. The
+  // launch scene itself owns its semantic styles in LaunchOverlay.
   const splashBg = lightMode ? "#f5f9fc" : "#080c12";
-  const splashAtmosphere = lightMode ? hexToRgba(palette.blue, 0.16) : "rgba(18,102,139,0.22)";
-  const splashLine = lightMode ? hexToRgba(palette.line, 0.32) : "rgba(82,246,255,0.13)";
   const splashLineSoft = lightMode ? hexToRgba(palette.line, 0.18) : "rgba(213,244,255,0.08)";
   const splashAccent = lightMode ? palette.blue : "#52f6ff";
   const splashAccentSoft = lightMode ? hexToRgba(palette.blue, 0.28) : "rgba(82,246,255,0.34)";
   const splashAccentFaint = lightMode ? hexToRgba(palette.blue, 0.10) : "rgba(82,246,255,0.08)";
-  const splashTextMuted = lightMode ? hexToRgba(palette.text, 0.72) : "rgba(213,226,235,0.76)";
-  const splashTextDim = lightMode ? hexToRgba(palette.text, 0.50) : "rgba(213,226,235,0.52)";
-  const splashTextGhost = lightMode ? hexToRgba(palette.text, 0.40) : "rgba(213,226,235,0.40)";
   const splashPlate = lightMode ? "rgba(255,255,255,0.86)" : "rgba(5,12,20,0.84)";
-  const splashPlateInner = lightMode ? "rgba(245,250,255,0.94)" : "#060e18";
   const splashPlateBorder = lightMode ? hexToRgba(palette.blue, 0.34) : "rgba(216,247,255,0.30)";
   const onGreenText = lightMode && palette.skin === "high_contrast" ? "#ffffff" : "#051009";
   const onBlueText = lightMode && ["standard", "technical", "high_contrast"].includes(palette.skin) ? "#ffffff" : "#051009";
   return StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: palette.bg,
-    alignItems: "center"
-  },
-  landscapeSafe: {
-    flex: 1,
     backgroundColor: palette.bg
-  },
-  landscapeFidsTransition: {
-    flex: 1
   },
   setupSafe: {
     flex: 1,
@@ -2485,7 +2523,7 @@ function createStyles() {
   },
   setupSuccessTitle: {
     marginTop: 4,
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.text,
     fontSize: 22,
     lineHeight: 28,
@@ -2495,6 +2533,7 @@ function createStyles() {
     includeFontPadding: false
   },
   setupSuccessBody: {
+    fontFamily: UI_FONT_FAMILY,
     color: palette.textMuted,
     fontSize: 13,
     lineHeight: 19,
@@ -2521,7 +2560,7 @@ function createStyles() {
     backgroundColor: palette.green
   },
   setupSuccessButtonText: {
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: onGreenText,
     fontSize: 11,
     fontWeight: "900",
@@ -2668,12 +2707,10 @@ function createStyles() {
   },
   companionSetupCompactMeta: {
     marginTop: 3,
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.blue2,
-    fontSize: 8,
-    fontWeight: "900",
-    letterSpacing: 1.3,
-    textTransform: "uppercase",
+    fontSize: 11,
+    fontWeight: "700",
     includeFontPadding: false
   },
   companionSetupCompactBeacon: {
@@ -2711,26 +2748,27 @@ function createStyles() {
     backgroundColor: splashAccent
   },
   companionSetupEyebrow: {
+    fontFamily: UI_FONT_FAMILY,
     color: palette.blue2,
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "800",
     letterSpacing: 2.4,
     textAlign: "center"
   },
   companionSetupTitle: {
     marginTop: 7,
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.text,
     fontSize: 27,
     fontWeight: "800",
-    letterSpacing: 0.8,
     textAlign: "center"
   },
   companionSetupBody: {
+    fontFamily: UI_FONT_FAMILY,
     marginTop: 8,
     color: palette.textMuted,
-    fontSize: 12.5,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 21,
     textAlign: "center"
   },
   companionSetupRoute: {
@@ -2763,7 +2801,7 @@ function createStyles() {
   companionSetupStepNumber: {
     fontFamily: mono,
     color: palette.textDim,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "900",
     textAlign: "center",
     includeFontPadding: false
@@ -2772,13 +2810,11 @@ function createStyles() {
     color: palette.green
   },
   companionSetupStepLabel: {
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.textDim,
-    fontSize: 7,
-    fontWeight: "800",
-    letterSpacing: 0.8,
+    fontSize: 11,
+    fontWeight: "700",
     textAlign: "center",
-    textTransform: "uppercase",
     includeFontPadding: false
   },
   companionSetupStepLabelActive: {
@@ -2796,11 +2832,10 @@ function createStyles() {
     backgroundColor: lightMode ? "rgba(255,255,255,0.7)" : "rgba(14,23,34,0.76)"
   },
   companionSetupPanelTitle: {
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.text,
-    fontSize: 17,
+    fontSize: 19,
     fontWeight: "800",
-    letterSpacing: 0.6,
     textAlign: "center"
   },
   companionSetupChecklist: {
@@ -2830,15 +2865,17 @@ function createStyles() {
     minWidth: 0
   },
   companionSetupChecklistTitle: {
+    fontFamily: UI_FONT_FAMILY,
     color: palette.text,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "800"
   },
   companionSetupChecklistBody: {
+    fontFamily: UI_FONT_FAMILY,
     marginTop: 2,
     color: palette.textMuted,
-    fontSize: 10.5,
-    lineHeight: 15
+    fontSize: 13,
+    lineHeight: 18
   },
   companionSetupInfoGrid: {
     flexDirection: "row",
@@ -2856,15 +2893,14 @@ function createStyles() {
     backgroundColor: accent06
   },
   companionSetupInfoLabel: {
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.textDim,
-    fontSize: 8,
-    fontWeight: "800",
-    letterSpacing: 1.3,
-    textTransform: "uppercase"
+    fontSize: 11,
+    fontWeight: "700"
   },
   companionSetupInfoValue: {
     marginTop: 5,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.text,
     fontSize: 12,
     fontWeight: "800"
@@ -2877,11 +2913,10 @@ function createStyles() {
     backgroundColor: fieldPanel
   },
   companionSetupExampleLabel: {
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.textDim,
-    fontSize: 8,
-    fontWeight: "900",
-    letterSpacing: 1.3,
+    fontSize: 11,
+    fontWeight: "700",
     includeFontPadding: false
   },
   companionSetupExampleText: {
@@ -2921,8 +2956,8 @@ function createStyles() {
     minHeight: 48,
     paddingVertical: 0,
     color: palette.text,
-    fontFamily: mono,
-    fontSize: 13
+    fontFamily: NATIVE_FONT_FAMILY,
+    fontSize: 15
   },
   companionSetupInputStatus: {
     width: 32,
@@ -2934,6 +2969,7 @@ function createStyles() {
   },
   companionSetupUrlHint: {
     marginTop: -4,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.textMuted,
     fontSize: 11,
     lineHeight: 16
@@ -2955,14 +2991,13 @@ function createStyles() {
     backgroundColor: palette.green
   },
   companionSetupPrimaryText: {
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: onGreenText,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 1.2,
+    fontSize: 15,
+    fontWeight: "700",
     textAlign: "center",
     includeFontPadding: false,
-    lineHeight: 14
+    lineHeight: 20
   },
   companionSetupSecondary: {
     minHeight: 38,
@@ -2976,14 +3011,13 @@ function createStyles() {
     backgroundColor: softPanel
   },
   companionSetupSecondaryText: {
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.blue2,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.1,
+    fontSize: 14,
+    fontWeight: "700",
     textAlign: "center",
     includeFontPadding: false,
-    lineHeight: 12
+    lineHeight: 19
   },
   companionSetupProgressRail: {
     gap: 10,
@@ -3004,6 +3038,7 @@ function createStyles() {
   },
   companionSetupProgressText: {
     flex: 1,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.textMuted,
     fontSize: 12,
     lineHeight: 17
@@ -3032,12 +3067,10 @@ function createStyles() {
     backgroundColor: palette.green
   },
   companionSetupProgressStepText: {
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.textDim,
-    fontSize: 8,
-    fontWeight: "800",
-    letterSpacing: 0.7,
-    textTransform: "uppercase",
+    fontSize: 11,
+    fontWeight: "700",
     includeFontPadding: false
   },
   companionSetupOptionStack: {
@@ -3062,23 +3095,24 @@ function createStyles() {
     gap: 10
   },
   companionSetupOptionTitle: {
+    fontFamily: UI_FONT_FAMILY,
     color: palette.text,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: "800"
   },
   companionSetupRecommended: {
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.green,
-    fontSize: 8,
-    fontWeight: "900",
-    letterSpacing: 1,
+    fontSize: 11,
+    fontWeight: "700",
     includeFontPadding: false
   },
   companionSetupOptionBody: {
     marginTop: 5,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.textMuted,
-    fontSize: 11,
-    lineHeight: 16
+    fontSize: 14,
+    lineHeight: 20
   },
   companionSetupSummary: {
     padding: 12,
@@ -3096,14 +3130,14 @@ function createStyles() {
     backgroundColor: warn08
   },
   companionSetupErrorLabel: {
-    fontFamily: mono,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.amber,
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 1.2
+    fontSize: 12,
+    fontWeight: "700"
   },
   companionSetupErrorText: {
     marginTop: 5,
+    fontFamily: UI_FONT_FAMILY,
     color: palette.text,
     fontSize: 12,
     lineHeight: 18
@@ -3174,340 +3208,6 @@ function createStyles() {
     borderLeftWidth: 1,
     borderRightWidth: 1,
     borderColor: palette.line
-  },
-  launchOverlay: {
-    zIndex: 40,
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 14,
-    backgroundColor: splashBg,
-    overflow: "hidden"
-  },
-  launchAtmosphere: {
-    position: "absolute",
-    top: -110,
-    left: -110,
-    right: -110,
-    height: "62%",
-    borderBottomLeftRadius: 999,
-    borderBottomRightRadius: 999,
-    backgroundColor: splashAtmosphere,
-    opacity: lightMode ? 0.86 : 0.74
-  },
-  launchGlowNorth: {
-    position: "absolute",
-    top: -180,
-    left: "12%",
-    right: "12%",
-    height: 360,
-    borderRadius: 999,
-    backgroundColor: splashAccentFaint
-  },
-  launchGlowSouth: {
-    position: "absolute",
-    left: -70,
-    right: -70,
-    bottom: -160,
-    height: 320,
-    borderRadius: 999,
-    backgroundColor: lightMode ? hexToRgba(palette.blue2, 0.08) : splashAccentFaint
-  },
-  launchSkyGrid: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "space-evenly",
-    opacity: lightMode ? 0.34 : 0.22
-  },
-  launchGridLine: {
-    height: 1,
-    backgroundColor: splashLine
-  },
-  launchCrosshairHorizontal: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: splashLineSoft
-  },
-  launchCrosshairVertical: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: 1,
-    backgroundColor: splashLineSoft
-  },
-  launchParticle: {
-    position: "absolute",
-    borderRadius: 999,
-    backgroundColor: splashAccent,
-    shadowColor: splashAccent,
-    shadowOpacity: lightMode ? 0.32 : 0.72,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 0 }
-  },
-  launchOrbitRing: {
-    position: "absolute",
-    borderRadius: 999,
-    borderWidth: 1
-  },
-  launchOrbitRingSlow: {
-    borderColor: splashLineSoft,
-    borderLeftColor: splashAccentSoft,
-    borderBottomColor: splashAccentFaint
-  },
-  launchOrbitRingMedium: {
-    borderWidth: 2,
-    borderColor: lightMode ? hexToRgba(palette.blue, 0.16) : "rgba(213,244,255,0.14)",
-    borderTopColor: splashAccentSoft,
-    borderRightColor: lightMode ? hexToRgba(palette.blue2, 0.28) : "rgba(82,246,255,0.42)"
-  },
-  launchOrbitRingFast: {
-    borderColor: lightMode ? hexToRgba(palette.blue, 0.20) : "rgba(107,231,255,0.22)",
-    borderTopColor: splashAccent,
-    borderLeftColor: "transparent"
-  },
-  launchSweepRotor: {
-    position: "absolute",
-    alignItems: "center"
-  },
-  launchSweep: {
-    position: "absolute",
-    top: "9%",
-    width: 3,
-    borderRadius: 999,
-    backgroundColor: splashAccent,
-    shadowColor: splashAccent,
-    shadowOpacity: lightMode ? 0.28 : 0.8,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 0 }
-  },
-  launchContentStack: {
-    width: "100%",
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 0
-  },
-  launchScene: {
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 20,
-    paddingVertical: 8
-  },
-  launchSceneCompact: {
-    gap: 14,
-    paddingVertical: 2
-  },
-  launchMarkWrap: {
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  launchHeroAura: {
-    position: "absolute",
-    borderRadius: 999,
-    backgroundColor: splashAccentFaint,
-    shadowColor: splashAccent,
-    shadowOpacity: lightMode ? 0.20 : 0.42,
-    shadowRadius: 32,
-    shadowOffset: { width: 0, height: 0 }
-  },
-  launchBeaconPing: {
-    position: "absolute",
-    borderWidth: 1,
-    borderColor: splashAccentSoft,
-    backgroundColor: "transparent"
-  },
-  launchRadarRing: {
-    position: "absolute",
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: lightMode ? hexToRgba(palette.blue, 0.22) : "rgba(216,247,255,0.22)"
-  },
-  launchRadarRingOuter: {
-    position: "absolute",
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: splashLineSoft,
-    borderLeftColor: splashAccentSoft,
-    borderBottomColor: splashAccentFaint
-  },
-  launchTarget: {
-    position: "absolute",
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: splashAccentSoft,
-    backgroundColor: splashAccentFaint
-  },
-  launchTargetCore: {
-    position: "absolute",
-    borderRadius: 999,
-    borderWidth: 3,
-    borderColor: splashBg,
-    backgroundColor: splashAccent,
-    shadowColor: splashAccent,
-    shadowOpacity: lightMode ? 0.36 : 0.9,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 0 }
-  },
-  launchIconBloom: {
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: splashAccent,
-    shadowOpacity: lightMode ? 0.26 : 0.46,
-    shadowRadius: 34,
-    shadowOffset: { width: 0, height: 0 }
-  },
-  launchIconPlate: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: splashPlate,
-    borderWidth: 1,
-    borderColor: splashPlateBorder,
-    shadowColor: lightMode ? palette.blue : "#000000",
-    shadowOpacity: lightMode ? 0.18 : 0.52,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 16 }
-  },
-  launchMarkCrop: {
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: splashPlateInner,
-    borderWidth: 1,
-    borderColor: splashPlateBorder
-  },
-  launchMark: {
-    width: "108%",
-    height: "108%"
-  },
-  launchCopy: {
-    width: "100%",
-    maxWidth: 400,
-    alignItems: "center"
-  },
-  launchTitle: {
-    marginTop: 0,
-    fontFamily: brand,
-    color: palette.text,
-    fontSize: 38,
-    lineHeight: 42,
-    fontWeight: "400",
-    letterSpacing: 0,
-    textAlign: "center",
-    includeFontPadding: false
-  },
-  launchTitleCompact: {
-    fontSize: 31,
-    lineHeight: 35
-  },
-  launchSubtitle: {
-    marginTop: 10,
-    color: splashTextMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: "center",
-    maxWidth: 360
-  },
-  launchStatusPanel: {
-    width: "100%",
-    maxWidth: 360,
-    marginTop: 18,
-    paddingHorizontal: 14
-  },
-  launchStatusRow: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 9
-  },
-  launchStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: splashAccent,
-    shadowColor: splashAccent,
-    shadowOpacity: lightMode ? 0.36 : 0.9,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 0 }
-  },
-  launchStatus: {
-    fontFamily: mono,
-    color: splashTextDim,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1.4,
-    textTransform: "uppercase",
-    includeFontPadding: false
-  },
-  launchProgressTrack: {
-    width: "100%",
-    height: 4,
-    marginTop: 13,
-    overflow: "hidden",
-    borderRadius: 999,
-    backgroundColor: lightMode ? hexToRgba(palette.line, 0.28) : "rgba(213,244,255,0.12)"
-  },
-  launchProgressFill: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: splashAccent
-  },
-  launchEnterButton: {
-    alignSelf: "center",
-    marginTop: 15,
-    minHeight: 39,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 18,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: splashAccentSoft,
-    backgroundColor: lightMode ? hexToRgba(palette.blue2, 0.14) : "rgba(82,246,255,0.12)"
-  },
-  launchEnterText: {
-    fontFamily: mono,
-    color: palette.text,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    includeFontPadding: false
-  },
-  launchBottomMeta: {
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    minHeight: 56
-  },
-  launchVersion: {
-    marginLeft: 5,
-    fontFamily: mono,
-    color: splashTextGhost,
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 0.9,
-    includeFontPadding: false
-  },
-  launchBeaconFooter: {
-    minHeight: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    opacity: lightMode ? 0.86 : 0.78
-  },
-  launchBeaconText: {
-    fontFamily: mono,
-    color: splashTextGhost,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 1.6,
-    includeFontPadding: false
   },
   header: {
     paddingTop: 10,
@@ -5608,6 +5308,13 @@ function createStyles() {
     fontSize: 8,
     fontWeight: "700",
     letterSpacing: 1,
+    marginBottom: 10
+  },
+  historyPanelHint: {
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: -4,
     marginBottom: 10
   },
   historyDelayStack: {

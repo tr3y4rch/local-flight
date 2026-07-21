@@ -1,24 +1,30 @@
 import ActivityKit
 import SwiftUI
+import WidgetKit
 
+@available(iOS 16.1, *)
 struct LocalFlightActivityAttributesV2: ActivityAttributes {
   struct ContentState: Codable, Hashable {
     var statusDisplay: String
     var statusTone: String
     var gate: String?
+    var gateLabel: String?
     var stale: Bool
     var lastUpdatedLabel: String
   }
 
+  let flightID: String
   let flightDisplay: String
+  let direction: String
   let routeName: String
   let routeCode: String
-  let originCode: String
+  let airportCode: String
   let displayTime: String
 }
 
 private let diScheme = ColorScheme.dark
 
+@available(iOS 16.1, *)
 struct LFDICompactLeadingV2: View {
   let attributes: LocalFlightActivityAttributesV2
   let state: LocalFlightActivityAttributesV2.ContentState
@@ -33,26 +39,35 @@ struct LFDICompactLeadingV2: View {
   }
 }
 
+@available(iOS 16.1, *)
 struct LFDICompactTrailingV2: View {
   let state: LocalFlightActivityAttributesV2.ContentState
 
   var body: some View {
-    Text(state.statusDisplay.uppercased())
+    Text(state.stale ? "Stale" : state.statusDisplay)
       .font(LocalFlightWidgetFont.boardBold(size: 12))
       .lineLimit(1)
       .minimumScaleFactor(0.65)
-      .foregroundStyle(LFWidgetDesignV2.statusColor(tone: state.statusTone, scheme: diScheme))
+      .foregroundStyle(LFWidgetDesignV2.statusColor(
+        tone: state.stale ? "delayed" : state.statusTone,
+        scheme: diScheme
+      ))
       .padding(.trailing, 4)
   }
 }
 
+@available(iOS 16.1, *)
 struct LFDIMinimalV2: View {
   let state: LocalFlightActivityAttributesV2.ContentState
 
   var body: some View {
     Circle()
-      .fill(LFWidgetDesignV2.statusColor(tone: state.statusTone, scheme: diScheme).opacity(0.88))
+      .fill(LFWidgetDesignV2.statusColor(
+        tone: state.stale ? "delayed" : state.statusTone,
+        scheme: diScheme
+      ).opacity(0.88))
       .frame(width: 10, height: 10)
+      .accessibilityLabel(state.stale ? "Flight information stale" : state.statusDisplay)
   }
 }
 
@@ -60,12 +75,13 @@ struct LFDIMinimalV2: View {
 // Route/destination content intentionally lives only in the bottom region so it
 // cannot compete with the TrueDepth camera area.
 
+@available(iOS 16.1, *)
 struct LFDIExpandedLeadingV2: View {
   let attributes: LocalFlightActivityAttributesV2
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
-      sectionLabel("PINNED")
+      sectionLabel("Pinned flight")
       Text(attributes.flightDisplay)
         .font(LocalFlightWidgetFont.boardBold(size: 22))
         .lineLimit(1)
@@ -76,6 +92,7 @@ struct LFDIExpandedLeadingV2: View {
   }
 }
 
+@available(iOS 16.1, *)
 struct LFDIExpandedTrailingV2: View {
   let attributes: LocalFlightActivityAttributesV2
   let state: LocalFlightActivityAttributesV2.ContentState
@@ -83,7 +100,7 @@ struct LFDIExpandedTrailingV2: View {
   var body: some View {
     VStack(alignment: .trailing, spacing: 4) {
       LFStatusCapsuleV2(
-        label: state.stale ? "STALE" : state.statusDisplay,
+        label: state.stale ? "Stale" : state.statusDisplay,
         tone: state.stale ? "delayed" : state.statusTone,
         scheme: diScheme
       )
@@ -96,6 +113,7 @@ struct LFDIExpandedTrailingV2: View {
   }
 }
 
+@available(iOS 16.1, *)
 struct LFDIExpandedBottomV2: View {
   let attributes: LocalFlightActivityAttributesV2
   let state: LocalFlightActivityAttributesV2.ContentState
@@ -103,8 +121,8 @@ struct LFDIExpandedBottomV2: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
       HStack(alignment: .center, spacing: 8) {
-        airportCode(attributes.originCode)
-        DottedRoutePointerV2(tone: state.statusTone)
+        origin
+        DottedRoutePointerV2(tone: state.stale ? "delayed" : state.statusTone)
           .frame(maxWidth: .infinity)
         destination
       }
@@ -112,10 +130,10 @@ struct LFDIExpandedBottomV2: View {
 
       HStack(spacing: 10) {
         if let gate = state.gate, !gate.isEmpty {
-          footerPair(label: "GATE", value: gate)
+        footerPair(label: state.gateLabel == "TERM" ? "Terminal" : "Gate", value: gate)
         }
         Spacer(minLength: 8)
-        footerPair(label: state.stale ? "STATE" : "UPDATED", value: state.stale ? "STALE" : state.lastUpdatedLabel)
+        footerPair(label: state.stale ? "State" : "Updated", value: state.stale ? "Stale" : state.lastUpdatedLabel)
       }
       .padding(.horizontal, 4)
     }
@@ -123,8 +141,29 @@ struct LFDIExpandedBottomV2: View {
     .padding(.bottom, 4)
   }
 
+  @ViewBuilder
+  private var origin: some View {
+    if attributes.direction == "arr" {
+      routeEndpoint(alignment: .leading, frameAlignment: .leading)
+    } else {
+      airportCode(attributes.airportCode)
+    }
+  }
+
+  @ViewBuilder
   private var destination: some View {
-    VStack(alignment: .trailing, spacing: 1) {
+    if attributes.direction == "arr" {
+      airportCode(attributes.airportCode)
+    } else {
+      routeEndpoint(alignment: .trailing, frameAlignment: .trailing)
+    }
+  }
+
+  private func routeEndpoint(
+    alignment: HorizontalAlignment,
+    frameAlignment: Alignment
+  ) -> some View {
+    VStack(alignment: alignment, spacing: 1) {
       Text(attributes.routeName)
         .font(LocalFlightWidgetFont.uiBold(size: 14))
         .lineLimit(1)
@@ -137,7 +176,7 @@ struct LFDIExpandedBottomV2: View {
           .foregroundStyle(LFWidgetDesignV2.textMuted(diScheme))
       }
     }
-    .frame(maxWidth: 140, alignment: .trailing)
+    .frame(maxWidth: 140, alignment: frameAlignment)
   }
 
   private func airportCode(_ code: String) -> some View {
@@ -151,17 +190,18 @@ struct LFDIExpandedBottomV2: View {
   private func footerPair(label: String, value: String) -> some View {
     HStack(spacing: 4) {
       sectionLabel(label)
-      Text(value.uppercased())
-        .font(LocalFlightWidgetFont.boardBold(size: 10))
+      Text(value)
+        .font(LocalFlightWidgetFont.boardBold(size: 11))
         .lineLimit(1)
         .minimumScaleFactor(0.7)
-        .foregroundStyle(label == "STATE"
+        .foregroundStyle(label == "State"
           ? LFWidgetDesignV2.statusColor(tone: "delayed", scheme: diScheme)
           : LFWidgetDesignV2.textPrimary(diScheme))
     }
   }
 }
 
+@available(iOS 16.1, *)
 struct LFDIExpandedV2: View {
   let attributes: LocalFlightActivityAttributesV2
   let state: LocalFlightActivityAttributesV2.ContentState
@@ -179,6 +219,7 @@ struct LFDIExpandedV2: View {
   }
 }
 
+@available(iOS 16.1, *)
 struct LFLockScreenBannerV2: View {
   let attributes: LocalFlightActivityAttributesV2
   let state: LocalFlightActivityAttributesV2.ContentState
@@ -186,19 +227,10 @@ struct LFLockScreenBannerV2: View {
   var body: some View {
     ZStack {
       RoundedRectangle(cornerRadius: 34, style: .continuous)
-        .fill(
-          LinearGradient(
-            colors: [
-              Color(red: 0.020, green: 0.043, blue: 0.078),
-              Color(red: 0.031, green: 0.067, blue: 0.118),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-          )
-        )
+        .fill(LFWidgetDesignV2.darkWidgetBg)
 
       VStack(alignment: .leading, spacing: 0) {
-        sectionLabel("PINNED FLIGHT")
+        sectionLabel("Pinned flight")
           .padding(.top, 16)
           .padding(.horizontal, 20)
 
@@ -223,7 +255,7 @@ struct LFLockScreenBannerV2: View {
 
           Spacer()
           LFStatusCapsuleV2(
-            label: state.stale ? "STALE" : state.statusDisplay,
+            label: state.stale ? "Stale" : state.statusDisplay,
             tone: state.stale ? "delayed" : state.statusTone,
             scheme: diScheme
           )
@@ -240,14 +272,14 @@ struct LFLockScreenBannerV2: View {
         HStack {
           if let gate = state.gate, !gate.isEmpty {
             HStack(spacing: 4) {
-              sectionLabel("GATE")
+              sectionLabel(state.gateLabel == "TERM" ? "Terminal" : "Gate")
               Text(gate)
                 .font(LocalFlightWidgetFont.boardBold(size: 14))
                 .foregroundStyle(LFWidgetDesignV2.textPrimary(diScheme))
             }
           }
           Spacer()
-          sectionLabel(state.stale ? "STALE" : state.lastUpdatedLabel.uppercased())
+          sectionLabel(state.stale ? "Stale" : state.lastUpdatedLabel)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
@@ -257,15 +289,50 @@ struct LFLockScreenBannerV2: View {
 
   private var routeRow: some View {
     HStack(spacing: 4) {
-      Text(attributes.originCode)
+      Text(attributes.direction == "arr" ? attributes.routeCode : attributes.airportCode)
         .font(LocalFlightWidgetFont.boardBold(size: 10))
         .foregroundStyle(LFWidgetDesignV2.textMuted(diScheme))
       Image(systemName: "arrow.right")
         .font(.system(size: 9, weight: .bold))
         .foregroundStyle(LFWidgetDesignV2.textDim(diScheme))
-      Text(attributes.routeCode)
+      Text(attributes.direction == "arr" ? attributes.airportCode : attributes.routeCode)
         .font(LocalFlightWidgetFont.boardBold(size: 10))
         .foregroundStyle(LFWidgetDesignV2.textMuted(diScheme))
+    }
+  }
+}
+
+@available(iOSApplicationExtension 16.1, *)
+struct LocalFlightLiveActivityWidget: Widget {
+  var body: some WidgetConfiguration {
+    ActivityConfiguration(for: LocalFlightActivityAttributesV2.self) { context in
+      LFLockScreenBannerV2(attributes: context.attributes, state: context.state)
+        .widgetURL(URL(string: "localflight://widgets?liveActivity=1"))
+        .activityBackgroundTint(Color(red: 0.031, green: 0.078, blue: 0.114))
+        .activitySystemActionForegroundColor(Color(red: 0.455, green: 0.710, blue: 0.871))
+    } dynamicIsland: { context in
+      DynamicIsland {
+        DynamicIslandExpandedRegion(.leading) {
+          LFDIExpandedLeadingV2(attributes: context.attributes)
+        }
+        DynamicIslandExpandedRegion(.trailing) {
+          LFDIExpandedTrailingV2(attributes: context.attributes, state: context.state)
+        }
+        DynamicIslandExpandedRegion(.bottom) {
+          LFDIExpandedBottomV2(attributes: context.attributes, state: context.state)
+        }
+      } compactLeading: {
+        LFDICompactLeadingV2(attributes: context.attributes, state: context.state)
+      } compactTrailing: {
+        LFDICompactTrailingV2(state: context.state)
+      } minimal: {
+        LFDIMinimalV2(state: context.state)
+      }
+      .widgetURL(URL(string: "localflight://widgets?liveActivity=1"))
+      .keylineTint(LFWidgetDesignV2.statusColor(
+        tone: context.state.stale ? "delayed" : context.state.statusTone,
+        scheme: .dark
+      ))
     }
   }
 }
@@ -290,6 +357,6 @@ private struct DottedRoutePointerV2: View {
 
 private func sectionLabel(_ text: String) -> some View {
   Text(text)
-    .font(LocalFlightWidgetFont.boardBold(size: 8))
+    .font(LocalFlightWidgetFont.uiBold(size: 11))
     .foregroundStyle(LFWidgetDesignV2.textDim(diScheme))
 }

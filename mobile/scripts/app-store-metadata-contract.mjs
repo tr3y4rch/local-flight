@@ -29,8 +29,14 @@ assert.equal(metadata.name, "Local Flight");
 assert.match(metadata.promotionalText, /Companion/);
 assert.match(metadata.promotionalText, /Standalone/);
 assert.match(metadata.description, /end-to-end encrypted relay routing/);
-assert.match(metadata.description, /NO SERVER\? USE STANDALONE\./);
+assert.match(metadata.description, /NO HOST\? USE STANDALONE\./);
+assert.match(metadata.description, /Connect to a Local Flight host/);
+assert.match(metadata.description, /Use without a Local Flight host/);
+assert.match(metadata.description, /Airline schedules/);
+assert.match(metadata.description, /VATSIM traffic/);
 assert.match(metadata.description, /Home Screen widgets/);
+assert.match(metadata.description, /pinned-flight Live Activity/);
+assert.match(metadata.description, /Board \/ Radar \/ History \/ More/);
 assert.match(metadata.description, /VATSIM-focused virtual view/);
 assert.match(metadata.description, /No Local Flight account required/);
 assert.match(metadata.description, /No advertising SDKs or cross-app tracking/);
@@ -53,6 +59,7 @@ const appleCopy = [
 ].join("\n");
 assert.doesNotMatch(appleCopy, /\bAndroid\b|Google Play|TestFlight|\bbeta\b/i, "Public Apple copy must remain Apple-specific and release-ready.");
 assert.doesNotMatch(appleCopy, /provider secret|activation token|operator|admin endpoint|Linear team/i, "Internal implementation language must not leak into store copy.");
+assert.doesNotMatch(appleCopy, /\bthis phone\b|phone-only|fastest and safest/i, "Public copy must use device-neutral, substantiated language.");
 
 console.log(
   `Apple App Store metadata checks passed: subtitle ${metadata.subtitle.length}/30, ` +

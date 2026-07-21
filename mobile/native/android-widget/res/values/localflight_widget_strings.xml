@@ -1,4 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="localflight_widget_description">Pinned flight and airport board glance</string>
+  <string name="localflight_widget_name">Local Flight</string>
+  <string name="localflight_widget_airport_board">Airport board</string>
+  <string name="localflight_widget_pinned_flight">Pinned flight</string>
+  <string name="localflight_widget_next_flight">Next flight</string>
+  <string name="localflight_widget_stale">Stale</string>
+  <string name="localflight_widget_waiting">Waiting</string>
+  <string name="localflight_widget_open_app">Open app</string>
+  <string name="localflight_widget_pin_flight">Pin a flight</string>
+  <string name="localflight_widget_choose_flight">Open Local Flight to choose a flight</string>
+  <string name="localflight_widget_snapshot_prepared">Snapshot prepared by the app</string>
+  <string name="localflight_widget_prepare_board">Open Local Flight to prepare the board</string>
+  <string name="localflight_widget_waiting_board">Waiting for board data</string>
+  <string name="localflight_widget_board_columns">Time       Flight       Route       Status</string>
+  <string name="localflight_widget_prepare_widget">Open Local Flight to prepare the widget</string>
+  <string name="localflight_widget_refresh_description">Refresh Local Flight widget</string>
 </resources>

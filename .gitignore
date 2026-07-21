@@ -133,6 +133,11 @@ mobile/npm-debug.log*
 mobile/yarn-debug.log*
 mobile/yarn-error.log*
 mobile/pnpm-debug.log*
+site/node_modules/
+site/dist/
+site/.astro/
+site/playwright-report/
+site/test-results/
 
 # ── Relay server runtime (relay/) ─────────────────────
 # relay/.env  — caught by the .env rule above

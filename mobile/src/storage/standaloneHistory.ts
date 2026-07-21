@@ -766,26 +766,113 @@ function summarizeStandaloneHistoryRows(
   rows: HistoryFlightRow[],
   rawObservationRows: number
 ): HistorySummary {
-  const departures = rows.filter((row) => row.direction === "dep").length;
-  const arrivals = rows.filter((row) => row.direction === "arr").length;
-  const delayed = rows.filter((row) => (row.delay_minutes || 0) > 5 || /delay/i.test(row.status || "")).length;
-  const avgDelaySource = rows
-    .map((row) => row.delay_minutes)
-    .filter((value): value is number => typeof value === "number");
-  const avgDelay = avgDelaySource.length
-    ? Math.round(avgDelaySource.reduce((sum, value) => sum + value, 0) / avgDelaySource.length)
-    : null;
+  const delayBucketDefinitions = [
+    { bucket: "early", label: "Early" },
+    { bucket: "on_time", label: "On time" },
+    { bucket: "delayed_warn", label: "Delayed 5-15m" },
+    { bucket: "delayed_bad", label: "Delayed >15m" },
+    { bucket: "unknown", label: "Unknown" }
+  ] as const;
+  const delayBucketCounts: Record<(typeof delayBucketDefinitions)[number]["bucket"], number> = {
+    early: 0,
+    on_time: 0,
+    delayed_warn: 0,
+    delayed_bad: 0,
+    unknown: 0
+  };
+  const airlineStats = new Map<string, {
+    count: number;
+    delayed: number;
+    onTime: number;
+    positiveDelayTotal: number;
+    positiveDelayCount: number;
+  }>();
+  let departures = 0;
+  let arrivals = 0;
+  let delayed = 0;
+  let onTime = 0;
+  let positiveDelayTotal = 0;
+  let positiveDelayCount = 0;
   const daily = new Map<string, { departures: number; arrivals: number; total: number; delayed: number }>();
+
   for (const row of rows) {
+    const delayMinutes = typeof row.delay_minutes === "number" && Number.isFinite(row.delay_minutes)
+      ? row.delay_minutes
+      : null;
+    const isDelayed = delayMinutes !== null && delayMinutes >= 5;
+    const isOnTime = delayMinutes !== null && delayMinutes >= -4 && delayMinutes <= 4;
+    const delayBucket = delayMinutes === null
+      ? "unknown"
+      : delayMinutes <= -5
+        ? "early"
+        : isOnTime
+          ? "on_time"
+          : delayMinutes <= 15
+            ? "delayed_warn"
+            : "delayed_bad";
+    delayBucketCounts[delayBucket] += 1;
+
+    if (row.direction === "dep") departures += 1;
+    if (row.direction === "arr") arrivals += 1;
+    if (isDelayed) delayed += 1;
+    if (isOnTime) onTime += 1;
+    if (delayMinutes !== null && delayMinutes > 0) {
+      positiveDelayTotal += delayMinutes;
+      positiveDelayCount += 1;
+    }
+
+    const airlineCode = String(row.airline_iata || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (airlineCode) {
+      const airline = airlineStats.get(airlineCode) || {
+        count: 0,
+        delayed: 0,
+        onTime: 0,
+        positiveDelayTotal: 0,
+        positiveDelayCount: 0
+      };
+      airline.count += 1;
+      if (isDelayed) airline.delayed += 1;
+      if (isOnTime) airline.onTime += 1;
+      if (delayMinutes !== null && delayMinutes > 0) {
+        airline.positiveDelayTotal += delayMinutes;
+        airline.positiveDelayCount += 1;
+      }
+      airlineStats.set(airlineCode, airline);
+    }
+
     const date = String(row.event_time || row.snapshot_ts || "").slice(0, 10);
     if (!date) continue;
     const entry = daily.get(date) || { departures: 0, arrivals: 0, total: 0, delayed: 0 };
     entry.total += 1;
     if (row.direction === "dep") entry.departures += 1;
     if (row.direction === "arr") entry.arrivals += 1;
-    if ((row.delay_minutes || 0) > 5 || /delay/i.test(row.status || "")) entry.delayed += 1;
+    if (isDelayed) entry.delayed += 1;
     daily.set(date, entry);
   }
+
+  const percentage = (count: number, total: number): number => total
+    ? Math.round((count / total) * 1000) / 10
+    : 0;
+  const average = (total: number, count: number): number | null => count
+    ? Math.round((total / count) * 10) / 10
+    : null;
+  const delayBuckets = delayBucketDefinitions.map(({ bucket, label }) => ({
+    bucket,
+    label,
+    count: delayBucketCounts[bucket],
+    pct: percentage(delayBucketCounts[bucket], rows.length)
+  }));
+  const topAirlines = Array.from(airlineStats.entries())
+    .map(([code, stats]) => ({
+      code,
+      count: stats.count,
+      delay_rate_pct: percentage(stats.delayed, stats.count),
+      on_time_pct: percentage(stats.onTime, stats.count),
+      avg_delay_minutes: average(stats.positiveDelayTotal, stats.positiveDelayCount)
+    }))
+    .sort((left, right) => right.count - left.count || left.code.localeCompare(right.code))
+    .slice(0, 10);
+
   return {
     airport_iata: airportDisplayCode(airport),
     hours,
@@ -796,12 +883,12 @@ function summarizeStandaloneHistoryRows(
     departures,
     arrivals,
     delayed,
-    delayed_pct: rows.length ? Math.round((delayed / rows.length) * 100) : 0,
-    on_time_pct: rows.length ? Math.round(((rows.length - delayed) / rows.length) * 100) : 0,
-    avg_delay_minutes: avgDelay,
-    delay_buckets: [],
+    delayed_pct: percentage(delayed, rows.length),
+    on_time_pct: percentage(onTime, rows.length),
+    avg_delay_minutes: average(positiveDelayTotal, positiveDelayCount),
+    delay_buckets: delayBuckets,
     status_mix: [],
-    top_airlines: [],
+    top_airlines: topAirlines,
     top_routes: [],
     top_aircraft: [],
     daily_volume: Array.from(daily.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({ date, ...value })),

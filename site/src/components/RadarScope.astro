@@ -1,0 +1,19 @@
+---
+interface Props {
+  caption?: string;
+}
+
+const { caption = "Illustrative terminal instrument · no live aircraft data" } = Astro.props;
+---
+
+<div class="radar-scope" data-instrument data-motion-active="false" aria-hidden="true">
+  <span class="radar-label radar-label--n">N</span>
+  <span class="radar-label radar-label--e">E</span>
+  <span class="radar-label radar-label--s">S</span>
+  <span class="radar-label radar-label--w">W</span>
+  <span class="radar-route"></span>
+  <span class="radar-blip radar-blip--one" data-label="LOCAL"></span>
+  <span class="radar-blip radar-blip--two" data-label="MOBILE"></span>
+  <span class="radar-blip radar-blip--three" data-label="DISPLAY"></span>
+  <span class="scope-caption">{caption}</span>
+</div>

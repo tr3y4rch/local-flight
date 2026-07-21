@@ -1,0 +1,31 @@
+---
+import { currentRelease, githubUrl, navItems, releaseUrl } from "../data/site";
+---
+
+<footer class="site-footer">
+  <div class="footer-grid terminal-frame">
+    <div class="footer-identity">
+      <img src="/assets/beacon-tools-logo.png" alt="Beacon Tools" width="1200" height="349" />
+      <p>Free, open-source flight boards for screens you own. No account or subscription required.</p>
+    </div>
+    <div class="footer-column">
+      <h2>Destinations</h2>
+      {navItems.slice(0, 3).map((item) => <a href={item.href}>{item.label}</a>)}
+    </div>
+    <div class="footer-column">
+      <h2>Help &amp; policy</h2>
+      {navItems.slice(3).map((item) => <a href={item.href}>{item.label}</a>)}
+      <a href="/privacy/choices/">Privacy choices</a>
+    </div>
+    <div class="footer-column">
+      <h2>Project</h2>
+      <a href={githubUrl}>Source on GitHub</a>
+      <a href={releaseUrl}>Release {currentRelease}</a>
+      <a href={`${githubUrl}/blob/main/THIRD_PARTY_NOTICES.md`}>Third-party notices</a>
+    </div>
+  </div>
+  <div class="footer-base terminal-frame">
+    <span>© Beacon Tools</span>
+    <span>Free to download · online features optional · no advertising</span>
+  </div>
+</footer>

@@ -445,6 +445,41 @@ def test_metar_client_decode_includes_local_weather_fields() -> None:
     assert decoded["weather"]["source"] == "metar"
 
 
+def test_metar_client_current_aliases_merge_raw_klax_fields() -> None:
+    decoded = metar_client._decode(
+        {
+            "icaoId": "KLAX",
+            "rawOb": "METAR KLAX 210153Z 26009KT 10SM FEW200 FEW250 23/19 A2987 RMK AO2 SLP113 T023300189 $",
+            "reportTime": "2026-07-21T01:53:00Z",
+            "fltCat": "VFR",
+            "temp": 23,
+            "dewp": 19,
+            # This response shape deliberately omits the current wind,
+            # visibility and altimeter fields. Raw METAR is the safe fallback.
+            "clouds": [{"cover": "FEW", "base": 20000}, {"cover": "FEW", "base": 25000}],
+        }
+    )
+
+    assert decoded["wind_dir_deg"] == 260
+    assert decoded["wind_speed_kt"] == 9
+    assert decoded["visibility_sm"] == 10
+    assert decoded["visibility_m"] == pytest.approx(16093.4)
+    assert decoded["altimeter_hpa"] == pytest.approx(1011.5, abs=0.1)
+
+
+@pytest.mark.parametrize(
+    ("visibility", "expected"),
+    [("P6SM", 6.0), ("M1/4SM", 0.25), ("1/2SM", 0.5), ("1 1/2SM", 1.5)],
+)
+def test_raw_metar_decoder_supports_fractional_statute_miles(visibility: str, expected: float) -> None:
+    decoded = metar_client.decode_raw_metar(
+        "KTEST",
+        f"METAR KTEST 210153Z VRB03KT {visibility} SCT010 12/10 A3000",
+    )
+
+    assert decoded["visibility_sm"] == pytest.approx(expected)
+
+
 def test_raw_metar_decoder_keeps_temperature_for_vatsim_weather() -> None:
     decoded = metar_client.decode_raw_metar(
         "LSZH",
@@ -6299,9 +6334,9 @@ def test_mobile_setup_copy_matches_companion_and_standalone_product() -> None:
     assert "full local-server experience" not in mobile_screens
     assert "Checking /api/health on the Local Flight server" not in mobile_screens
     assert "Local Flight Mobile will save this pairing locally" not in mobile_screens
-    assert "Companion keeps this phone as a remote and glance screen" in mobile_screens
-    assert "Connect your Local Flight host" in mobile_screens
-    assert "Host status" in mobile_screens
+    assert "Connect to a Local Flight host" in mobile_screens
+    assert "This connection is called Companion" in mobile_screens
+    assert "same Wi-Fi" in mobile_screens
 
 
 def test_setup_copy_uses_friendlier_relay_and_launch_terms() -> None:
@@ -6360,7 +6395,7 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
 
     root = Path(__file__).resolve().parents[1]
     site = root / "site"
-    assets = site / "assets"
+    assets = site / "public" / "assets"
     manifest = json.loads((root / "assets" / "brand-manifest.json").read_text(encoding="utf-8"))
     assert manifest["phase"] == "package-qt-lan-mobile-site"
     manifest_paths = {entry["path"] for entry in manifest["active_outputs"]}
@@ -6374,7 +6409,7 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     }
 
     for name, size in expected_assets.items():
-        assert f"site/assets/{name}" in manifest_paths
+        assert f"site/public/assets/{name}" in manifest_paths
         path = assets / name
         assert path.exists()
         with Image.open(path) as image:
@@ -6391,22 +6426,19 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
             assert ico is not None
             assert set(ico.sizes()) == expected_ico_sizes
 
-    for page in site.glob("**/*.html"):
-        html = page.read_text(encoding="utf-8")
-        assert 'href="/assets/favicon.ico"' in html
-        assert 'href="/assets/favicon-32.png"' in html
-        assert 'href="/assets/beacon-tools-icon-512.png"' in html
-        assert 'href="/assets/apple-touch-icon.png"' in html
-        assert '<span class="brand-mark"><img src="/assets/beacon-tools-mark-96.png" alt=""></span>' in html
-        assert '<span class="brand-mark"><img src="/assets/localflight-logo.svg" alt=""></span>' not in html
-
-    home = (site / "index.html").read_text(encoding="utf-8")
-    local_flight = (site / "local-flight" / "index.html").read_text(encoding="utf-8")
-    mobile = (site / "local-flight" / "mobile" / "index.html").read_text(encoding="utf-8")
-    assert 'src="/assets/beacon-tools-logo.png" alt="Beacon Tools logo"' in home
-    assert 'src="/assets/localflight-lockup.png" alt="Local Flight"' in local_flight
+    layout = (site / "src" / "layouts" / "SiteLayout.astro").read_text(encoding="utf-8")
+    header = (site / "src" / "components" / "SiteHeader.astro").read_text(encoding="utf-8")
+    footer = (site / "src" / "components" / "SiteFooter.astro").read_text(encoding="utf-8")
+    local_flight = (site / "src" / "pages" / "local-flight" / "index.astro").read_text(encoding="utf-8")
+    mobile = (site / "src" / "pages" / "local-flight" / "mobile" / "index.astro").read_text(encoding="utf-8")
+    assert 'href="/assets/favicon.ico"' in layout
+    assert 'href="/assets/favicon-32.png"' in layout
+    assert 'href="/assets/beacon-tools-icon-512.png"' in layout
+    assert 'href="/assets/apple-touch-icon.png"' in layout
+    assert 'src="/assets/beacon-tools-mark-96.png" alt=""' in header
+    assert 'src="/assets/beacon-tools-logo.png" alt="Beacon Tools"' in footer
+    assert 'image="/assets/localflight-lockup.png"' in local_flight
     assert 'src="/assets/localflight-icon.png"' not in local_flight
-    assert 'background: url("/assets/beacon-tools-logo.png")' in (assets / "site.css").read_text(encoding="utf-8")
     assert 'src="/assets/store-badges/download-on-app-store.svg" alt="Download on the App Store"' in mobile
     assert 'src="/assets/store-badges/get-it-on-google-play.png" alt="Get it on Google Play"' in mobile
     assert 'href="/assets/store-badges/' not in mobile
@@ -6414,7 +6446,7 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     assert 'role="link" aria-disabled="true" aria-label="Get it on Google Play"' in mobile
     assert "Future App Store URL requires the App Store app ID" in mobile
     assert "https://play.google.com/store/apps/details?id=cc.beacontools.localflight" in mobile
-    assert "Android&trade; device" in mobile
+    assert "Android is a trademark of Google LLC" in mobile
     assert "Apple, the Apple logo, iPhone, and iPad are trademarks of Apple Inc." in mobile
     assert "Google Play and the Google Play logo are trademarks of Google LLC." in mobile
     assert (assets / "store-badges" / "download-on-app-store.svg").stat().st_size > 1000
@@ -6423,8 +6455,35 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     with Image.open(google_badge) as image:
         assert image.size == (478, 142)
         assert image.mode == "RGBA"
-    for preview in ("shell/history.png", "shell/matrix.png", "shell/settings.png"):
-        assert f'src="/assets/{preview}"' in local_flight
+    screenshot_root = site / "src" / "assets" / "screens"
+    for preview in (
+        "shell/fids-0.5.1.png",
+        "shell/history-0.5.1.png",
+        "shell/matrix.png",
+        "shell/radar-0.5.1.png",
+        "shell/settings-0.5.1.png",
+        "mobile/ios/fids-0.5.1.png",
+        "mobile/ios/history-0.5.1.png",
+        "mobile/ios/radar-0.5.1.png",
+        "mobile/ios/settings-0.5.1.png",
+        "mobile/ios/setup-0.5.1.png",
+        "mobile/ios/splash-0.5.1.png",
+    ):
+        assert (screenshot_root / preview).is_file()
+    screenshot_sources = {
+        "assets/previews/shell/Shell_fids_0.5.1.png": "shell/fids-0.5.1.png",
+        "assets/previews/shell/Shell_history_0.5.1.png": "shell/history-0.5.1.png",
+        "assets/previews/shell/Shell_radar_0.5.1.png": "shell/radar-0.5.1.png",
+        "assets/previews/shell/Shell_settings_0.5.1.png": "shell/settings-0.5.1.png",
+        "assets/previews/mobile/iOS/iphoneXLfids.png": "mobile/ios/fids-0.5.1.png",
+        "assets/previews/mobile/iOS/iPhoneXLhistory.png": "mobile/ios/history-0.5.1.png",
+        "assets/previews/mobile/iOS/iphoneXLradar.png": "mobile/ios/radar-0.5.1.png",
+        "assets/previews/mobile/iOS/iphoneXLsettings.png": "mobile/ios/settings-0.5.1.png",
+        "assets/previews/mobile/iOS/iphoneXLsetup.png": "mobile/ios/setup-0.5.1.png",
+        "assets/previews/mobile/iOS/iphoneXLsplash.png": "mobile/ios/splash-0.5.1.png",
+    }
+    for source, preview in screenshot_sources.items():
+        assert (root / source).read_bytes() == (screenshot_root / preview).read_bytes()
     for stale_alias in ("fids-preview.svg", "history-preview.svg", "matrix-preview.svg", "radar-preview.svg"):
         assert not (assets / stale_alias).exists()
     for stale_preview in (
@@ -6437,13 +6496,14 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     ):
         assert not (assets / stale_preview).exists()
     referenced_assets = set()
-    for path in list(site.glob("**/*.html")) + [assets / "site.css"]:
+    source_files = list((site / "src").glob("**/*.astro")) + list((site / "src").glob("**/*.css"))
+    for path in source_files:
         referenced_assets.update(re.findall(r"/assets/([^\"')]+)", path.read_text(encoding="utf-8")))
     unused_assets = {
         path.relative_to(assets).as_posix()
         for path in assets.rglob("*")
         if path.is_file()
-        and path.name != "site.css"
+        and not path.name.startswith("OFL-")
         and path.relative_to(assets).as_posix() not in referenced_assets
     }
     assert unused_assets == set()
@@ -6451,8 +6511,8 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
 
 def test_public_downloads_use_checksum_gated_github_release_assets() -> None:
     root = Path(__file__).resolve().parents[1]
-    product_page = (root / "site" / "local-flight" / "index.html").read_text(encoding="utf-8")
-    downloads_client = (root / "site" / "assets" / "downloads.js").read_text(encoding="utf-8")
+    product_page = (root / "site" / "src" / "components" / "DownloadBoard.astro").read_text(encoding="utf-8")
+    downloads_client = (root / "site" / "src" / "scripts" / "downloads.ts").read_text(encoding="utf-8")
     worker = (root / "workers" / "beacontools.js").read_text(encoding="utf-8")
 
     platforms = (
@@ -6467,13 +6527,12 @@ def test_public_downloads_use_checksum_gated_github_release_assets() -> None:
         "linux_deb_server_arm64",
         "pi",
     )
-    assert product_page.count('class="card download-card"') == 6
-    assert product_page.count('data-download-platform="') == len(platforms)
+    assert product_page.count('platform: "') == len(platforms)
     for platform in platforms:
-        assert f'data-download-platform="{platform}"' in product_page
-    assert 'src="/assets/downloads.js"' in product_page
-    assert "official GitHub Releases" in product_page
-    assert "matching SHA256 checksum" in product_page
+        assert f'platform: "{platform}"' in product_page
+    assert "../scripts/downloads" in product_page
+    assert "GitHub Releases remains the file host and source of record" in product_page
+    assert "both the package and its SHA-256 verification file" in product_page
 
     assert 'fetch("/api/releases/latest"' in downloads_client
     assert "api.github.com" not in downloads_client
@@ -6501,11 +6560,15 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     app = json.loads((root / "mobile" / "app.json").read_text(encoding="utf-8"))["expo"]
     eas = json.loads((root / "mobile" / "eas.json").read_text(encoding="utf-8"))
     relay = (root / "relay" / "main.py").read_text(encoding="utf-8")
+    privacy = (root / "PRIVACY.md").read_text(encoding="utf-8")
+    site_privacy = (root / "site" / "src" / "pages" / "privacy" / "index.astro").read_text(
+        encoding="utf-8"
+    )
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "8"
+    assert app["ios"]["buildNumber"] == "9"
     assert app["android"]["package"] == "cc.beacontools.localflight"
-    assert app["android"]["versionCode"] == 11
+    assert app["android"]["versionCode"] == 12
     assert "./plugins/with-localflight-ios-widget" in app["plugins"]
     assert "./plugins/with-localflight-android-widget" in app["plugins"]
     assert app["ios"]["entitlements"]["com.apple.security.application-groups"] == [
@@ -6541,13 +6604,22 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     assert "cc.beacontools.localflight.support.medium" in relay
     assert "cc.beacontools.localflight.support.large" in relay
     assert "cc.beacontools.localflight.tip." not in relay
+    assert "Purchases and In-App Payments (IAP)" in privacy
+    assert "Purchases and in-app payments (IAP)" in site_privacy
+    assert "Apple transaction ID or Google purchase token" in site_privacy
+    assert "keyed one-way hash and short reference" in site_privacy
+    assert "does not retain the raw Apple transaction ID" in site_privacy
 
 
 def test_privacy_docs_disclose_linear_report_triage() -> None:
     root = Path(__file__).resolve().parents[1]
     privacy = (root / "PRIVACY.md").read_text(encoding="utf-8")
-    site_privacy = (root / "site" / "privacy" / "index.html").read_text(encoding="utf-8")
-    choices = (root / "site" / "privacy" / "choices" / "index.html").read_text(encoding="utf-8")
+    site_privacy = (root / "site" / "src" / "pages" / "privacy" / "index.astro").read_text(
+        encoding="utf-8"
+    )
+    choices = (root / "site" / "src" / "pages" / "privacy" / "choices" / "index.astro").read_text(
+        encoding="utf-8"
+    )
 
     assert "filed into Linear as the developer triage inbox" in privacy
     assert "| Linear | Manual reports, public website bug reports, and automatic diagnostics" in privacy
@@ -6566,11 +6638,18 @@ def test_privacy_docs_disclose_linear_report_triage() -> None:
 
 def test_support_site_uses_forms_instead_of_exposed_general_email() -> None:
     root = Path(__file__).resolve().parents[1]
-    site = root / "site"
-    support = (site / "support" / "index.html").read_text(encoding="utf-8")
-    home = (site / "index.html").read_text(encoding="utf-8")
-    local_flight = (site / "local-flight" / "index.html").read_text(encoding="utf-8")
-    mobile = (site / "local-flight" / "mobile" / "index.html").read_text(encoding="utf-8")
+    site_source = root / "site" / "src"
+    support = "\n".join(
+        (
+            (site_source / "components" / "SupportForms.astro").read_text(encoding="utf-8"),
+            (site_source / "scripts" / "support.ts").read_text(encoding="utf-8"),
+        )
+    )
+    home = (site_source / "pages" / "index.astro").read_text(encoding="utf-8")
+    local_flight = (site_source / "pages" / "local-flight" / "index.astro").read_text(encoding="utf-8")
+    mobile = (site_source / "pages" / "local-flight" / "mobile" / "index.astro").read_text(
+        encoding="utf-8"
+    )
 
     assert 'data-support-form="contact"' in support
     assert 'data-support-form="bug"' in support

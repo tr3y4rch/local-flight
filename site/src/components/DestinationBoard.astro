@@ -1,0 +1,56 @@
+---
+import { currentRelease } from "../data/site";
+
+const destinations = [
+  {
+    code: "LFL",
+    name: "Build a flight board",
+    summary: "Download Local Flight for a computer or Raspberry Pi, then explore boards, radar, history, and LED displays.",
+    state: `Release ${currentRelease}`,
+    href: "/local-flight/",
+  },
+  {
+    code: "MOB",
+    name: "Use Local Flight on your phone",
+    summary: "Connect to a setup you already run with Companion, or use only the phone with Standalone.",
+    state: "Store testing",
+    href: "/local-flight/mobile/",
+  },
+  {
+    code: "NET",
+    name: "Understand how it connects",
+    summary: "See what stays at home, when an internet connection is used, and what each optional service sends.",
+    state: "Optional paths",
+    href: "/network/",
+  },
+  {
+    code: "SUP",
+    name: "Get help",
+    summary: "Ask a question, request mobile testing access, or report something that is not working.",
+    state: "Message desk",
+    href: "/support/",
+  },
+  {
+    code: "PRV",
+    name: "Review privacy and controls",
+    summary: "Read what remains on your devices, what optional online features send, and how to change your choices.",
+    state: "No account",
+    href: "/privacy/",
+  },
+];
+---
+
+<div class="destination-board" aria-label="Beacon Tools destinations" data-reveal>
+  <div class="destination-head" aria-hidden="true">
+    <span>Code</span><span>Destination</span><span>What you will find</span><span>Status</span><span></span>
+  </div>
+  {destinations.map((destination) => (
+    <a class="destination-row" href={destination.href}>
+      <span class="destination-code">{destination.code}</span>
+      <span class="destination-name">{destination.name}</span>
+      <span class="destination-summary">{destination.summary}</span>
+      <span class="destination-state"><i aria-hidden="true"></i>{destination.state}</span>
+      <span class="destination-arrow" aria-hidden="true">↗</span>
+    </a>
+  ))}
+</div>

@@ -107,12 +107,21 @@ def fetch_metar(icao: str, timeout_s: int = _TIMEOUT_S) -> Optional[Dict[str, An
 def _decode(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Parse aviationweather.gov JSON METAR into clean dict."""
 
+    icao = str(_first(raw, "station_id", "stationId", "icaoId", "icao") or "").upper()
+    raw_text = str(_first(raw, "raw_ob", "rawOb", "raw_text", "rawText") or "").strip()
+    # AviationWeather has changed its JSON aliases over time. The raw report is
+    # the compatibility floor and fills any structured field the active schema
+    # omits; valid structured values still take precedence below.
+    raw_fallback = decode_raw_metar(icao, raw_text) if raw_text else {}
+
     # Clouds
     clouds: List[Dict[str, Any]] = []
-    for layer in (raw.get("clouds") or []):
-        cover   = layer.get("cover", "")
-        base_ft = layer.get("base")
+    for layer in (_first(raw, "clouds", "cloudLayers") or []):
+        cover = str(_first(layer, "cover", "coverage") or "").upper()
+        base_ft = _first(layer, "base", "base_ft", "baseFt")
         clouds.append({"cover": cover, "base_ft": base_ft})
+    if not clouds:
+        clouds = list(raw_fallback.get("clouds") or [])
 
     # Ceiling = lowest BKN or OVC layer
     ceiling_ft: Optional[int] = None
@@ -122,20 +131,28 @@ def _decode(raw: Dict[str, Any]) -> Dict[str, Any]:
                 ceiling_ft = layer["base_ft"]
 
     # Flight category — use API value if present, else derive
-    flight_cat = (raw.get("flight_cat") or "").upper().strip()
+    flight_cat = str(_first(raw, "flight_cat", "flightCat", "fltCat") or raw_fallback.get("flight_cat") or "").upper().strip()
     if not flight_cat:
         flight_cat = _derive_flight_cat(
-            vis_m=raw.get("visibility"),
+            vis_m=raw_fallback.get("visibility_m"),
             ceiling_ft=ceiling_ft,
         )
 
     # Wind
-    wind_dir  = raw.get("wind_dir")
-    wind_spd  = raw.get("wind_speed")
-    wind_gust = raw.get("wind_gust")
+    wind_dir = _first(raw, "wind_dir", "windDir", "wdir")
+    wind_spd = _first(raw, "wind_speed", "windSpeed", "wspd")
+    wind_gust = _first(raw, "wind_gust", "windGust", "wgst")
+    if wind_dir is None:
+        wind_dir = raw_fallback.get("wind_dir_deg")
+    if wind_spd is None:
+        wind_spd = raw_fallback.get("wind_speed_kt")
+    if wind_gust is None:
+        wind_gust = raw_fallback.get("wind_gust_kt")
 
     # Visibility — API returns statute miles, convert to metres
-    vis_sm = raw.get("visibility")
+    vis_sm = _parse_visibility_sm(_first(raw, "visibility", "visibility_sm", "visibilitySm", "visib"))
+    if vis_sm is None:
+        vis_sm = raw_fallback.get("visibility_sm")
     vis_m: Optional[float] = None
     if vis_sm is not None:
         try:
@@ -144,21 +161,36 @@ def _decode(raw: Dict[str, Any]) -> Dict[str, Any]:
             vis_m = None
 
     # Altimeter
-    altim_hg = raw.get("altim_in_hg")
+    altim_hg = _first(raw, "altim_in_hg", "altimInHg")
     altim_hpa: Optional[float] = None
     if altim_hg is not None:
         try:
             altim_hpa = round(float(altim_hg) * 33.8639, 1)
         except (ValueError, TypeError):
             pass
+    if altim_hpa is None:
+        current_altim = _first(raw, "altim", "altimeter", "altimeter_hpa", "altimeterHpa")
+        try:
+            numeric_altim = float(current_altim)
+            altim_hpa = round(numeric_altim * 33.8639, 1) if numeric_altim < 40 else round(numeric_altim, 1)
+        except (ValueError, TypeError):
+            altim_hpa = raw_fallback.get("altimeter_hpa")
+
+    temp_c = _first(raw, "temp", "temp_c", "tempC")
+    dewpoint_c = _first(raw, "dewp", "dewpoint", "dewpoint_c", "dewpC")
+    if temp_c is None:
+        temp_c = raw_fallback.get("temp_c")
+    if dewpoint_c is None:
+        dewpoint_c = raw_fallback.get("dewpoint_c")
+    wx_string = str(_first(raw, "wx_string", "wxString", "weather") or raw_fallback.get("wx_string") or "")
 
     decoded = {
-        "icao":           raw.get("station_id", ""),
-        "raw_text":       raw.get("raw_ob", raw.get("rawOb", "")),
-        "obs_time":       raw.get("obs_time", raw.get("obsTime", "")),
+        "icao":           icao,
+        "raw_text":       raw_text,
+        "obs_time":       _first(raw, "obs_time", "obsTime", "reportTime") or raw_fallback.get("obs_time", ""),
         "flight_cat":     flight_cat,
-        "temp_c":         raw.get("temp"),
-        "dewpoint_c":     raw.get("dewp"),
+        "temp_c":         temp_c,
+        "dewpoint_c":     dewpoint_c,
         "wind_dir_deg":   wind_dir,
         "wind_speed_kt":  wind_spd,
         "wind_gust_kt":   wind_gust,
@@ -166,14 +198,48 @@ def _decode(raw: Dict[str, Any]) -> Dict[str, Any]:
         "visibility_sm":  vis_sm,
         "ceiling_ft":     ceiling_ft,
         "clouds":         clouds,
-        "wx_string":      raw.get("wx_string", ""),
+        "wx_string":      wx_string,
         "altimeter_hpa":  altim_hpa,
         "flight_cat_color": _flight_cat_color(flight_cat),
-        "decoded_summary": _summary(raw, flight_cat, wind_dir, wind_spd,
+        "decoded_summary": _summary({"temp": temp_c, "dewp": dewpoint_c, "wx_string": wx_string}, flight_cat, wind_dir, wind_spd,
                                      wind_gust, vis_m, ceiling_ft, altim_hpa),
     }
     decoded.update(decorate_metar(decoded))
     return decoded
+
+
+def _first(values: Dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = values.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def _parse_visibility_sm(value: Any) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).upper().strip().replace("SM", "")
+    text = text.lstrip("P><").rstrip("+")
+    less_than = text.startswith("M")
+    if less_than:
+        text = text[1:]
+    try:
+        if " " in text:
+            whole, fraction = text.split(None, 1)
+            numerator, denominator = fraction.split("/", 1)
+            result = float(whole) + float(numerator) / float(denominator)
+        elif "/" in text:
+            numerator, denominator = text.split("/", 1)
+            result = float(numerator) / float(denominator)
+        else:
+            result = float(text)
+    except (ValueError, TypeError, ZeroDivisionError):
+        return None
+    # A less-than report still needs a useful conservative numeric boundary.
+    return result if not less_than else max(0.0, result)
 
 
 def decode_raw_metar(
@@ -205,7 +271,7 @@ def decode_raw_metar(
         vis_m = 10000.0
         vis_sm = round(vis_m / 1609.34, 1)
     else:
-        for token in tokens:
+        for index, token in enumerate(tokens):
             if token == "9999":
                 vis_m = 10000.0
                 vis_sm = round(vis_m / 1609.34, 1)
@@ -214,9 +280,12 @@ def decode_raw_metar(
                 vis_m = float(token)
                 vis_sm = round(vis_m / 1609.34, 1)
                 break
-            match = re.match(r"^(P?\d{1,2})(?:SM)$", token)
-            if match:
-                vis_sm = float(match.group(1).replace("P", ""))
+            if token.endswith("SM"):
+                visibility_token = token[:-2]
+                if "/" in visibility_token and index > 0 and tokens[index - 1].isdigit():
+                    visibility_token = f"{tokens[index - 1]} {visibility_token}"
+                vis_sm = _parse_visibility_sm(visibility_token)
+            if vis_sm is not None:
                 vis_m = vis_sm * 1609.34
                 break
 
@@ -297,7 +366,7 @@ def _derive_flight_cat(
     ceiling_ft: Optional[int],
 ) -> str:
     """Derive flight category from visibility and ceiling."""
-    vis_sm = (vis_m / 1609.34) if vis_m else None
+    vis_sm = (vis_m / 1609.34) if vis_m is not None else None
     c = ceiling_ft
 
     if (vis_sm is not None and vis_sm < 1) or (c is not None and c < 500):

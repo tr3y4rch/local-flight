@@ -93,15 +93,21 @@ assert.equal(workerModule.buildReleaseManifest({
   html_url: "https://github.com/tr3y4rch/local-flight/releases/tag/v0.2.7",
 }), null, "Packages older than the current public release line must not be promoted.");
 
-const page = fs.readFileSync(path.join(root, "site/local-flight/index.html"), "utf8");
-const client = fs.readFileSync(path.join(root, "site/assets/downloads.js"), "utf8");
-assert.equal((page.match(/class="card download-card"/g) || []).length, 6);
+const builtPagePath = path.join(root, "site/dist/local-flight/index.html");
+assert.ok(
+  fs.existsSync(builtPagePath),
+  "Build the Astro site with `npm --prefix site run build` before running the site contract.",
+);
+const page = fs.readFileSync(builtPagePath, "utf8");
+const client = fs.readFileSync(path.join(root, "site/src/scripts/downloads.ts"), "utf8");
 for (const platform of Object.keys(filenames)) {
   assert.match(page, new RegExp(`data-download-platform="${platform}"`));
 }
 assert.equal((page.match(/data-download-platform="/g) || []).length, Object.keys(filenames).length);
 assert.match(page, /data-release-status/);
+assert.match(page, /Verify download \(SHA-256\)/);
+assert.match(page, /GitHub Releases remains the file host and source of record/);
 assert.match(client, /\/api\/releases\/latest/);
-assert.match(client, /SHA256 checksum/);
+assert.match(client, /Verify download \(SHA-256\)/);
 
 console.log("Beacon Tools download manifest contract passed.");

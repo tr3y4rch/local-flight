@@ -30,11 +30,6 @@ jobs:
             pyproject.toml
             relay/requirements.txt
 
-      - name: Set up Node.js for the site contract
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "24"
-
       - name: Install Qt runtime dependency
         run: |
           sudo apt-get update -qq
@@ -59,9 +54,6 @@ jobs:
       - name: Run the credential security preflight
         run: python scripts/security_preflight.py
 
-      - name: Verify the public-site download contract
-        run: node scripts/site_downloads_contract.mjs
-
       - name: Audit desktop production dependencies
         run: python -m pip_audit --strict .
 
@@ -72,6 +64,42 @@ jobs:
         run: |
           git diff --check
           git diff --exit-code
+
+  site:
+    name: Beacon Tools Site Node 24
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install site dependencies
+        run: npm ci
+
+      - name: Check, build, and verify the static site
+        run: |
+          npm run verify
+          node ../scripts/site_downloads_contract.mjs
+
+      - name: Audit site dependencies
+        run: npm audit --audit-level=high
+
+      - name: Install the browser test runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Run responsive, accessibility, integration, and visual checks
+        run: npm run test:e2e
 
   mobile:
     name: Mobile Node 24

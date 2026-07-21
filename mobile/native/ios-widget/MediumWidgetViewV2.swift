@@ -8,16 +8,16 @@ struct LFMediumWidgetViewV2: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       header
-        .padding(.horizontal, 14)
-        .padding(.top, 14)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 10)
+        .padding(.top, 9)
+        .padding(.bottom, 6)
 
       divider
 
       columnHeaders
-        .padding(.horizontal, 14)
-        .padding(.top, 7)
-        .padding(.bottom, 3)
+        .padding(.horizontal, 10)
+        .padding(.top, 4)
+        .padding(.bottom, 2)
 
       divider
 
@@ -26,70 +26,65 @@ struct LFMediumWidgetViewV2: View {
       Spacer(minLength: 0)
     }
     .lfWidgetBackground(scheme)
+    .overlay(alignment: .top) {
+      Rectangle()
+        .fill(LFWidgetDesignV2.warmAccent(scheme).opacity(0.78))
+        .frame(height: 3)
+    }
   }
 
   private var header: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: 8) {
       BeaconBMarkV2(
         tint: LFWidgetDesignV2.beaconBTint(scheme),
         cutout: LFWidgetDesignV2.beaconBCutout(scheme),
-        size: 36
+        size: 25
       )
-      .opacity(scheme == .dark ? 0.38 : 0.28)
+      .opacity(scheme == .dark ? 0.78 : 0.66)
 
-      Spacer(minLength: 8)
-
-      VStack(alignment: .center, spacing: 5) {
+      VStack(alignment: .leading, spacing: 1) {
         Text(snapshot.airport.name)
-          .font(LocalFlightWidgetFont.uiBold(size: 16))
+          .font(LocalFlightWidgetFont.uiBold(size: 14))
           .lineLimit(1)
-          .minimumScaleFactor(0.75)
+          .minimumScaleFactor(0.68)
           .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
-        Text(snapshot.airport.view == "arrivals" ? "ARRIVALS" : "DEPARTURES")
-          .font(LocalFlightWidgetFont.boardBold(size: 9))
-          .foregroundStyle(LFWidgetDesignV2.textCyan(scheme))
-          .padding(.horizontal, 14)
-          .padding(.vertical, 5)
-          .background(
-            LFWidgetDesignV2.textCyan(scheme).opacity(scheme == .dark ? 0.10 : 0.08),
-            in: Capsule()
-          )
-          .overlay(
-            Capsule()
-              .stroke(LFWidgetDesignV2.textCyan(scheme).opacity(0.35), lineWidth: 1)
-          )
+        HStack(spacing: 5) {
+          Text(snapshot.airport.code)
+          Text("·")
+          Text(snapshot.airport.view == "arrivals" ? "ARRIVALS" : "DEPARTURES")
+        }
+        .font(LocalFlightWidgetFont.boardBold(size: 8))
+        .foregroundStyle(LFWidgetDesignV2.warmAccent(scheme))
       }
-      .frame(maxWidth: .infinity)
+      .frame(maxWidth: .infinity, alignment: .leading)
 
-      Spacer(minLength: 8)
-
-      VStack(alignment: .trailing, spacing: 5) {
+      VStack(alignment: .trailing, spacing: 2) {
         Text("Local Flight")
-          .font(LocalFlightWidgetFont.brand(size: 15))
+          .font(LocalFlightWidgetFont.brand(size: 11))
           .lineLimit(1)
-          .minimumScaleFactor(0.62)
+          .minimumScaleFactor(0.7)
           .foregroundStyle(LFWidgetDesignV2.textSecondary(scheme))
         Text(snapshot.source.lastUpdatedLabel.uppercased())
-          .font(LocalFlightWidgetFont.boardBold(size: 9))
+          .font(LocalFlightWidgetFont.boardBold(size: 7))
           .lineLimit(1)
           .minimumScaleFactor(0.7)
           .foregroundStyle(snapshot.stale
             ? LFWidgetDesignV2.statusColor(tone: "delayed", scheme: scheme)
             : LFWidgetDesignV2.statusColor(tone: "boarding", scheme: scheme))
       }
-      .frame(width: 98, alignment: .trailing)
+      .frame(width: 82, alignment: .trailing)
     }
   }
 
   private var columnHeaders: some View {
     HStack(spacing: 0) {
-      col("TIME", width: 52)
-      col("FLIGHT", width: 64)
+      col("TIME", width: 42)
+      col("FLIGHT", width: 54)
       col(snapshot.airport.view == "arrivals" ? "FROM" : "TO", flex: true)
-      col("STATUS", width: 102)
-      col("INFO", width: 44, trailing: true)
+      col("STATUS", width: 76)
+      col("INFO", width: 34, trailing: true)
     }
-    .font(LocalFlightWidgetFont.boardBold(size: 8))
+    .font(LocalFlightWidgetFont.boardBold(size: 7))
     .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
   }
 
@@ -111,10 +106,12 @@ struct LFMediumWidgetViewV2: View {
 
   @ViewBuilder
   private var rows: some View {
-    let displayRows = snapshot.medium.rows.prefix(snapshot.preferences.mediumRowCount + 1)
+    let displayRows = snapshot.medium.rows.prefix(
+      min(LocalFlightWidgetConstants.maxMediumRowsWithPinned, snapshot.preferences.mediumRowCount + 1)
+    )
     if displayRows.isEmpty {
       Text("Waiting for board data")
-        .font(LocalFlightWidgetFont.uiBold(size: 14))
+        .font(LocalFlightWidgetFont.uiBold(size: 13))
         .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     } else {
@@ -157,9 +154,9 @@ struct LFMediumRowV2: View {
         }
 
         content
-          .padding(.leading, isPinned ? 10 : 14)
-          .padding(.trailing, 14)
-          .padding(.vertical, isPinned ? 8 : 5)
+          .padding(.leading, isPinned ? 7 : 10)
+          .padding(.trailing, 10)
+          .padding(.vertical, 3)
       }
     }
   }
@@ -188,38 +185,36 @@ struct LFMediumRowV2: View {
     HStack(spacing: 0) {
       VStack(alignment: .leading, spacing: 1) {
         Text(flight.displayTime)
-          .font(LocalFlightWidgetFont.boardBold(size: isPinned ? 15 : 14))
+          .font(LocalFlightWidgetFont.boardBold(size: isPinned ? 12 : 11))
           .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
           .lineLimit(1)
           .minimumScaleFactor(0.7)
         if isPinned {
           Text("PINNED")
-            .font(LocalFlightWidgetFont.boardBold(size: 7))
-            .foregroundStyle(scheme == .dark
-              ? Color(red: 0.953, green: 0.722, blue: 0.207)
-              : Color(red: 0.541, green: 0.376, blue: 0.000))
+            .font(LocalFlightWidgetFont.boardBold(size: 6))
+            .foregroundStyle(LFWidgetDesignV2.warmAccent(scheme))
         }
       }
-      .frame(width: 52, alignment: .leading)
+      .frame(width: 42, alignment: .leading)
 
       Text(flight.flightDisplay)
-        .font(LocalFlightWidgetFont.boardBold(size: isPinned ? 15 : 13))
+        .font(LocalFlightWidgetFont.boardBold(size: isPinned ? 12 : 11))
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .foregroundStyle(LFWidgetDesignV2.textCyan(scheme))
-        .frame(width: 64, alignment: .leading)
+      .frame(width: 54, alignment: .leading)
 
       VStack(alignment: .leading, spacing: 1) {
         Text(flight.routeName)
           .font(isPinned
-            ? LocalFlightWidgetFont.uiBold(size: 14)
-            : LocalFlightWidgetFont.uiBold(size: 13))
+            ? LocalFlightWidgetFont.uiBold(size: 11)
+            : LocalFlightWidgetFont.uiBold(size: 10))
           .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
           .lineLimit(1)
           .minimumScaleFactor(0.72)
         if !flight.routeCode.isEmpty {
           Text(flight.routeCode)
-            .font(LocalFlightWidgetFont.boardBold(size: 8))
+            .font(LocalFlightWidgetFont.boardBold(size: 6))
             .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
             .lineLimit(1)
         }
@@ -227,21 +222,23 @@ struct LFMediumRowV2: View {
       .frame(maxWidth: .infinity, alignment: .leading)
 
       LFStatusCapsuleV2(
-        label: flight.statusDisplay,
+        label: isPinned ? "PIN · \(flight.statusDisplay)" : flight.statusDisplay,
         tone: flight.statusTone,
         scheme: scheme
       )
-      .frame(width: 102, alignment: .center)
+      .scaleEffect(0.86)
+      .frame(width: 76, alignment: .center)
 
       let info = showGate ? (flight.gate ?? flight.terminal ?? "") : ""
       Text(info.isEmpty ? "" : info.uppercased())
-        .font(LocalFlightWidgetFont.boardBold(size: 11))
+        .font(LocalFlightWidgetFont.boardBold(size: 8))
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
-        .frame(width: 44, alignment: .trailing)
+        .frame(width: 34, alignment: .trailing)
     }
   }
+
 }
 
 struct BeaconBMarkV2: View {

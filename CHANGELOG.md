@@ -28,7 +28,7 @@ in `docs/engineering-changelog.md`; the current release overview is
   enables each file only when its matching SHA-256 checksum is available.
 - Network, privacy, support, install, and mobile wording now leads with plain
   answers and user choices before technical detail.
-- iOS build 8 and Android versionCode 11 align mobile testing with the 0.5.2
+- iOS build 9 and Android versionCode 12 align mobile testing with the 0.5.2
   desktop/server/relay contract.
 
 ### Privacy, security, and reliability

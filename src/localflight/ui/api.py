@@ -466,7 +466,7 @@ def _score(rec: dict, q: str) -> int:
 
 @router.get("/api/airports/search")
 def airport_search(
-    q:         str  = Query(..., min_length=2, max_length=20),
+    q:         str  = Query(..., min_length=2, max_length=80),
     limit:     int  = Query(8, ge=1, le=20),
     all_types: bool = Query(False),
 ) -> List[Dict[str, Any]]:
@@ -1865,6 +1865,10 @@ def _relay_ground_payload_for_map(
         runways = payload.get("runways") if isinstance(payload.get("runways"), list) else []
         surface_features = payload.get("surface_features") if isinstance(payload.get("surface_features"), list) else []
         sources = payload.get("sources") if isinstance(payload.get("sources"), dict) else {}
+        surface_state = str(sources.get("surface_cache_state") or "").strip().lower()
+        if not runways and not surface_features and surface_state in {"fresh", "ready"}:
+            log.debug("Relay airport ground payload was empty despite a ready cache state; using local estimate")
+            return None
         center = payload.get("center") if isinstance(payload.get("center"), dict) else {}
         surface_payload = build_surface_payload(
             airport_iata=cfg.airport_iata,

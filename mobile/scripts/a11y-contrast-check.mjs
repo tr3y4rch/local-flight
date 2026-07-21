@@ -34,49 +34,47 @@ function contrast(a, b) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-function collectAppearances(text) {
-  const appearances = [];
-  const regex = /"([^"]+)": defineAppearance\("[^"]+", "[^"]+", \{([\s\S]*?)\n  \}\),?/g;
+function collectSemanticThemes(text) {
+  const themes = [];
+  const regex = /defineSemanticTheme\("([^"]+)",\s*"([^"]+)",\s*"([^"]+)",\s*\{([\s\S]*?)\n\}\);/g;
   let match;
   while ((match = regex.exec(text))) {
-    const [, key, body] = match;
+    const [, key, mode, contrastMode, body] = match;
     const values = {};
     const colorRegex = /(\w+): "(#[0-9a-fA-F]{6})"/g;
     let colorMatch;
     while ((colorMatch = colorRegex.exec(body))) {
       values[colorMatch[1]] = colorMatch[2];
     }
-    appearances.push({ key, values });
+    themes.push({ key, mode, contrastMode, values });
   }
-  return appearances;
+  return themes;
 }
 
 const checks = [
-  ["text", "bg", 4.5],
-  ["text", "shell", 4.5],
-  ["text", "header", 4.5],
-  ["textMuted", "bg", 3],
-  ["textMuted", "shell", 3],
-  ["blue", "bg", 3],
-  ["green", "bg", 3],
-  ["amber", "bg", 3],
-  ["red", "bg", 3]
+  ["text", "background", 4.5],
+  ["text", "surface", 4.5],
+  ["text", "surfaceRaised", 4.5],
+  ["textSecondary", "background", 4.5],
+  ["textSecondary", "surface", 4.5],
+  ["textMuted", "background", 3],
+  ["textMuted", "surface", 3],
+  ["primary", "background", 3],
+  ["success", "background", 3],
+  ["warning", "background", 3],
+  ["danger", "background", 3]
 ];
 
-const expectedAppearanceKeys = new Set(
-  ["dark", "light"].flatMap((theme) =>
-    ["standard", "technical", "neon", "cyan", "crt", "high_contrast"].map((skin) => `${theme}:${skin}`)
-  )
-);
-const appearances = collectAppearances(source);
-assertAppearanceSet(appearances);
+const expectedThemeKeys = new Set(["warm_light", "warm_dark", "high_contrast_light", "high_contrast"]);
+const themes = collectSemanticThemes(source);
+assertThemeSet(themes);
 
-function assertAppearanceSet(items) {
+function assertThemeSet(items) {
   const actual = new Set(items.map(({ key }) => key));
-  const missing = [...expectedAppearanceKeys].filter((key) => !actual.has(key));
-  const unexpected = [...actual].filter((key) => !expectedAppearanceKeys.has(key));
-  if (missing.length || unexpected.length || items.length !== expectedAppearanceKeys.size) {
-    console.error("Accessibility contrast audit could not find the complete 12-appearance matrix.");
+  const missing = [...expectedThemeKeys].filter((key) => !actual.has(key));
+  const unexpected = [...actual].filter((key) => !expectedThemeKeys.has(key));
+  if (missing.length || unexpected.length || items.length !== expectedThemeKeys.size) {
+    console.error("Accessibility contrast audit could not find the complete semantic theme set.");
     if (missing.length) console.error(`- Missing: ${missing.join(", ")}`);
     if (unexpected.length) console.error(`- Unexpected: ${unexpected.join(", ")}`);
     process.exit(1);
@@ -84,7 +82,7 @@ function assertAppearanceSet(items) {
 }
 
 const failures = [];
-for (const { key, values } of appearances) {
+for (const { key, values } of themes) {
   for (const [fg, bg, minimum] of checks) {
     if (!values[fg] || !values[bg]) continue;
     const ratio = contrast(values[fg], values[bg]);

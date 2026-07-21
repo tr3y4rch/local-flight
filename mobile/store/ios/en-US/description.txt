@@ -1,12 +1,12 @@
 Your airport board, wherever you are.
 
-Local Flight turns your iPhone or iPad into a focused flight information display (FIDS) companion for your Mac, Windows PC, Linux host, or Raspberry Pi. Pair on your own Wi-Fi to bring arrivals, departures, nearby traffic, movement history, and host controls to a purpose-built mobile interface.
+Local Flight brings a focused flight board to your iPhone, iPad, and compatible Apple-silicon Mac. Pair on the same Wi-Fi with a Local Flight host on macOS, Windows, Linux, or Raspberry Pi to see arrivals, departures, nearby traffic, movement history, and relevant host controls.
 
-At home, Companion connects directly to your Local Flight host over the LAN. If you explicitly enable Remote Companion, the same paired phone can continue through end-to-end encrypted relay routing when you leave Wi-Fi, as long as your host remains online. LAN is always preferred, and remote access can be revoked from the host.
+Choose “Connect to a Local Flight host” during setup. This becomes Companion mode and connects directly to your host nearby. If you explicitly enable Remote Companion, the same paired device can continue through end-to-end encrypted relay routing away from home, as long as your host remains online. The nearby connection is always preferred, and remote access can be revoked from the host.
 
-NO SERVER? USE STANDALONE.
+NO HOST? USE STANDALONE.
 
-Standalone provides a simpler phone-only airport board through the Beacon Tools service. Choose an airport and start browsing without a desktop, Linux server, or Raspberry Pi. Standalone uses careful refresh limits to keep shared aviation-data access reliable and fairly available.
+Choose “Use without a Local Flight host” for a simpler airport board through the Beacon Tools service. This becomes Standalone mode. Choose an airport and start browsing Airline schedules or VATSIM traffic without running Local Flight elsewhere. Careful refresh limits keep shared aviation-data access reliable and fairly available.
 
 BUILT FOR DAILY GLANCES
 
@@ -16,8 +16,10 @@ BUILT FOR DAILY GLANCES
 • Deduplicated movement history that avoids counting repeated snapshots and known codeshares as separate flights
 • Flight detail sheets using the data available for each movement
 • Pinned-flight and airport-board Home Screen widgets using the latest snapshot prepared by the app
-• Light and dark appearances with multiple display skins
-• Portrait and landscape layouts for iPhone and iPad
+• A best-effort pinned-flight Live Activity on supported iPhones, started only when you ask for it
+• Warm light, midnight dark, device-matched, and high-contrast appearances
+• Adaptive Board / Radar / History / More navigation for iPhone and iPad
+• An explicit fullscreen Display with the familiar horizontal FIDS columns
 
 FOR AVIATION ENTHUSIASTS
 
@@ -35,7 +37,7 @@ LOCAL-FIRST BY DESIGN
 
 OPTIONAL SUPPORT
 
-Three one-time App Store support choices are available in Settings. They unlock nothing, add no subscription, and do not change app features. Apple handles payment details; Local Flight receives only the minimal transaction evidence needed for verification.
+Three one-time App Store support choices are available in More. They unlock nothing, add no subscription, and do not change app features. Apple handles payment details; Local Flight receives only the minimal transaction evidence needed for verification.
 
 WHAT YOU NEED
 

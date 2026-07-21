@@ -77,19 +77,19 @@ function parseRemoteCompanionInvite(parsed: URL): RemoteCompanionInvite | undefi
 export function pairingServerUrlProblem(serverUrl: string): string | null {
   const normalized = normalizeServerUrl(serverUrl);
   if (!normalized) {
-    return "Pairing QR did not include a Local Flight server URL.";
+    return "Pairing QR did not include a Local Flight host address.";
   }
   try {
     const parsed = new URL(normalized);
     const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
     if (["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(host)) {
-      return "Pairing URL points at localhost. Use the LAN IP shown in Local Flight Settings; localflight.local is only safe when one Local Flight server is on the LAN.";
+      return "Pairing address points at localhost. Use the LAN IP shown in Local Flight Settings; localflight.local is only safe when one Local Flight host is on the same Wi-Fi.";
     }
     if (!["http:", "https:"].includes(parsed.protocol)) {
-      return "Pairing URL must use http:// or https:// for the Local Flight server.";
+      return "The Local Flight host address must use http:// or https://.";
     }
   } catch {
-    return "Pairing QR contained an invalid Local Flight server URL.";
+    return "Pairing QR contained an invalid Local Flight host address.";
   }
   return null;
 }
@@ -105,10 +105,10 @@ export function pairingFingerprintProblem(expected: string | null | undefined, a
   }
   const actualNormalized = normalizedPairingFingerprint(actual);
   if (!actualNormalized) {
-    return "Pairing QR is tied to a Local Flight server, but the server did not report its fingerprint. Update the Local Flight host or enter its LAN IP manually.";
+    return "Pairing QR is tied to a Local Flight host, but the host did not report its fingerprint. Update Local Flight on the host or enter its LAN IP manually.";
   }
   if (expectedNormalized !== actualNormalized) {
-    return `Pairing QR belongs to server ${expectedNormalized}, but ${actualNormalized} answered. Use the QR/IP from the Local Flight server you want to control.`;
+    return `Pairing QR belongs to host ${expectedNormalized}, but ${actualNormalized} answered. Use the QR or IP address from the Local Flight host you want to connect.`;
   }
   return null;
 }

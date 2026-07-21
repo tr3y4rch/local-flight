@@ -18,9 +18,13 @@ export type RefreshOptions = {
   nextView?: FlightView;
   nextHistoryDirection?: HistoryDirection;
   nextHistoryHours?: HistoryWindow;
+  nextHistoryCallsign?: string;
+  nextHistoryAirline?: string;
   nextRadarRadius?: RadarRadius;
   forceRadarGround?: boolean;
   includeDashboard?: boolean;
+  includeBoardSnapshot?: boolean;
+  background?: boolean;
 };
 
 export type ProjectedBlip = {

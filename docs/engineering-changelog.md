@@ -39,7 +39,7 @@ hashes, and personal build identifiers belong outside Git.
 - A shared runtime version/User-Agent helper replaces scattered current-version
   fallbacks while retaining an explicit source-bundle fallback verified against
   `pyproject.toml`.
-- Mobile moved to version 0.5.2, iOS build 8, and Android versionCode 11 without
+- Mobile moved to version 0.5.2, iOS build 9, and Android versionCode 12 without
   changing permanent application or widget identifiers.
 
 ### Security, relay, and publication

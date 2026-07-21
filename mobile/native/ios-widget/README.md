@@ -2,7 +2,7 @@
 
 Tracked WidgetKit template for the iOS widget extension. The generated
 `mobile/ios/` directory is ignored, so keep these files as the source of truth.
-The widget-enabled `0.5.2 (8)` source enables this template through
+The widget-enabled `0.5.2 (9)` source enables this template through
 `plugins/with-localflight-ios-widget.js`. The steps below are the required
 generation/signing checks. Apple provisioning must cover the app, widget
 extension, and `group.cc.beacontools.localflight` App Group.
@@ -26,6 +26,9 @@ action is the deterministic foreground path.
 - `LocalFlightWidget.swift` is the thin WidgetKit provider/host. The V2 visuals
   live in `DesignTokens.swift`, `SmallWidgetViewV2.swift`,
   `MediumWidgetViewV2.swift`, and `LiveActivityViewV2.swift`.
+- `LiveActivityViewV2.swift` also supplies the iOS 16.1+ Lock Screen and Dynamic
+  Island presentation. The WidgetBundle availability gate keeps the Home Screen
+  widget available on iOS 15.1.
 - `Fonts/` contains the same bundled app fonts the Expo app uses:
   Audiowide for the Local Flight wordmark, DM Sans for readable UI text, and
   Space Mono for board/FIDS text.
@@ -58,9 +61,8 @@ action is the deterministic foreground path.
 6. Verify the generated extension target is named `LocalFlightWidget` and uses
    bundle ID `cc.beacontools.localflight.widget`.
 7. Verify the target contains `WidgetSnapshot.swift`, `LocalFlightWidget.swift`,
-   `DesignTokens.swift`, `SmallWidgetViewV2.swift`, and
-   `MediumWidgetViewV2.swift`. Do not add `LiveActivityViewV2.swift` to target
-   membership until ActivityKit is intentionally enabled.
+   `DesignTokens.swift`, `SmallWidgetViewV2.swift`,
+   `MediumWidgetViewV2.swift`, and `LiveActivityViewV2.swift`.
 8. Verify everything in `Fonts/` is present in the widget target bundle.
 9. Verify the widget target `Info.plist` includes these font names:
    `Audiowide-Regular`, `SpaceMono-Regular`, `SpaceMono-Bold`,
@@ -84,21 +86,25 @@ action is the deterministic foreground path.
 17. Archive with the final signing team and verify the embedded extension is
     present in the `.ipa`.
 
-## ActivityKit / Dynamic Island Later
+## ActivityKit / Dynamic Island
 
-- Keep Dynamic Island and Live Activity wiring separate from the WidgetKit
-  target pass.
-- Add ActivityKit only after the WidgetKit/App Group path is stable.
-- Use `LiveActivityViewV2.swift` as the source for ActivityKit visuals. Compact
-  and minimal states remain flight/status only; expanded Dynamic Island should
-  use the separate leading, trailing, and bottom region views so route and
-  destination copy stays below the TrueDepth camera area.
-- Keep the richer rounded `LFLockScreenBannerV2` layout for Lock Screen/StandBy
-  only, not as the Dynamic Island expanded region layout.
-- The Live Activity should read the same pinned-flight snapshot shape and should
-  never promote a random row when the pinned flight disappears.
-- If remote Live Activity updates are added later, wire APNs and server update
-  credentials as a separate release task.
+- The local Expo bridge owns a best-effort `isSupported` / `start` / `update` /
+  `end` / `reconcile` lifecycle for the one pinned flight. Snapshot writes ask
+  the bridge to reconcile after reloading Home Screen widget timelines.
+- ActivityKit is capability-gated at iOS 16.1 and by the saved
+  `liveActivityEnabled` preference. Unsupported iOS versions and Android return
+  a stable unsupported result while Home Screen widgets continue normally.
+- `NSSupportsLiveActivities` is written by the iOS widget config plugin. No new
+  App Group, extension declaration, or app configuration entry is needed.
+- The app and Activity read the same schema-v1, size-bounded App Group snapshot.
+  They never fetch LAN, relay, or provider data from the widget extension or
+  Activity bridge, and never promote a random board row when the pin disappears.
+- Activity requests use `pushType: nil`; there is no APNs token, remote-update
+  entitlement, server credential, or relay path. Treat remote Live Activity
+  updates as a separate future release task.
+- Compact and minimal Dynamic Island states stay flight/status-only. Route and
+  destination content stays in the expanded bottom region, below the TrueDepth
+  camera area, while `LFLockScreenBannerV2` remains the richer Lock Screen view.
 
 ## Validation Commands
 

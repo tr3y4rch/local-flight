@@ -283,8 +283,8 @@ function classifyProbeFailure(error: unknown): Omit<RemoteCompanionProbeResult, 
     return {
       ok: false,
       status: "not_configured",
-      message: "Remote Companion is not paired on this phone yet.",
-      nextStep: "Scan a Remote Companion QR from Local Flight Settings while this phone is on the same Wi-Fi."
+      message: "Remote Companion is not paired on this device yet.",
+      nextStep: "Scan a Remote Companion QR from Local Flight Settings while this device is on the same Wi-Fi."
     };
   }
   if (/remote_host_offline/i.test(message)) {
@@ -307,15 +307,15 @@ function classifyProbeFailure(error: unknown): Omit<RemoteCompanionProbeResult, 
     return {
       ok: false,
       status: "grant_revoked",
-      message: "This phone's Remote Companion grant is no longer active.",
-      nextStep: "Pair this phone again from the same Local Flight host."
+      message: "This device’s Remote Companion grant is no longer active.",
+      nextStep: "Pair this device again from the same Local Flight host."
     };
   }
   if (error instanceof RemoteCompanionRelayError && error.status === 429) {
     return {
       ok: false,
       status: "rate_limited",
-      message: "Remote Companion asked this phone to slow down.",
+      message: "Remote Companion asked this device to slow down.",
       nextStep: `Wait ${error.retryAfterSeconds || 60} seconds before testing again.`,
       retryAfterSeconds: error.retryAfterSeconds || 60
     };
@@ -324,7 +324,7 @@ function classifyProbeFailure(error: unknown): Omit<RemoteCompanionProbeResult, 
     return {
       ok: false,
       status: "crypto_failed",
-      message: "LAN is unaffected, but this phone's encrypted remote backup could not be verified.",
+      message: "The nearby connection is unaffected, but this device’s encrypted remote backup could not be verified.",
       nextStep: "While on the host's Wi-Fi, choose Create LAN + Remote QR and scan it once. Local Flight will replace the old remote access automatically."
     };
   }
@@ -332,7 +332,7 @@ function classifyProbeFailure(error: unknown): Omit<RemoteCompanionProbeResult, 
     return {
       ok: false,
       status: "relay_unreachable",
-      message: "This phone could not reach the Remote Companion relay.",
+      message: "This device could not reach the Remote Companion relay.",
       nextStep: "Check internet access, VPN/firewall settings, and try again in a moment."
     };
   }
@@ -348,7 +348,7 @@ function classifyProbeFailure(error: unknown): Omit<RemoteCompanionProbeResult, 
     ok: false,
     status: "unknown",
     message: "Remote Companion could not complete the encrypted test signal.",
-    nextStep: "Try once more later, then re-pair this phone if the same message returns."
+    nextStep: "Try once more later, then re-pair this device if the same message returns."
   };
 }
 
@@ -362,7 +362,7 @@ export async function completeRemoteCompanionPairing(
 ): Promise<RemoteCompanionGrant> {
   const base = normalizeServerUrl(serverUrl);
   if (!base) {
-    throw new Error("Set a Local Flight server URL first.");
+    throw new Error("Set a Local Flight host address first.");
   }
   const identity = await getCompanionIdentity();
   const response = await fetch(`${base}/api/mobile/remote/pair`, {
@@ -480,8 +480,8 @@ export async function testRemoteCompanionProbe(
     return {
       ok: false,
       status: "not_configured",
-      message: "Remote Companion is not paired on this phone yet.",
-      nextStep: "Scan a Remote Companion QR from Local Flight Settings while this phone is on the same Wi-Fi.",
+      message: "Remote Companion is not paired on this device yet.",
+      nextStep: "Scan a Remote Companion QR from Local Flight Settings while this device is on the same Wi-Fi.",
       attempts: 0
     };
   }
@@ -518,8 +518,8 @@ export async function testRemoteCompanionProbe(
         return {
           ok: false,
           status: "host_error",
-          message: "Remote Companion answered, but the probe response did not match this phone's test signal.",
-          nextStep: "Pair this phone again from the intended host before relying on remote access.",
+          message: "Remote Companion answered, but the probe response did not match this device’s test signal.",
+          nextStep: "Pair this device again from the intended host before relying on remote access.",
           attempts,
           relayUrl: grant.relayUrl
         };
@@ -550,7 +550,7 @@ export async function testRemoteCompanionProbe(
       ok: false,
       status: "unknown" as const,
       message: "Remote Companion could not complete the encrypted test signal.",
-      nextStep: "Try once more later, then re-pair this phone if the same message returns."
+      nextStep: "Try once more later, then re-pair this device if the same message returns."
     }),
     attempts,
     relayUrl: grant.relayUrl

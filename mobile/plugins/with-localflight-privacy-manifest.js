@@ -119,7 +119,6 @@ function removeUnusedGeneratedUsageDescriptions(infoPlist) {
   // request microphone or Face ID access in the submitted mobile app.
   delete infoPlist.NSFaceIDUsageDescription;
   delete infoPlist.NSMicrophoneUsageDescription;
-  delete infoPlist.NSSupportsLiveActivities;
 
   if (Array.isArray(infoPlist.CFBundleURLTypes)) {
     infoPlist.CFBundleURLTypes = infoPlist.CFBundleURLTypes

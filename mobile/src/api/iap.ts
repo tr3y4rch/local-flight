@@ -1,5 +1,5 @@
 import { appVersion } from "../device/identity";
-import { DEFAULT_RELAY_URL } from "./standalone";
+import { preferredStandaloneRelayUrl } from "./standalone";
 
 const APP_ID = "cc.beacontools.localflight";
 
@@ -40,7 +40,7 @@ async function delay(milliseconds: number): Promise<void> {
 async function verifyOnce(input: VerifySupportPurchaseInput): Promise<VerifySupportPurchaseResponse> {
   let response: Response;
   try {
-    response = await fetch(`${DEFAULT_RELAY_URL}/v1/mobile/iap/verify`, {
+    response = await fetch(`${preferredStandaloneRelayUrl()}/v1/mobile/iap/verify`, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({

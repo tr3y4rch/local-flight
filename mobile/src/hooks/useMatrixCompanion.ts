@@ -86,7 +86,7 @@ export function useMatrixCompanion(serverUrl: string) {
     const normalized = normalizeServerUrl(serverUrl);
     if (!normalized) {
       setSaveTone("error");
-      setSaveMessage("Set the Local Flight server URL first.");
+      setSaveMessage("Set the Local Flight host address first.");
       return;
     }
 
@@ -111,7 +111,7 @@ export function useMatrixCompanion(serverUrl: string) {
     const normalized = normalizeServerUrl(serverUrl);
     if (!normalized) {
       setSaveTone("error");
-      setSaveMessage("Set the Local Flight server URL first.");
+      setSaveMessage("Set the Local Flight host address first.");
       return;
     }
 

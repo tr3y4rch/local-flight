@@ -6,6 +6,8 @@ OUT_ROOT="${ROOT_DIR}/.layout-smoke"
 DERIVED_DATA="${OUT_ROOT}/DerivedData"
 BUNDLE_ID="${BUNDLE_ID:-cc.beacontools.localflight}"
 BUILD_CONFIGURATION="${BUILD_CONFIGURATION:-Release}"
+XCODE_WORKSPACE="${XCODE_WORKSPACE:-ios/LocalFlight.xcworkspace}"
+XCODE_SCHEME="${XCODE_SCHEME:-LocalFlight}"
 WAIT_SECONDS="${WAIT_SECONDS:-4}"
 RUNTIME_MODE="latest"
 SKIP_BUILD=0
@@ -34,6 +36,8 @@ Options:
 Environment:
   APP_PATH            Existing .app bundle to install when --skip-build is used.
   BUILD_CONFIGURATION Xcode configuration. Defaults to Release so JS is bundled.
+  XCODE_WORKSPACE      Expo workspace. Defaults to ios/LocalFlight.xcworkspace.
+  XCODE_SCHEME         Shared app scheme. Defaults to LocalFlight.
   BUNDLE_ID           App bundle id. Defaults to cc.beacontools.localflight.
 USAGE
 }
@@ -115,11 +119,16 @@ if [[ "${SKIP_BUILD}" -eq 0 ]]; then
     npx expo prebuild --platform ios
   fi
 
-  echo "Building Local Flight Companion once for the simulator..."
+  if [[ ! -d "${XCODE_WORKSPACE}" ]]; then
+    echo "Could not find ${XCODE_WORKSPACE}. Run Expo prebuild or set XCODE_WORKSPACE." >&2
+    exit 1
+  fi
+
+  echo "Building Local Flight once for the simulator..."
   rm -rf "${DERIVED_DATA}"
   if ! xcodebuild \
-    -workspace ios/LocalFlightCompanion.xcworkspace \
-    -scheme LocalFlightCompanion \
+    -workspace "${XCODE_WORKSPACE}" \
+    -scheme "${XCODE_SCHEME}" \
     -configuration "${BUILD_CONFIGURATION}" \
     -sdk iphonesimulator \
     -derivedDataPath "${DERIVED_DATA}" \

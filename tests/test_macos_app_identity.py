@@ -96,7 +96,9 @@ def test_v2_brand_manifest_tracks_package_qt_lan_mobile_and_site() -> None:
         "beacon_mark",
         "local_flight_dark",
         "local_flight_light",
+        "mobile_icon_system",
     }
+    assert manifest["mobile_renderer"] == "pillow-supersampled-mobile-mark-v1"
     output_paths = {entry["path"] for entry in manifest["active_outputs"]}
     assert {
         "assets/localflight-logo.svg",
@@ -108,21 +110,27 @@ def test_v2_brand_manifest_tracks_package_qt_lan_mobile_and_site() -> None:
         "src/localflight/ui/static/localflight-logo.svg",
         "src/localflight/ui/static/localflight-icon.png",
         "src/localflight/ui/static/localflight-app-icon.png",
-        "mobile/assets/localflight-icon.png",
-        "mobile/assets/localflight-icon-dark.png",
-        "mobile/assets/localflight-icon-light.png",
-        "mobile/assets/localflight-logo.png",
-        "mobile/assets/localflight-logo-dark.png",
-        "mobile/assets/localflight-logo-light.png",
+        "mobile/assets/localflight-ios-light.png",
+        "mobile/assets/localflight-ios-dark.png",
+        "mobile/assets/localflight-ios-tinted.png",
+        "mobile/assets/localflight-android-foreground.png",
+        "mobile/assets/localflight-android-background.png",
+        "mobile/assets/localflight-android-monochrome.png",
+        "mobile/assets/localflight-android-legacy.png",
+        "mobile/assets/localflight-mark-light.png",
+        "mobile/assets/localflight-mark-dark.png",
+        "mobile/assets/localflight-splash-light.png",
+        "mobile/assets/localflight-splash-dark.png",
+        "mobile/assets/store/android/feature-graphic-1024x500.png",
     }.issubset(output_paths)
     assert {
-        "site/assets/apple-touch-icon.png",
-        "site/assets/beacon-tools-icon-512.png",
-        "site/assets/beacon-tools-logo.png",
-        "site/assets/beacon-tools-mark-96.png",
-        "site/assets/favicon.ico",
-        "site/assets/favicon-32.png",
-        "site/assets/localflight-lockup.png",
+        "site/public/assets/apple-touch-icon.png",
+        "site/public/assets/beacon-tools-icon-512.png",
+        "site/public/assets/beacon-tools-logo.png",
+        "site/public/assets/beacon-tools-mark-96.png",
+        "site/public/assets/favicon.ico",
+        "site/public/assets/favicon-32.png",
+        "site/public/assets/localflight-lockup.png",
     }.issubset(output_paths)
 
 
@@ -145,15 +153,18 @@ def test_v2_brand_module_outputs_are_sanitized() -> None:
     assert sorted(path.name for path in static_dir.glob("localflight-app-icon*.png")) == ["localflight-app-icon.png"]
     assert not (static_dir / "brand").exists()
 
-    assert sorted(path.name for path in mobile_dir.glob("localflight-logo*")) == [
-        "localflight-logo-dark.png",
-        "localflight-logo-light.png",
-        "localflight-logo.png",
-    ]
-    assert sorted(path.name for path in mobile_dir.glob("localflight-icon*")) == [
-        "localflight-icon-dark.png",
-        "localflight-icon-light.png",
-        "localflight-icon.png",
+    assert sorted(path.name for path in mobile_dir.glob("localflight-*.png")) == [
+        "localflight-android-background.png",
+        "localflight-android-foreground.png",
+        "localflight-android-legacy.png",
+        "localflight-android-monochrome.png",
+        "localflight-ios-dark.png",
+        "localflight-ios-light.png",
+        "localflight-ios-tinted.png",
+        "localflight-mark-dark.png",
+        "localflight-mark-light.png",
+        "localflight-splash-dark.png",
+        "localflight-splash-light.png",
     ]
 
     active_svgs = [
@@ -168,19 +179,32 @@ def test_v2_brand_module_outputs_are_sanitized() -> None:
         assert "app icon dark" in text
 
 
-def test_mobile_brand_config_has_light_and_dark_master_variants() -> None:
+def test_mobile_brand_config_has_platform_specific_icon_and_splash_variants() -> None:
     app_config = json.loads((ROOT / "mobile" / "app.json").read_text(encoding="utf-8"))
     plugins = app_config["expo"]["plugins"]
     splash_plugin = next(plugin for plugin in plugins if isinstance(plugin, list) and plugin[0] == "expo-splash-screen")
     splash_config = splash_plugin[1]
 
-    assert app_config["expo"]["icon"] == "./assets/localflight-icon.png"
-    assert splash_config["backgroundColor"] == "#f5f9fc"
-    assert splash_config["image"] == "./assets/localflight-logo-light.png"
-    assert splash_config["dark"]["backgroundColor"] == "#080c12"
-    assert splash_config["dark"]["image"] == "./assets/localflight-logo-dark.png"
-    assert (ROOT / "mobile" / "assets" / "localflight-icon-dark.png").read_bytes() != (
-        ROOT / "mobile" / "assets" / "localflight-icon-light.png"
+    assert app_config["expo"]["icon"] == "./assets/localflight-ios-light.png"
+    assert app_config["expo"]["ios"]["icon"] == {
+        "light": "./assets/localflight-ios-light.png",
+        "dark": "./assets/localflight-ios-dark.png",
+        "tinted": "./assets/localflight-ios-tinted.png",
+    }
+    assert app_config["expo"]["android"]["icon"] == "./assets/localflight-android-legacy.png"
+    assert app_config["expo"]["android"]["adaptiveIcon"] == {
+        "foregroundImage": "./assets/localflight-android-foreground.png",
+        "backgroundImage": "./assets/localflight-android-background.png",
+        "backgroundColor": "#132638",
+        "monochromeImage": "./assets/localflight-android-monochrome.png",
+    }
+    assert splash_config["backgroundColor"] == "#F5F1E8"
+    assert splash_config["image"] == "./assets/localflight-splash-light.png"
+    assert splash_config["imageWidth"] == 260
+    assert splash_config["dark"]["backgroundColor"] == "#08141D"
+    assert splash_config["dark"]["image"] == "./assets/localflight-splash-dark.png"
+    assert (ROOT / "mobile" / "assets" / "localflight-ios-dark.png").read_bytes() != (
+        ROOT / "mobile" / "assets" / "localflight-ios-light.png"
     ).read_bytes()
 
 

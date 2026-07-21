@@ -60,7 +60,7 @@ assert.match(
 );
 assert.match(
   appShellSource,
-  /isLive \? \(isStandalone \? "live" : companionTransport\) : "offline"/,
+  /isLive\s*\? \(isStandalone \? "live" : companionTransport\)[\s\S]*?: "offline"/,
   "Companion mode should surface LAN or Remote instead of a generic live state."
 );
 assert.match(
@@ -135,13 +135,38 @@ assert.match(
 );
 assert.match(
   appShellSource,
-  /finally \{\s+setRefreshing\(false\);\s+setActivity\(null\);/,
-  "Every refresh outcome must release the pull-to-refresh indicator."
+  /finally \{\s+if \(!background\) \{[\s\S]*?setRefreshingByTarget\([\s\S]*?anyForegroundRefresh[\s\S]*?setActivity\(null\);/,
+  "Every foreground refresh outcome must release its target-specific pull-to-refresh indicator."
 );
 assert.match(
   appShellSource,
-  /try \{\s+if \(includeDashboard\) \{[\s\S]*?return;[\s\S]*?finally \{\s+setRefreshing\(false\);/,
+  /try \{\s+if \(includeDashboard\) \{[\s\S]*?isCurrentDashboardRequest\(\)[\s\S]*?return;[\s\S]*?finally \{\s+if \(!background\)/,
   "Dashboard failure must return through the refresh cleanup block."
+);
+assert.match(
+  appShellSource,
+  /foregroundRefreshGenerationByTargetRef\.current\.get\(target\)[\s\S]*?isCurrentForegroundRefresh/,
+  "Superseded foreground failures must not overwrite the active request state for that feature."
+);
+assert.match(
+  appShellSource,
+  /dashboardRequestGenerationRef[\s\S]*?isCurrentDashboardRequest/,
+  "Dashboard connectivity writes must be guarded across foreground and background refreshes."
+);
+assert.match(
+  appShellSource,
+  /targetRequestGenerationByTargetRef[\s\S]*?isCurrentTargetRequest/,
+  "A superseded dashboard request must not launch stale work for the same feature."
+);
+assert.match(
+  appShellSource,
+  /if \(!dataReady\) return;[\s\S]*?effectiveIntervalMs = connected \? syncIntervalMs :/,
+  "Fallback polling must keep retrying connectivity while the UI is offline."
+);
+assert.match(
+  appShellSource,
+  /socket\.onclose = \(\) => \{[\s\S]*?retryDelayMs[\s\S]*?setTimeout\(connectSocket, retryDelayMs\)/,
+  "Companion WebSockets must reconnect with bounded exponential backoff after a dropped channel."
 );
 assert.match(
   remoteSource,

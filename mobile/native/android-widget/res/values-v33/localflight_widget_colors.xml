@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Android 13+ themed widgets keep the warm Local Flight surface while
+       borrowing the user-selected system accent for interactive emphasis. -->
+  <color name="localflight_widget_teal">@android:color/system_accent1_600</color>
+  <color name="localflight_widget_pin">@android:color/system_accent1_600</color>
+</resources>

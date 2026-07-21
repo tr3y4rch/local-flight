@@ -1,1 +1,1 @@
-Carry your airport board with you: pair with Local Flight on desktop, Linux server, or Pi; use encrypted Remote Companion away from home; or choose phone-only Standalone.
+Your airport board, at a glance: connect to a Local Flight host on the same Wi-Fi, use encrypted Remote Companion, or choose Standalone without a host.

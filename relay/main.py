@@ -132,10 +132,12 @@ _COMMUNITY_SCHEDULE_NETWORK_DAILY_LIMIT = 240
 _COMMUNITY_SCHEDULE_GLOBAL_DAILY_LIMIT = 1000
 _COMMUNITY_RADAR_NETWORK_DAILY_LIMIT = 600
 _COMMUNITY_RADAR_GLOBAL_DAILY_LIMIT = 3000
-_STANDALONE_SCHEDULE_LIMIT = 600
-_STANDALONE_RADAR_LIMIT = 3000
-_STANDALONE_SCHEDULE_MIN_REFRESH_SECONDS = 3 * 60 * 60
-_STANDALONE_RADAR_MIN_REFRESH_SECONDS = 5 * 60
+_STANDALONE_SCHEDULE_LIMIT = 800
+_STANDALONE_RADAR_LIMIT = 6000
+_STANDALONE_SCHEDULE_MIN_REFRESH_SECONDS = 60 * 60
+_STANDALONE_RADAR_MIN_REFRESH_SECONDS = 3 * 60
+_STANDALONE_ROWS_PER_DIRECTION = 50
+_STANDALONE_DISPLAY_PAGE_SECONDS = 8
 _STANDALONE_RADAR_RADII_NM = (1, 3, 5, 10)
 _IAP_PRODUCTS = {
     "cc.beacontools.localflight.support.small",
@@ -559,11 +561,11 @@ def _standalone_schedule_min_refresh_seconds() -> int:
 def _standalone_radar_min_refresh_seconds() -> int:
     try:
         return max(
-            _radar_cache_seconds(),
+            60,
             int(_env("RELAY_STANDALONE_RADAR_MIN_REFRESH_SECONDS", str(_STANDALONE_RADAR_MIN_REFRESH_SECONDS))),
         )
     except ValueError:
-        return max(_radar_cache_seconds(), _STANDALONE_RADAR_MIN_REFRESH_SECONDS)
+        return _STANDALONE_RADAR_MIN_REFRESH_SECONDS
 
 
 def _radar_cache_seconds() -> int:
@@ -9413,7 +9415,9 @@ async def _surface_gate(request: Request, call_next):
 def root(request: Request):
     if _request_surface(request) == "public":
         negotiation_headers = {
-            "Cache-Control": "no-store",
+            # `no-transform` prevents Cloudflare Web Analytics from injecting a
+            # browser beacon into this deliberately script-free service page.
+            "Cache-Control": "no-store, no-transform",
             "Vary": "Accept",
         }
         if "text/html" in request.headers.get("accept", "").lower():
@@ -9960,14 +9964,26 @@ def _standalone_config_payload(airport: Dict[str, Any], *, diagnostics_mode: str
         "theme": "dark",
         "source": "real",
         "timezone": str(airport.get("timezone") or "UTC"),
-        "skin": "technical",
+        "skin": "standard",
         "display_outputs": ["mobile"],
         "diagnostics_mode": diagnostics_mode or "manual",
-        "web_row_limit": 30,
-        "web_rotation_seconds": 8,
+        "web_row_limit": _STANDALONE_ROWS_PER_DIRECTION,
+        "web_rotation_seconds": _STANDALONE_DISPLAY_PAGE_SECONDS,
         "display_grace_minutes": 30,
         "display_horizon_hours": 12,
         "radar_surface_enabled": False,
+    }
+
+
+def _standalone_policy_payload() -> Dict[str, int]:
+    """One additive, client-readable policy for Mobile V2 Standalone."""
+    return {
+        "board_refresh_seconds": _standalone_schedule_min_refresh_seconds(),
+        "radar_refresh_seconds": _standalone_radar_min_refresh_seconds(),
+        "rows_per_direction": _STANDALONE_ROWS_PER_DIRECTION,
+        "display_page_seconds": _STANDALONE_DISPLAY_PAGE_SECONDS,
+        "schedule_access_limit": _standalone_schedule_limit(),
+        "radar_access_limit": _standalone_radar_limit(),
     }
 
 
@@ -10003,6 +10019,7 @@ def _mobile_fids_rows_from_schedule_payload(
     view: str,
     limit: int,
 ) -> list[Dict[str, Any]]:
+    from localflight.decode.dedupe import dedupe_codeshares
     from localflight.decode.normalize import normalize_flights
     from localflight.render.fids import build_fids_context
     from localflight.storage.config import AppConfig
@@ -10016,7 +10033,7 @@ def _mobile_fids_rows_from_schedule_payload(
         source_name=str(payload.get("provider") or "relay"),
     )
     direction = FlightDirection.DEPARTURE if view == "departures" else FlightDirection.ARRIVAL
-    filtered = [flight for flight in flights if flight.direction == direction]
+    filtered = [flight for flight in dedupe_codeshares(flights) if flight.direction == direction]
     cfg = AppConfig(**_standalone_config_payload(airport))
     ctx = build_fids_context(
         cfg=cfg,
@@ -10733,7 +10750,7 @@ def relay_activation_request_status_compat(
 
 @app.get("/v1/airports/search")
 def relay_airports_search(
-    q: str = Query(..., min_length=2, max_length=20),
+    q: str = Query(..., min_length=2, max_length=80),
     limit: int = Query(8, ge=1, le=20),
     all_types: bool = Query(False),
 ) -> list[Dict[str, Any]]:
@@ -10822,9 +10839,10 @@ def relay_mobile_summary(
         "state": {
             "ok": True,
             "source_name": "relay_standalone",
-            "last_success_utc": _utc_now(),
+            "last_success_utc": (status.get("schedule_cache") or {}).get("updated_at"),
             "last_error": None,
         },
+        "standalone_policy": _standalone_policy_payload(),
         "system": {
             "version": _localflight_version_label(),
             "python": "relay",
@@ -10844,6 +10862,7 @@ def relay_mobile_summary(
                 "active_mode": "standalone",
                 "min_refresh_seconds": _standalone_schedule_min_refresh_seconds(),
             },
+            "standalone_policy": _standalone_policy_payload(),
             "shared_schedule_budget": status.get("shared_schedule_budget") or {},
             "schedule_access_budget": status.get("schedule_access_budget") or {},
             "aviationstack": {
@@ -10912,7 +10931,7 @@ def relay_mobile_fids(
     timezone: str = Query(""),
     diagnostics_mode: str = Query("manual"),
     view: str = Query("departures", pattern="^(departures|arrivals)$"),
-    limit: int = Query(30, ge=1, le=100),
+    limit: int = Query(_STANDALONE_ROWS_PER_DIRECTION, ge=1, le=100),
     device_type: str = Query("phone"),
 ) -> Any:
     airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
@@ -10954,6 +10973,91 @@ def relay_mobile_fids(
         raise HTTPException(status_code=502, detail="The flight board is temporarily unavailable") from exc
 
 
+@app.get("/v1/mobile/board")
+def relay_mobile_board(
+    request: Request,
+    install_id: str = Query(...),
+    activation_token: str = Query(...),
+    app_version: str = Query(...),
+    client_kind: str = Query(...),
+    airport_iata: str = Query(...),
+    airport_icao: str = Query(""),
+    timezone: str = Query(""),
+    diagnostics_mode: str = Query("manual"),
+    device_type: str = Query("phone"),
+) -> Any:
+    """Return both Board directions from one metered shared snapshot."""
+    airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
+    timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
+    airport["timezone"] = timezone_name
+    install_id = _validate_install_id(install_id)
+    _require_mobile_standalone_access(
+        install_id=install_id,
+        activation_token=activation_token,
+        app_version=app_version,
+        client_kind=client_kind,
+        service="aviationstack",
+        device_type=device_type,
+        airport_iata=str(airport.get("iata") or ""),
+        airport_icao=str(airport.get("icao") or ""),
+        timezone_name=timezone_name,
+        diagnostics_mode=diagnostics_mode,
+    )
+
+    cache_key = f"{airport.get('iata') or airport.get('icao')}:{timezone_name}:30:12"
+    cached = _mobile_cache_load(
+        install_id=install_id,
+        service="board_v2",
+        cache_key=cache_key,
+        max_age_seconds=_standalone_schedule_min_refresh_seconds(),
+    )
+    if cached is not None:
+        return JSONResponse(cached, headers={"X-LF-Mobile-Standalone-Cache": "hit"})
+
+    schedule_response = relay_schedule(
+        request,
+        airport_iata=str(airport.get("iata") or airport_iata),
+        timezone=timezone_name,
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+        refresh_seconds=_standalone_schedule_min_refresh_seconds(),
+        install_id=install_id,
+        activation_token=activation_token,
+        app_version=app_version,
+        client_kind="mobile_standalone",
+        device_type=device_type,
+        os_family="mobile",
+        source_mode="real",
+    )
+    if schedule_response.status_code >= 400:
+        return schedule_response
+    schedule_payload = _response_json_payload(schedule_response)
+    try:
+        board_payload = {
+            "schema_version": "mobile-board-v2",
+            "generated_at": schedule_payload.get("generated_at") or _utc_now(),
+            "cache_state": schedule_payload.get("cache_state") or (schedule_payload.get("meta") or {}).get("cache_state") or "fresh",
+            "refresh_after_s": _standalone_schedule_min_refresh_seconds(),
+            "rows_per_direction": _STANDALONE_ROWS_PER_DIRECTION,
+            "departures": _mobile_fids_rows_from_schedule_payload(
+                schedule_payload,
+                airport=airport,
+                view="departures",
+                limit=_STANDALONE_ROWS_PER_DIRECTION,
+            ),
+            "arrivals": _mobile_fids_rows_from_schedule_payload(
+                schedule_payload,
+                airport=airport,
+                view="arrivals",
+                limit=_STANDALONE_ROWS_PER_DIRECTION,
+            ),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="The flight board is temporarily unavailable") from exc
+    _mobile_cache_store(install_id=install_id, service="board_v2", cache_key=cache_key, payload=board_payload)
+    return JSONResponse(board_payload, headers={"X-LF-Mobile-Standalone-Cache": "miss"})
+
+
 @app.get("/v1/mobile/radar")
 def relay_mobile_radar(
     request: Request,
@@ -10988,7 +11092,7 @@ def relay_mobile_radar(
     )
     cache_key = f"{airport.get('iata')}:{int(radius_nm)}"
     cached = _mobile_cache_load(
-        install_id=install_id,
+        install_id="shared:mobile-radar",
         service="radar",
         cache_key=cache_key,
         max_age_seconds=_standalone_radar_min_refresh_seconds(),
@@ -11094,6 +11198,7 @@ def relay_mobile_radar(
         plan=access["plan"],
     )
     payload = {
+        "generated_at": _utc_now(),
         "center": {"lat": center_lat, "lon": center_lon},
         "radius_nm": int(radius_nm),
         "source": "adsbexchange_relay",
@@ -11113,7 +11218,7 @@ def relay_mobile_radar(
         "radar_map_error": radar_map_error,
         "blips": blips,
     }
-    _mobile_cache_store(install_id=install_id, service="radar", cache_key=cache_key, payload=payload)
+    _mobile_cache_store(install_id="shared:mobile-radar", service="radar", cache_key=cache_key, payload=payload)
     notices = []
     if radar_map_error:
         notices.append(
@@ -11653,7 +11758,7 @@ def relay_schedule(
         if plan == "community":
             payload["meta"]["relay_policy"] = "community schedule snapshots refresh at most once every 30 minutes"
         if client_kind == "mobile_standalone":
-            payload["meta"]["relay_policy"] = "mobile standalone schedule snapshots refresh at most once every 3 hours"
+            payload["meta"]["relay_policy"] = "mobile standalone airline schedules usually refresh about once an hour"
             payload["meta"]["client_kind"] = "mobile_standalone"
         _record_schedule_access(
             cache_key=cache_key,

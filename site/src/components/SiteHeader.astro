@@ -1,0 +1,49 @@
+---
+import { currentRelease, githubUrl, navItems, type NavKey } from "../data/site";
+
+interface Props {
+  active: NavKey;
+}
+
+const { active } = Astro.props;
+---
+
+<header class="site-header" data-site-header>
+  <div class="header-frame">
+    <a class="site-brand" href="/" aria-label="Beacon Tools home">
+      <img src="/assets/beacon-tools-mark-96.png" alt="" width="48" height="48" />
+      <span>
+        <strong>Beacon Tools</strong>
+        <small>Open-source aviation displays</small>
+      </span>
+    </a>
+
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" data-menu-toggle>
+      <span class="menu-toggle-lines" aria-hidden="true"><i></i><i></i></span>
+      <span data-menu-label>Menu</span>
+    </button>
+
+    <nav class="site-nav" id="site-navigation" aria-label="Main navigation" data-site-nav>
+      {navItems.map((item) => (
+        <a href={item.href} aria-current={active === item.key ? "page" : undefined}>{item.label}</a>
+      ))}
+      <a href={githubUrl}>GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+
+    <button class="theme-toggle" type="button" aria-label="Switch to light theme" data-theme-toggle>
+      <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
+      <span class="theme-icon theme-icon-moon" aria-hidden="true">◐</span>
+      <span class="theme-label" data-theme-label>Light</span>
+    </button>
+  </div>
+
+  <div class="instrument-bar" aria-label="Beacon Tools status">
+    <div class="instrument-bar-inner">
+      <span class="instrument-reading"><b>UTC</b> <time data-clock="utc">--:--:--</time></span>
+      <span class="instrument-reading"><b>LOCAL</b> <time data-clock="local">--:--:--</time></span>
+      <span class="instrument-divider" aria-hidden="true"></span>
+      <span class="instrument-status" data-site-release={currentRelease}><i aria-hidden="true"></i> Local Flight {currentRelease}</span>
+      <span class="instrument-note">Informational display · not for operational use</span>
+    </div>
+  </div>
+</header>

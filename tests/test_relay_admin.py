@@ -449,8 +449,8 @@ def test_activate_mobile_standalone_uses_standalone_limits(tmp_path: Path, monke
     assert response.status_code == 200
     payload = response.json()
     assert payload["activation_token"].startswith("lfm_")
-    assert payload["limits"]["schedule"] == 600
-    assert payload["limits"]["radar"] == 3000
+    assert payload["limits"]["schedule"] == 800
+    assert payload["limits"]["radar"] == 6000
 
     conn = relay_main._connect()
     token = conn.execute(
@@ -467,8 +467,8 @@ def test_activate_mobile_standalone_uses_standalone_limits(tmp_path: Path, monke
     ).fetchone()
     conn.close()
     assert token is not None
-    assert int(token["schedule_limit"]) == 600
-    assert int(token["radar_limit"]) == 3000
+    assert int(token["schedule_limit"]) == 800
+    assert int(token["radar_limit"]) == 6000
     assert profile["client_kind"] == "mobile_standalone"
     assert profile["device_type"] == "phone"
     assert profile["airport_iata"] == "ZRH"
@@ -559,8 +559,8 @@ def test_mobile_standalone_known_install_reissues_during_network_review(tmp_path
     assert reissued_payload["request_id"] == pending_id
     assert reissued_payload["activation_token"].startswith("lfm_")
     assert reissued_payload["activation_token"] != first_token
-    assert reissued_payload["limits"]["schedule"] == 600
-    assert reissued_payload["limits"]["radar"] == 3000
+    assert reissued_payload["limits"]["schedule"] == 800
+    assert reissued_payload["limits"]["radar"] == 6000
     assert "reissued" in reissued_payload["decision_note"]
 
     old_status = client.get(
@@ -575,8 +575,8 @@ def test_mobile_standalone_known_install_reissues_during_network_review(tmp_path
     )
     assert old_status.status_code == 403
     assert new_status.status_code == 200
-    assert new_status.json()["limits"]["schedule"] == 600
-    assert new_status.json()["limits"]["radar"] == 3000
+    assert new_status.json()["limits"]["schedule"] == 800
+    assert new_status.json()["limits"]["radar"] == 6000
 
     unknown_install = "00000000-0000-0000-0000-000000000903"
     unknown = client.post(
@@ -1286,8 +1286,8 @@ def test_admin_api_activation_request_action_uses_standalone_limits(tmp_path: Pa
         headers={"host": "relay.beacontools.cc"},
     )
     assert status.status_code == 200
-    assert status.json()["limits"]["schedule"] == 600
-    assert status.json()["limits"]["radar"] == 3000
+    assert status.json()["limits"]["schedule"] == 800
+    assert status.json()["limits"]["radar"] == 6000
 
 
 def test_admin_api_write_actions_tolerate_blank_optional_text(tmp_path: Path, monkeypatch) -> None:
@@ -1421,7 +1421,7 @@ def test_relay_root_switches_by_hostname(tmp_path: Path, monkeypatch) -> None:
     public_response = client.get("/", headers={"host": "relay.beacontools.cc"})
     assert public_response.status_code == 200
     assert public_response.headers["content-type"] == "application/json"
-    assert public_response.headers["cache-control"] == "no-store"
+    assert public_response.headers["cache-control"] == "no-store, no-transform"
     assert public_response.headers["vary"] == "Accept"
     public_payload = public_response.json()
     assert public_payload["public_host"] == "relay.beacontools.cc"
@@ -1450,7 +1450,7 @@ def test_relay_root_serves_safe_browser_landing_page(tmp_path: Path, monkeypatch
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html;")
-    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["cache-control"] == "no-store, no-transform"
     assert {item.strip() for item in response.headers["vary"].split(",")} == {"Accept", "Accept-Encoding"}
     assert response.headers["content-security-policy"].startswith("default-src 'none'")
     assert response.headers["permissions-policy"] == "camera=(), geolocation=(), microphone=()"
@@ -1461,7 +1461,11 @@ def test_relay_root_serves_safe_browser_landing_page(tmp_path: Path, monkeypatch
     assert '<link rel="canonical" href="https://beacontools.cc/network/">' in response.text
     assert "Local Flight Community Relay" in response.text
     assert "Relay endpoint reached" in response.text
-    assert "What this confirms" in response.text
+    assert "Community Relay / Beacon Tools shared service" in response.text
+    assert "Only the feature you choose uses this path." in response.text
+    assert "What reaching this page means." in response.text
+    assert "End-to-end encrypted messages" in response.text
+    assert "Remote Companion messages remain end-to-end encrypted." in response.text
     assert 'href="/health"' in response.text
     assert "https://beacontools.cc/network/" in response.text
     assert "https://beacontools.cc/local-flight/" in response.text
@@ -1471,6 +1475,9 @@ def test_relay_root_serves_safe_browser_landing_page(tmp_path: Path, monkeypatch
     assert "network.beacontools.cc" not in response.text
     assert "provider_revision" not in response.text
     assert "<script" not in response.text
+    assert "<img" not in response.text
+    assert "@media (prefers-color-scheme: light)" in response.text
+    assert "@media (prefers-reduced-motion: reduce)" in response.text
 
     health_response = client.get(
         "/health",
@@ -3844,6 +3851,13 @@ def test_relay_airport_search_and_resolve_for_mobile_setup(tmp_path: Path, monke
     assert search.status_code == 200
     assert any(row["iata"] == "ZRH" and row["timezone"] for row in search.json())
 
+    full_name_search = client.get(
+        "/v1/airports/search",
+        params={"q": "Los Angeles International Airport"},
+    )
+    assert full_name_search.status_code == 200
+    assert any(row["iata"] == "LAX" for row in full_name_search.json())
+
     resolved = client.get("/v1/airports/resolve", params={"q": "ZRH"})
     assert resolved.status_code == 200
     payload = resolved.json()
@@ -3872,7 +3886,7 @@ def _activate_mobile_standalone(client: TestClient, install_id: str) -> str:
     return str(response.json()["activation_token"])
 
 
-def test_mobile_standalone_fids_uses_shared_schedule_and_three_hour_policy(tmp_path: Path, monkeypatch) -> None:
+def test_mobile_standalone_fids_uses_shared_schedule_and_one_hour_policy(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     client = TestClient(relay_main.app)
     install_id = "00000000-0000-0000-0000-000000000902"
@@ -3912,7 +3926,73 @@ def test_mobile_standalone_fids_uses_shared_schedule_and_three_hour_policy(tmp_p
     ).fetchone()
     conn.close()
     assert interest["client_kind"] == "mobile_standalone"
-    assert int(interest["refresh_seconds"]) == 10800
+    assert int(interest["refresh_seconds"]) == 3600
+
+
+def test_mobile_standalone_board_returns_fifty_each_direction_from_one_metered_snapshot(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000912"
+    token = _activate_mobile_standalone(client, install_id)
+    upstream_calls = 0
+
+    def fake_shared_fetch(**kwargs):
+        nonlocal upstream_calls
+        upstream_calls += 1
+        base = _shared_snapshot_payload()
+        stamp = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0).isoformat()
+        records = []
+        for direction in ("DEP", "ARR"):
+            for index in range(55):
+                row = dict(base["records"][0])
+                row.update({
+                    "callsign": f"TST{direction}{index:03d}",
+                    "flight_number": f"TS{index:03d}{'D' if direction == 'DEP' else 'A'}",
+                    "direction": direction,
+                    "scheduled": stamp,
+                    "estimated": stamp,
+                    "origin_iata": "ZRH" if direction == "DEP" else f"A{index:02d}",
+                    "origin_icao": "LSZH" if direction == "DEP" else "KJFK",
+                    "destination_iata": f"D{index:02d}" if direction == "DEP" else "ZRH",
+                    "destination_icao": "KJFK" if direction == "DEP" else "LSZH",
+                    "gate": f"{index + 1}",
+                })
+                records.append(row)
+        base["records"] = records
+        base["meta"]["raw_rows"] = len(records)
+        return base
+
+    monkeypatch.setattr(relay_main, "_fetch_shared_schedule_from_upstream", fake_shared_fetch)
+    params = {
+        "install_id": install_id,
+        "activation_token": token,
+        "app_version": "0.5.2",
+        "client_kind": "mobile_standalone",
+        "airport_iata": "ZRH",
+        "timezone": "Europe/Zurich",
+    }
+
+    first = client.get("/v1/mobile/board", params=params)
+    second = client.get("/v1/mobile/board", params=params)
+
+    assert first.status_code == 200
+    payload = first.json()
+    assert payload["schema_version"] == "mobile-board-v2"
+    assert payload["refresh_after_s"] == 3600
+    assert payload["rows_per_direction"] == 50
+    assert len(payload["departures"]) == 50
+    assert len(payload["arrivals"]) == 50
+    assert len({row["callsign"] for row in payload["departures"]}) == 50
+    assert second.status_code == 200
+    assert second.headers["x-lf-mobile-standalone-cache"] == "hit"
+    assert upstream_calls == 1
+    conn = relay_main._connect()
+    access_count = conn.execute(
+        "SELECT COALESCE(SUM(calls), 0) AS calls FROM usage WHERE service='aviationstack' AND month=?",
+        (relay_main._month_key(),),
+    ).fetchone()["calls"]
+    conn.close()
+    assert int(access_count) == 1
 
 
 def test_mobile_standalone_rejects_non_uuid_install_ids(tmp_path: Path, monkeypatch) -> None:
@@ -3978,7 +4058,7 @@ def test_mobile_standalone_radar_limits_radii_and_serves_cache(tmp_path: Path, m
 
     assert first.status_code == 200
     assert first.json()["radius_nm"] == 3
-    assert first.json()["refresh_after_s"] == 300
+    assert first.json()["refresh_after_s"] == 180
     assert first.json()["count"] == 1
     assert first.json()["radar_map"]["sources"]["surface"] == "localflight-estimated"
     assert first.json()["radar_map"]["runways"]
