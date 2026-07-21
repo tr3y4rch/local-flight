@@ -39,6 +39,7 @@ from localflight.core.models import AirlineRef, AirportRef, Flight, FlightDirect
 from localflight.companion_pairing import build_pairing_deep_link, pairing_gateway_payload
 from localflight.decode.metar import decorate_metar
 from localflight.decode.dedupe import dedupe_codeshares
+from localflight.decode.identity import resolve_flight_identity
 from localflight.decode.mappings.aerodatabox import aerodatabox_to_raw_records
 from localflight.decode.normalize import normalize_flights
 from localflight.display.fids import gate_fields
@@ -620,7 +621,7 @@ def test_fids_decodes_airline_names_and_links_codeshares() -> None:
     assert row.codeshare_display == "Sold as UA 100"
 
 
-def test_omdb_operating_callsign_becomes_primary_and_marketed_is_sold_as() -> None:
+def test_omdb_operating_callsign_stays_distinct_and_marketed_is_sold_as() -> None:
     scheduled = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc).isoformat()
     records = [
         {
@@ -641,12 +642,12 @@ def test_omdb_operating_callsign_becomes_primary_and_marketed_is_sold_as() -> No
     flight = flights[0]
     assert flight.airline.iata == "FZ"
     assert flight.airline.name == "flydubai"
-    assert flight.flight_number == "FZ2MY"
+    assert flight.flight_number is None
     assert flight.operating_callsign == "FDB2MY"
     assert flight.marketing_flight_number == "EK2131"
     assert "EK2131" in flight.sold_as
     row = flight_to_fids_row(flight, view="departures", display_tz=ZoneInfo("UTC"))
-    assert row.flight_display == "FZ 2MY"
+    assert row.flight_display == "FDB 2MY"
     assert row.airline_display == "flydubai"
     assert row.codeshare_display == "Sold as EK 2131"
 
@@ -857,15 +858,15 @@ def test_matrix_payload_preserves_operating_identity_from_fids_row() -> None:
 
     payload = ui_api._matrix_row_payload(row, preset="real_fids", show_gate_info=True)
 
-    assert payload["flight_display"] == "FZ 2MY"
-    assert payload["flight_number"] == "FZ2MY"
+    assert payload["flight_display"] == "FDB 2MY"
+    assert payload["flight_number"] == ""
     assert payload["airline_iata"] == "FZ"
     assert payload["sold_as"] == ["EK2131"]
     assert payload["codeshare_display"] == "Sold as EK 2131"
     assert payload["marketing_flight_number"] == "EK2131"
     assert payload["operating_callsign"] == "FDB2MY"
     assert payload["identity_source"] == "callsign"
-    assert payload["matrix_flight_label"] == "FZ 2MY"
+    assert payload["matrix_flight_label"] == "FDB 2MY"
     assert payload["matrix_operator_label"] == "OP FLYDUBAI"
     assert payload["matrix_codeshare_label"] == "SOLD AS EK2131"
     assert "SOLD AS EK2131" in payload["matrix_detail_cycle"]
@@ -1249,6 +1250,78 @@ def test_aerodatabox_unknown_codeshare_status_keeps_same_route_time_rows_separat
 
     assert len(deduped) == 2
     assert {flight.flight_number for flight in deduped} == {"TS420", "PD7420"}
+
+
+def test_operational_callsign_suffix_is_not_invented_as_passenger_flight_number() -> None:
+    scheduled = datetime(2026, 5, 20, 19, 49, tzinfo=timezone.utc)
+    payload = {
+        "departures": [
+            {
+                "number": "9GD",
+                "callSign": "SWR9GD",
+                "codeshareStatus": "Unknown",
+                "status": "Delayed",
+                "departure": {
+                    "airport": {"iata": "ZRH"},
+                    "scheduledTime": {"utc": scheduled.isoformat()},
+                    "revisedTime": {"utc": (scheduled + timedelta(minutes=9)).isoformat()},
+                    "gate": "A55",
+                },
+                "arrival": {"airport": {"iata": "WAW"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "airline": {"name": "SWISS", "iata": "LX", "icao": "SWR"},
+            },
+            {
+                "number": "1353",
+                "callSign": "SWR1353",
+                "codeshareStatus": "Unknown",
+                "status": "Delayed",
+                "departure": {"airport": {"iata": "ZRH"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "arrival": {"airport": {"iata": "WAW"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "airline": {"name": "SWISS", "iata": "LX", "icao": "SWR"},
+            },
+        ],
+        "arrivals": [],
+    }
+
+    records = aerodatabox_to_raw_records(payload, airport_iata="ZRH", airport_icao="LSZH")
+    flights = normalize_flights(records, airport_iata="ZRH", airport_icao="LSZH", source_name="aerodatabox")
+
+    assert flights[0].callsign == "SWR9GD"
+    assert flights[0].flight_number is None
+    deduped = dedupe_codeshares(flights)
+    assert len(deduped) == 1
+    assert deduped[0].flight_number == "LX1353"
+    assert "SWR9GD" not in deduped[0].sold_as
+    assert deduped[0].gate == "A55"
+    assert deduped[0].times.estimated == scheduled + timedelta(minutes=9)
+
+    single_suffix = aerodatabox_to_raw_records(
+        {
+            "departures": [{
+                "number": "259T",
+                "callSign": "SWR259T",
+                "status": "Scheduled",
+                "departure": {"airport": {"iata": "ZRH"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "arrival": {"airport": {"iata": "FCO"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "airline": {"name": "SWISS", "iata": "LX", "icao": "SWR"},
+            }],
+            "arrivals": [],
+        },
+        airport_iata="ZRH",
+        airport_icao="LSZH",
+    )[0]
+    assert single_suffix["callsign"] == "SWR259T"
+    assert single_suffix["flight_number"] is None
+
+    numeric_callsign_only = resolve_flight_identity({
+        "callsign": "SWR1108",
+        "operating_callsign": "SWR1108",
+        "airline_name": "SWISS",
+        "airline_iata": "LX",
+        "airline_icao": "SWR",
+    })
+    assert numeric_callsign_only.callsign == "SWR1108"
+    assert numeric_callsign_only.flight_number is None
 
 
 def test_codeshare_dedupe_collapses_same_registered_aircraft_and_scores_operator() -> None:
@@ -3073,6 +3146,42 @@ def test_overpass_surface_normalizer_handles_core_airport_geometry() -> None:
     assert building["label"] == "North Hangar"
     assert building["closed"] is True
     assert all(feature["kind"] != "parking_position" for feature in features)
+
+
+def test_overpass_surface_bounds_context_without_dropping_runways_or_taxiways() -> None:
+    context = [
+        {
+            "type": "way",
+            "id": index,
+            "tags": {"building": "hangar", "name": f"Hangar {index}"},
+            "geometry": [
+                {"lat": 47.40 + index * 0.000001, "lon": 8.50},
+                {"lat": 47.401 + index * 0.000001, "lon": 8.501},
+                {"lat": 47.40 + index * 0.000001, "lon": 8.50},
+            ],
+        }
+        for index in range(500)
+    ]
+    operational = [
+        {
+            "type": "way",
+            "id": 9001,
+            "tags": {"aeroway": "runway", "ref": "07L/25R"},
+            "geometry": [{"lat": 47.43, "lon": 8.50}, {"lat": 47.45, "lon": 8.54}],
+        },
+        {
+            "type": "way",
+            "id": 9002,
+            "tags": {"aeroway": "taxiway", "ref": "A"},
+            "geometry": [{"lat": 47.431, "lon": 8.501}, {"lat": 47.451, "lon": 8.541}],
+        },
+    ]
+
+    features = airport_surface.normalize_overpass_surface({"elements": context + operational})
+
+    assert len(features) == airport_surface.MAX_SURFACE_FEATURES
+    assert any(feature["kind"] == "runway" and feature["label"] == "07L/25R" for feature in features)
+    assert any(feature["kind"] == "taxiway" and feature["label"] == "A" for feature in features)
 
 
 def test_api_radar_surface_respects_disabled_config(monkeypatch) -> None:
@@ -6566,9 +6675,9 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     )
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "9"
+    assert app["ios"]["buildNumber"] == "11"
     assert app["android"]["package"] == "cc.beacontools.localflight"
-    assert app["android"]["versionCode"] == 12
+    assert app["android"]["versionCode"] == 15
     assert "./plugins/with-localflight-ios-widget" in app["plugins"]
     assert "./plugins/with-localflight-android-widget" in app["plugins"]
     assert app["ios"]["entitlements"]["com.apple.security.application-groups"] == [

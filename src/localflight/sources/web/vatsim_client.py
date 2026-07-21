@@ -379,7 +379,9 @@ def vatsim_to_raw_records(
             "airline_name":     None,
             "airline_iata":     None,
             "airline_icao":     airline_icao,
-            "flight_number":    callsign,
+            # VATSIM exposes an operational callsign, not a verified marketed
+            # passenger flight number. Keep the semantic fields distinct.
+            "flight_number":    None,
             "origin_iata":      None,
             "origin_icao":      dep_icao or None,
             "destination_iata": None,

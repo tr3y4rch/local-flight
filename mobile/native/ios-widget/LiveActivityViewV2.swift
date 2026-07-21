@@ -44,12 +44,12 @@ struct LFDICompactTrailingV2: View {
   let state: LocalFlightActivityAttributesV2.ContentState
 
   var body: some View {
-    Text(state.stale ? "Stale" : state.statusDisplay)
+    Text(state.statusDisplay)
       .font(LocalFlightWidgetFont.boardBold(size: 12))
       .lineLimit(1)
       .minimumScaleFactor(0.65)
       .foregroundStyle(LFWidgetDesignV2.statusColor(
-        tone: state.stale ? "delayed" : state.statusTone,
+        tone: state.statusTone,
         scheme: diScheme
       ))
       .padding(.trailing, 4)
@@ -63,11 +63,11 @@ struct LFDIMinimalV2: View {
   var body: some View {
     Circle()
       .fill(LFWidgetDesignV2.statusColor(
-        tone: state.stale ? "delayed" : state.statusTone,
+        tone: state.statusTone,
         scheme: diScheme
       ).opacity(0.88))
       .frame(width: 10, height: 10)
-      .accessibilityLabel(state.stale ? "Flight information stale" : state.statusDisplay)
+      .accessibilityLabel(state.stale ? "\(state.statusDisplay), cached information" : state.statusDisplay)
   }
 }
 
@@ -100,8 +100,8 @@ struct LFDIExpandedTrailingV2: View {
   var body: some View {
     VStack(alignment: .trailing, spacing: 4) {
       LFStatusCapsuleV2(
-        label: state.stale ? "Stale" : state.statusDisplay,
-        tone: state.stale ? "delayed" : state.statusTone,
+        label: state.statusDisplay,
+        tone: state.statusTone,
         scheme: diScheme
       )
       Text(attributes.displayTime)
@@ -122,7 +122,7 @@ struct LFDIExpandedBottomV2: View {
     VStack(alignment: .leading, spacing: 7) {
       HStack(alignment: .center, spacing: 8) {
         origin
-        DottedRoutePointerV2(tone: state.stale ? "delayed" : state.statusTone)
+        DottedRoutePointerV2(tone: state.statusTone)
           .frame(maxWidth: .infinity)
         destination
       }
@@ -133,7 +133,7 @@ struct LFDIExpandedBottomV2: View {
         footerPair(label: state.gateLabel == "TERM" ? "Terminal" : "Gate", value: gate)
         }
         Spacer(minLength: 8)
-        footerPair(label: state.stale ? "State" : "Updated", value: state.stale ? "Stale" : state.lastUpdatedLabel)
+        footerPair(label: state.stale ? "Cached" : "Updated", value: state.lastUpdatedLabel)
       }
       .padding(.horizontal, 4)
     }
@@ -194,7 +194,7 @@ struct LFDIExpandedBottomV2: View {
         .font(LocalFlightWidgetFont.boardBold(size: 11))
         .lineLimit(1)
         .minimumScaleFactor(0.7)
-        .foregroundStyle(label == "State"
+        .foregroundStyle(label == "Cached"
           ? LFWidgetDesignV2.statusColor(tone: "delayed", scheme: diScheme)
           : LFWidgetDesignV2.textPrimary(diScheme))
     }
@@ -255,8 +255,8 @@ struct LFLockScreenBannerV2: View {
 
           Spacer()
           LFStatusCapsuleV2(
-            label: state.stale ? "Stale" : state.statusDisplay,
-            tone: state.stale ? "delayed" : state.statusTone,
+            label: state.statusDisplay,
+            tone: state.statusTone,
             scheme: diScheme
           )
         }
@@ -279,7 +279,7 @@ struct LFLockScreenBannerV2: View {
             }
           }
           Spacer()
-          sectionLabel(state.stale ? "Stale" : state.lastUpdatedLabel)
+          sectionLabel(state.stale ? "Cached · \(state.lastUpdatedLabel)" : state.lastUpdatedLabel)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
@@ -307,7 +307,7 @@ struct LocalFlightLiveActivityWidget: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: LocalFlightActivityAttributesV2.self) { context in
       LFLockScreenBannerV2(attributes: context.attributes, state: context.state)
-        .widgetURL(URL(string: "localflight://widgets?liveActivity=1"))
+        .widgetURL(localFlightActivityURL(context.attributes.flightID))
         .activityBackgroundTint(Color(red: 0.031, green: 0.078, blue: 0.114))
         .activitySystemActionForegroundColor(Color(red: 0.455, green: 0.710, blue: 0.871))
     } dynamicIsland: { context in
@@ -328,13 +328,24 @@ struct LocalFlightLiveActivityWidget: Widget {
       } minimal: {
         LFDIMinimalV2(state: context.state)
       }
-      .widgetURL(URL(string: "localflight://widgets?liveActivity=1"))
+      .widgetURL(localFlightActivityURL(context.attributes.flightID))
       .keylineTint(LFWidgetDesignV2.statusColor(
-        tone: context.state.stale ? "delayed" : context.state.statusTone,
+        tone: context.state.statusTone,
         scheme: .dark
       ))
     }
   }
+}
+
+private func localFlightActivityURL(_ flightID: String) -> URL? {
+  var components = URLComponents()
+  components.scheme = "localflight"
+  components.host = "flight"
+  components.queryItems = [
+    URLQueryItem(name: "pin", value: flightID),
+    URLQueryItem(name: "source", value: "live-activity"),
+  ]
+  return components.url
 }
 
 private struct DottedRoutePointerV2: View {

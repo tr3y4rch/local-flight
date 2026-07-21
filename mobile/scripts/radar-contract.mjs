@@ -14,6 +14,8 @@ const mobilePresentationPath = path.join(mobileRoot, "src/domain/radarPresentati
 const mobilePresentation = await import(pathToFileURL(mobilePresentationPath).href);
 const mobilePresentationSource = fs.readFileSync(mobilePresentationPath, "utf8");
 const screensSource = fs.readFileSync(path.join(mobileRoot, "src/screens/AppScreens.tsx"), "utf8");
+const v2ScopeSource = fs.readFileSync(path.join(mobileRoot, "src/v2/RadarScopeV2.tsx"), "utf8");
+const appShellSource = fs.readFileSync(path.join(mobileRoot, "src/app/AppShell.tsx"), "utf8");
 
 function sourceSection(source, startMarker, endMarker, label) {
   const start = source.indexOf(startMarker);
@@ -73,5 +75,18 @@ assert.match(screensSource, /pointerEvents=\{interactive \? "auto" : "none"\}/, 
 assert.match(screensSource, /radarVisibleLabelKeys\(projected, scopeSize\)/, "Scope labels must use collision-aware priority selection.");
 assert.match(screensSource, /const selectedTargetPresent =/, "Selected-target cleanup must not rerun solely because the sweep angle changed.");
 assert.doesNotMatch(screensSource, /RADAR_BLIP_BASE_OPACITY|RADAR_SWEEP_STEP_DEG/, "Persistent blips and tick-count timing must not return.");
+assert.match(v2ScopeSource, /layer === "runway"[\s\S]*?a\.amber/, "V2 runway geometry must retain the amber aviation treatment.");
+assert.match(v2ScopeSource, /kind === "taxiway"[\s\S]*?a\.amber/, "V2 taxiways must remain distinct and visible.");
+assert.match(v2ScopeSource, /const polygon = Boolean\(item\.feature\.closed && item\.points\.length >= 3\)/, "Closed runway areas must render as areas rather than collapsed outlines.");
+assert.match(v2ScopeSource, /function RunwayIndicators\(/, "V2 runways must expose threshold and designator indicators.");
+assert.match(v2ScopeSource, /runwayDesignators/, "V2 runway labels must distinguish opposite runway ends.");
+assert.match(v2ScopeSource, /if \(\/band\|tile\|cell\|grid\/\.test\(kind\)\) return false/, "Terrain tiles and filled elevation grids must not appear as scope squares.");
+assert.match(v2ScopeSource, /radarLabelPriority/, "Dense V2 labels must use semantic Radar priority.");
+assert.match(v2ScopeSource, /const labelBudget =/, "Dense V2 scopes must enforce a bounded label budget.");
+assert.match(v2ScopeSource, /radarSweepOpacity\(item\.angleDeg, sweepDeg, focused\)/, "V2 targets must be revealed by the sweep rather than persistently displayed.");
+assert.match(v2ScopeSource, /accessibilityElementsHidden=\{!interactive\}/, "Unrevealed V2 targets must not remain in the accessibility tree.");
+const v2SweepLayer = sourceSection(v2ScopeSource, "{!reduceMotion ? (", ") : null}", "V2 radar sweep layer");
+assert.equal((v2SweepLayer.match(/<Line/g) || []).length, 1, "V2 Radar must draw exactly one leading sweep line.");
+assert.match(appShellSource, /const fallbackGround = cachedGround \|\| data\.radar_map \|\| null/, "A failed full-ground request must preserve the embedded runway and surface fallback.");
 
 console.log("Cross-platform radar presentation contract checks passed.");

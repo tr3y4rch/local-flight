@@ -623,7 +623,22 @@ function metarCategory(metar: Metar | null | undefined): string {
 }
 
 function metarRawText(metar: Metar | null | undefined): string {
-  return metar?.raw_text || "";
+  return metar?.raw_text || metar?.raw_ob || metar?.rawOb || "";
+}
+
+function metarNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Number(value.trim());
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+function rawWeatherChip(metar: Metar | null | undefined, label: string): string {
+  return parseMetarChips(metarRawText(metar)).find((chip) => chip.label === label)?.value || "";
 }
 
 function metarTemperature(metar: Metar | null | undefined): string {
@@ -648,19 +663,26 @@ function metarDewpoint(metar: Metar | null | undefined): string {
 
 function metarWind(metar: Metar | null | undefined): string {
   if (metar?.wind_display || metar?.wind) return metar.wind_display || metar.wind || "--";
-  if (typeof metar?.wind_speed_kt !== "number") return "--";
-  if (metar.wind_speed_kt === 0) return "Calm";
-  const direction = typeof metar.wind_dir_deg === "number" ? `${Math.round(metar.wind_dir_deg)}°` : "VRB";
-  const gust = typeof metar.wind_gust_kt === "number" ? `, gusting ${Math.round(metar.wind_gust_kt)} kt` : "";
-  return `${direction} at ${Math.round(metar.wind_speed_kt)} kt${gust}`;
+  const speed = metarNumber(metar?.wind_speed_kt, metar?.wind_speed, metar?.windSpeed, metar?.wspd);
+  if (speed == null) return rawWeatherChip(metar, "WND") || "--";
+  if (speed === 0) return "Calm";
+  const rawDirection = metar?.wind_dir_deg ?? metar?.wind_dir ?? metar?.windDir ?? metar?.wdir;
+  const numericDirection = metarNumber(rawDirection);
+  const direction = numericDirection != null
+    ? `${Math.round(numericDirection).toString().padStart(3, "0")}°`
+    : cleanInfoValue(rawDirection).toUpperCase() === "VRB" ? "VRB" : "VRB";
+  const gustValue = metarNumber(metar?.wind_gust_kt, metar?.wind_gust, metar?.windGust, metar?.wgst);
+  const gust = gustValue != null ? `, gusting ${Math.round(gustValue)} kt` : "";
+  return `${direction} at ${Math.round(speed)} kt${gust}`;
 }
 
 function metarVisibility(metar: Metar | null | undefined): string {
-  if (typeof metar?.visibility_sm === "number") return `${Number.isInteger(metar.visibility_sm) ? metar.visibility_sm : metar.visibility_sm.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")} SM`;
+  const sm = metarNumber(metar?.visibility_sm, metar?.visibilitySm, metar?.visibility, metar?.visib);
+  if (sm != null) return `${Number.isInteger(sm) ? sm : sm.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")} SM`;
   if (typeof metar?.visibility_m === "number") {
     return metar.visibility_m >= 10_000 ? "10+ km" : `${(metar.visibility_m / 1000).toFixed(metar.visibility_m < 1000 ? 1 : 0)} km`;
   }
-  return weatherChips(metar).find((chip) => chip.label === "VIS")?.value || "--";
+  return rawWeatherChip(metar, "VIS") || "--";
 }
 
 function metarClouds(metar: Metar | null | undefined): string {
@@ -683,9 +705,12 @@ function metarClouds(metar: Metar | null | undefined): string {
 }
 
 function metarQnh(metar: Metar | null | undefined): string {
-  const qnh = metar?.qnh_hpa ?? metar?.altimeter_hpa;
-  if (typeof qnh === "number") return `${Math.round(qnh)} hPa`;
-  return weatherChips(metar).find((chip) => chip.label === "QNH")?.value || "--";
+  const qnh = metarNumber(metar?.qnh_hpa, metar?.altimeter_hpa, metar?.altim, metar?.altimeter);
+  if (qnh != null) {
+    const hpa = qnh < 100 ? qnh * 33.8639 : qnh;
+    return `${Math.round(hpa)} hPa`;
+  }
+  return rawWeatherChip(metar, "QNH") || "--";
 }
 
 function metarHazards(metar: Metar | null | undefined): string {
@@ -702,7 +727,7 @@ function metarSource(metar: Metar | null | undefined): string {
 function weatherCondition(metar: Metar | null | undefined): string {
   const semantic = metar?.weather_label || metar?.weather_summary || metar?.weather?.label || metar?.weather?.summary;
   if (semantic) return semantic;
-  const text = `${metar?.decoded_summary || ""} ${metar?.raw_text || ""}`.toLowerCase();
+  const text = `${metar?.decoded_summary || ""} ${metarRawText(metar)}`.toLowerCase();
   if (!text.trim()) return "Weather unavailable";
   if (/thunder|tsra|ts\b/.test(text)) return "Storms nearby";
   if (/snow|\bsn\b/.test(text)) return "Snow";
@@ -716,11 +741,11 @@ function weatherCondition(metar: Metar | null | undefined): string {
 
 function weatherSummaryForMode(metar: Metar | null | undefined, mode: MobileWeatherDisplayMode): string {
   if (!metar) return "Asking Local Flight";
-  if (mode === "vatsim") return metar.raw_text || "Raw METAR unavailable";
+  if (mode === "vatsim") return metarRawText(metar) || "Raw METAR unavailable";
   if (mode === "pilot") {
     const chips = weatherChips(metar);
     const visible = chips.slice(0, 3).map((chip) => `${chip.label} ${chip.value}`);
-    return visible.length ? visible.join(" · ") : metar.weather_summary || metar.decoded_summary || metar.raw_text || "Weather available";
+    return visible.length ? visible.join(" · ") : metar.weather_summary || metar.decoded_summary || metarRawText(metar) || "Weather available";
   }
   return metar.weather_summary || metar.decoded_summary || weatherCondition(metar);
 }
@@ -729,26 +754,28 @@ function weatherChips(metar: Metar | null | undefined): Array<{ label: string; v
   const chips: Array<{ label: string; value: string }> = [];
   const merge = (items: Array<{ label: string; value: string }> | undefined) => {
     for (const chip of items || []) {
-      if (!chip?.label || !chip?.value || chips.some((item) => item.label === chip.label)) continue;
+      const value = cleanInfoValue(chip?.value);
+      if (!chip?.label || !value || /^(?:--|-|unknown|unavailable)$/i.test(value) || chips.some((item) => item.label === chip.label)) continue;
       chips.push(chip);
     }
   };
   merge(metar?.weather_chips);
   merge(metar?.weather?.chips);
-  merge(parseMetarChips(metar?.raw_text || ""));
-  if (!chips.some((chip) => chip.label === "VIS") && typeof metar?.visibility_sm === "number") {
-    chips.push({ label: "VIS", value: `${metar.visibility_sm} SM` });
+  merge(parseMetarChips(metarRawText(metar)));
+  const visibility = metarVisibility(metar);
+  if (!chips.some((chip) => chip.label === "VIS") && visibility !== "--") {
+    chips.push({ label: "VIS", value: visibility });
   }
   if (!chips.some((chip) => chip.label === "TMP")) {
     const temp = metarTemperature(metar);
     if (temp !== "--") chips.push({ label: "TMP", value: temp });
   }
-  const qnh = metar?.qnh_hpa ?? metar?.altimeter_hpa;
-  if (!chips.some((chip) => chip.label === "QNH") && qnh) {
-    chips.push({ label: "QNH", value: String(qnh) });
+  const qnh = metarQnh(metar);
+  if (!chips.some((chip) => chip.label === "QNH") && qnh !== "--") {
+    chips.push({ label: "QNH", value: qnh });
   }
-  const wind = metar?.wind_display || metar?.wind;
-  if (!chips.some((chip) => chip.label === "WND") && wind) {
+  const wind = metarWind(metar);
+  if (!chips.some((chip) => chip.label === "WND") && wind !== "--") {
     chips.push({ label: "WND", value: wind });
   }
   return chips;
@@ -2474,7 +2501,7 @@ function RadarWeatherCard({ metar, mode }: { metar: Metar | null; mode: MobileWe
   const category = metarCategory(metar);
   const accent = metarAccentColor(category);
   const chips = weatherChips(metar);
-  const raw = metar?.raw_text || "Raw METAR unavailable";
+  const raw = metarRawText(metar) || "Raw METAR unavailable";
   const summary = weatherSummaryForMode(metar, mode);
   const modeOption = weatherModeOption(mode);
   const body = mode === "vatsim" ? raw : summary;
@@ -4768,11 +4795,11 @@ function AdminScreen({
               </View>
             </View>
             <InfoLine label="Display style" value={`${weatherMode.label} · ${weatherMode.detail}`} />
-            <InfoLine label="Wind" value={snapshot.metar.wind || "—"} />
+            <InfoLine label="Wind" value={metarWind(snapshot.metar)} />
             <InfoLine label="Temperature" value={snapshot.metar.temperature_c != null ? `${snapshot.metar.temperature_c}°C` : "—"} />
-            <InfoLine label="QNH" value={snapshot.metar.qnh_hpa != null ? `${snapshot.metar.qnh_hpa} hPa` : "—"} />
-            {snapshot.metar.raw_text && weatherDisplayMode !== "vatsim" ? (
-              <InfoLine label="Raw METAR" value={snapshot.metar.raw_text} />
+            <InfoLine label="QNH" value={metarQnh(snapshot.metar)} />
+            {metarRawText(snapshot.metar) && weatherDisplayMode !== "vatsim" ? (
+              <InfoLine label="Raw METAR" value={metarRawText(snapshot.metar)} />
             ) : null}
           </>
         ) : null}

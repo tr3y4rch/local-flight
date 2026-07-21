@@ -462,8 +462,8 @@ function WidgetsPanel({
           styles={styles}
         />
         <WidgetPreferenceRow
-          title="Automatic widget refresh"
-          detail="The app updates its private snapshot when the system permits background work."
+          title="Background widget updates"
+          detail="The app updates its private snapshot when the operating system permits background work."
           value={preferences.automaticRefresh}
           onValueChange={(automaticRefresh) => update({ automaticRefresh })}
           appearance={appearance}
@@ -474,12 +474,12 @@ function WidgetsPanel({
       <View style={styles.widgetSection}>
         <View style={styles.widgetSectionHeading}>
           <LocalFlightIcon name="cellphone-text" size={21} color={appearance.green} />
-          <Text style={styles.widgetSectionTitle}>Pinned-flight Live Activity</Text>
+          <Text style={styles.widgetSectionTitle}>Lock Screen flight</Text>
         </View>
         <Text style={styles.widgetSectionBody}>
           {liveActivitySupported
             ? preferences.liveActivityEnabled
-              ? "Enabled for pinned flights. It updates from the same app-written snapshot and never fetches on its own."
+              ? "Enabled for the flight you chose to show on the Lock Screen. It updates from the same app-written snapshot and never fetches on its own."
               : "From Board, choose “Pin & show on Lock Screen” for a flight. Starting it always requires that explicit action."
             : "Live Activity is unavailable on this device. Normal flight pinning and widgets still work."}
         </Text>

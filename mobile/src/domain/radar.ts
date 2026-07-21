@@ -7,6 +7,26 @@ export type ProjectedRadarPoint = {
   distanceNm: number;
 };
 
+export function normalizeRadarCoordinatePair(
+  point: number[],
+  center: { lat: number; lon: number }
+): { lat: number; lon: number } | null {
+  if (point.length < 2) return null;
+  const first = Number(point[0]);
+  const second = Number(point[1]);
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return null;
+  const candidates = [
+    { lat: first, lon: second },
+    { lat: second, lon: first }
+  ].filter(({ lat, lon }) => Math.abs(lat) <= 90 && Math.abs(lon) <= 180);
+  if (!candidates.length) return null;
+  return candidates.sort((left, right) => {
+    const leftDistance = (left.lat - center.lat) ** 2 + ((left.lon - center.lon) * Math.cos(center.lat * Math.PI / 180)) ** 2;
+    const rightDistance = (right.lat - center.lat) ** 2 + ((right.lon - center.lon) * Math.cos(center.lat * Math.PI / 180)) ** 2;
+    return leftDistance - rightDistance;
+  })[0] || null;
+}
+
 export function projectLatLonToScope(
   lat: number,
   lon: number,

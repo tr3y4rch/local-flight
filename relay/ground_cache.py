@@ -105,7 +105,14 @@ def combine_ground_payload(
     map_context: dict[str, Any],
     terrain: dict[str, Any],
 ) -> dict[str, Any]:
-    surface_rows = bounded_features(surface.get("features"), limit=450)
+    # Airport surfaces need semantic bounding: dense building/apron geometry
+    # must never evict runways or taxiways from the mobile payload.
+    from localflight.sources.web.airport_surface import MAX_SURFACE_FEATURES, select_surface_features
+
+    surface_rows = bounded_features(
+        select_surface_features(surface.get("features") or [], limit=MAX_SURFACE_FEATURES),
+        limit=MAX_SURFACE_FEATURES,
+    )
     runways = [row for row in surface_rows if str(row.get("kind") or "").lower() == "runway"]
     surface_features = [row for row in surface_rows if str(row.get("kind") or "").lower() != "runway"]
     map_features = bounded_features(map_context.get("features"), limit=140)

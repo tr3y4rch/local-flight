@@ -336,12 +336,6 @@ private enum LocalFlightLiveActivityManager {
     _ rhs: LocalFlightActivityAttributesV2
   ) -> Bool {
     lhs.flightID == rhs.flightID
-      && lhs.flightDisplay == rhs.flightDisplay
-      && lhs.direction == rhs.direction
-      && lhs.routeName == rhs.routeName
-      && lhs.routeCode == rhs.routeCode
-      && lhs.airportCode == rhs.airportCode
-      && lhs.displayTime == rhs.displayTime
   }
 
   private static func finish(_ activity: FlightActivity) async {

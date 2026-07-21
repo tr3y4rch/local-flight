@@ -40,10 +40,3 @@ export type MatrixDraftState = {
   draft: MatrixRuntimeConfigSave;
   dirty: boolean;
 };
-
-export function flightRowsWithPin(rows: FidsRow[], pinnedCallsign: string): FidsRow[] {
-  if (!pinnedCallsign) return rows;
-  const pinned = rows.find((row) => (row.callsign || row.id) === pinnedCallsign);
-  if (!pinned) return rows;
-  return [pinned, ...rows.filter((row) => (row.callsign || row.id) !== pinnedCallsign)];
-}

@@ -832,6 +832,18 @@ class FIDSRowOut(BaseModel):
     ground_speed_kt: Optional[int] = None
     squawk: str = ""
     transponder: str = ""
+    origin_iata: str = ""
+    origin_icao: str = ""
+    origin_name: str = ""
+    dest_iata: str = ""
+    dest_icao: str = ""
+    dest_name: str = ""
+    sched_time: str = ""
+    est_time: str = ""
+    actual_time: str = ""
+    updated_at: str = ""
+    aircraft_registration: str = ""
+    icao24: str = ""
 
 
 def _fids_rows_from_flights(
@@ -906,6 +918,18 @@ def _fids_rows_from_flights(
             ground_speed_kt=r.ground_speed_kt,
             squawk=r.squawk,
             transponder=r.transponder,
+            origin_iata=r.origin_iata,
+            origin_icao=r.origin_icao,
+            origin_name=r.origin_name,
+            dest_iata=r.dest_iata,
+            dest_icao=r.dest_icao,
+            dest_name=r.dest_name,
+            sched_time=r.sched_time,
+            est_time=r.est_time,
+            actual_time=r.actual_time,
+            updated_at=r.updated_at,
+            aircraft_registration=r.aircraft_registration,
+            icao24=r.icao24,
         )
         for r in rows
     ]
@@ -4584,7 +4608,10 @@ def _matrix_row_payload(row: Any, *, preset: Any = "real_fids", show_gate_info: 
         "display_time": data.get("display_time") or "--:--",
         "flight": flight,
         "flight_display": flight,
-        "flight_number": data.get("flight_number") or flight,
+        # Keep the semantic flight-number field distinct from the display
+        # fallback. Operational callsigns may still be shown in `flight`, but
+        # must not become synthetic passenger flight numbers.
+        "flight_number": data.get("flight_number") or "",
         "route": route_display,
         "route_display": route_display,
         **route_fields,

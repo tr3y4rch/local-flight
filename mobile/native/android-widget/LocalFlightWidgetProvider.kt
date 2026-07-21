@@ -103,7 +103,7 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
       R.id.widget_compact_freshness,
       when {
         data == null -> context.getString(R.string.localflight_widget_open_app).uppercase()
-        data.stale -> context.getString(R.string.localflight_widget_stale).uppercase()
+        data.stale -> context.getString(R.string.localflight_widget_update_needed)
         else -> data.source
       }
     )
@@ -132,13 +132,12 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
       R.id.widget_compact_status,
       when {
         flight == null -> context.getString(R.string.localflight_widget_waiting).uppercase()
-        data?.stale == true -> context.getString(R.string.localflight_widget_stale).uppercase()
         else -> flight.status
       }
     )
     views.setTextColor(
       R.id.widget_compact_status,
-      context.getColor(statusColor(data?.stale == true, flight?.statusTone))
+      context.getColor(statusColor(false, flight?.statusTone))
     )
     val info = if (data?.showGateTerminal == true) flight?.gate.orEmpty().ifEmpty { flight?.terminal.orEmpty() } else ""
     views.setViewVisibility(R.id.widget_compact_info, if (info.isEmpty()) View.GONE else View.VISIBLE)
@@ -161,7 +160,7 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
       R.id.widget_board_freshness,
       when {
         data == null -> context.getString(R.string.localflight_widget_open_app).uppercase()
-        data.stale -> "${context.getString(R.string.localflight_widget_stale).uppercase()}  ·  ${data.source}"
+        data.stale -> "${context.getString(R.string.localflight_widget_update_needed)}  ·  ${data.source}"
         else -> data.source
       }
     )
@@ -179,8 +178,7 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
     val rowIds = intArrayOf(
       R.id.widget_row_1,
       R.id.widget_row_2,
-      R.id.widget_row_3,
-      R.id.widget_row_4
+      R.id.widget_row_3
     )
     val rowTextSize = if (minWidth >= 320) 11f else 10f
     rowIds.forEachIndexed { index, viewId ->
@@ -189,11 +187,11 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
       if (row != null) {
         val pin = if (row.pinned) "◆  " else ""
         val info = if (data?.showGateTerminal == true) row.gate.ifEmpty { row.terminal } else ""
+        val route = row.routeName.ifEmpty { row.routeCode }
+        val detail = listOf(row.status, info).filter(String::isNotEmpty).joinToString("  ·  ")
         views.setTextViewText(
           viewId,
-          listOf("$pin${row.time}", row.flight, row.routeCode.ifEmpty { row.routeName }, row.status, info)
-            .filter(String::isNotEmpty)
-            .joinToString("   ")
+          "$pin${row.time}  ·  ${row.flight}   $route\n$detail"
         )
         views.setTextViewTextSize(viewId, TypedValue.COMPLEX_UNIT_SP, rowTextSize)
         views.setTextColor(
@@ -210,20 +208,20 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
   }
 
   private fun bindActions(context: Context, views: RemoteViews, appWidgetId: Int) {
-    context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
-      launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-      views.setOnClickPendingIntent(
-        R.id.widget_root,
-        PendingIntent.getActivity(
-          context,
-          appWidgetId,
-          launchIntent,
-          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+    val boardIntent = Intent(Intent.ACTION_VIEW, Uri.parse("localflight://board?source=widget"))
+      .setPackage(context.packageName)
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    views.setOnClickPendingIntent(
+      R.id.widget_root,
+      PendingIntent.getActivity(
+        context,
+        appWidgetId,
+        boardIntent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
       )
-    }
+    )
 
-    val refreshIntent = Intent(Intent.ACTION_VIEW, Uri.parse("localflight://widgets?refresh=1"))
+    val refreshIntent = Intent(Intent.ACTION_VIEW, Uri.parse("localflight://board?source=widget&refresh=1"))
       .setPackage(context.packageName)
       .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
     val compactRefresh = PendingIntent.getActivity(
@@ -240,13 +238,15 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
     )
     views.setOnClickPendingIntent(R.id.widget_compact_refresh, compactRefresh)
     views.setOnClickPendingIntent(R.id.widget_board_refresh, boardRefresh)
+    views.setViewVisibility(R.id.widget_compact_refresh, View.GONE)
+    views.setViewVisibility(R.id.widget_board_refresh, View.GONE)
   }
 
   private fun widgetDescription(context: Context, data: WidgetData?): String {
     data ?: return context.getString(R.string.localflight_widget_prepare_widget)
     val flight = data.pinnedFlight ?: data.rows.firstOrNull()
     val state = when {
-      data.stale -> context.getString(R.string.localflight_widget_stale).lowercase()
+      data.stale -> context.getString(R.string.localflight_widget_update_needed).lowercase()
       flight != null -> flight.status.lowercase()
       else -> context.getString(R.string.localflight_widget_waiting_board).lowercase()
     }

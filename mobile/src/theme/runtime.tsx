@@ -6,7 +6,8 @@ import {
   useState,
   type ReactNode
 } from "react";
-import { AccessibilityInfo, Appearance, useColorScheme } from "react-native";
+import { AccessibilityInfo, Appearance, Platform, useColorScheme } from "react-native";
+import * as NavigationBar from "expo-navigation-bar";
 
 import {
   loadMobileThemePreferences,
@@ -128,6 +129,16 @@ export function MobileThemeProvider({ children }: { children: ReactNode }) {
     // Native tab/navigation material remains UIKit-owned and therefore adapts
     // its Liquid Glass contrast instead of being painted by React Native.
     Appearance.setColorScheme(preference === "system" ? "unspecified" : resolvedThemeMode);
+    if (Platform.OS === "android") {
+      // Android remains edge-to-edge. The React Navigation tab underlay covers
+      // the gesture/three-button region while the system icons retain contrast
+      // with the resolved V2 appearance.
+      void NavigationBar.setButtonStyleAsync(resolvedThemeMode === "dark" ? "light" : "dark")
+        .catch(() => {
+          // Some vendor builds do not expose navigation-bar styling. The safe
+          // area underlay still prevents content and controls from overlapping.
+        });
+    }
     void saveMobileThemePreferences({
       preference,
       contrast,

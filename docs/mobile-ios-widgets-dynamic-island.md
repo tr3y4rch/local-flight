@@ -1,6 +1,6 @@
-# Mobile Home-Screen Widgets and Future Dynamic Island
+# Mobile Home-Screen Widgets and Live Activity
 
-This is the implementation and data-contract handoff for Local Flight home-screen widgets. The widget-enabled `0.5.2` source targets iOS build `9` and Android versionCode `12`. Expo config plugins generate the iOS WidgetKit extension/App Group and Android `AppWidgetProvider` from the tracked templates under `mobile/native/ios-widget/` and `mobile/native/android-widget/`. Dynamic Island and Live Activities are capability-gated and remain local snapshot consumers without extension-side networking.
+This is the implementation and data-contract handoff for Local Flight home-screen widgets. The hardened `0.5.2` testing source targets iOS build `11` and Android versionCode `15`. Expo config plugins generate the iOS WidgetKit extension/App Group and Android `AppWidgetProvider` from the tracked templates under `mobile/native/ios-widget/` and `mobile/native/android-widget/`. Dynamic Island and Live Activities are capability-gated and remain local snapshot consumers without extension-side networking.
 
 ## Product Intent
 
@@ -12,17 +12,17 @@ The Dynamic Island / Live Activity should be even quieter. It is for a pinned fl
 
 ### Small Widget: Pinned Flight
 
-- Header: configured airport code and direction, for example `ZRH · DEP`.
-- Main line: pinned flight number plus a text-coded status badge.
-- Secondary line: display time plus route name or route code.
+- Header: a quiet `Pinned flight` label and airport context.
+- Main line: pinned flight identity plus its operational status.
+- Secondary line: display time, route, and supplied gate or terminal when space permits.
 - Optional detail: gate or terminal only when it fits without shrinking critical text.
 - Empty state: `Pin a flight in Local Flight`, with the airport code if configured.
-- Stale state: keep the last pinned flight visible and add `STALE` / last updated time; do not silently switch to another flight.
+- Update-needed state: keep the last pinned flight visible and qualify freshness separately; do not replace its operational status or silently switch flights.
 
 ### Medium Widget: Airport Board
 
-- Top lane: Beacon Tools watermark at the left edge, airport name plus departure/arrival pill in the center, and the Local Flight wordmark plus last update status on the right.
-- Board lane: horizontal-FIDS columns for time, flight, destination/origin, status, and optional gate/terminal detail.
+- Header: airport, direction, and quiet freshness.
+- Board body: two or three separated movement rows with time, flight, route, operational status, and optional gate/terminal detail.
 - If a pinned flight exists, it stays as the first accented row.
 - If no pinned flight exists, the medium widget remains a board glance with live rows and the small widget shows the pin prompt.
 - If no rows exist, show `Waiting for board data` plus the last updated time.
@@ -32,10 +32,10 @@ The Dynamic Island / Live Activity should be even quieter. It is for a pinned fl
 
 - Uses one resizable widget rather than separate small/medium definitions.
 - Compact widths show one primary row; wider widths show up to three rows.
-- The refresh action rereads the app's latest private snapshot only. It does not fetch new flight data.
-- Tapping the widget opens Local Flight. Android also performs its normal low-frequency widget refresh, limited to 30 minutes.
+- Tapping the widget opens Board. A contextual refresh route may ask the app for one bounded refresh after it opens; the widget itself never fetches data.
+- Android also performs its normal low-frequency widget refresh, limited to 30 minutes.
 
-## Dynamic Island / Live Activity (Deferred)
+## Dynamic Island / Live Activity
 
 ### Minimal / Compact Island
 
@@ -46,7 +46,7 @@ The Dynamic Island / Live Activity should be even quieter. It is for a pinned fl
 ### Expanded Island and Lock Screen
 
 - Content: flight number, status, time, route code/name, optional gate, and last updated.
-- If the pinned flight disappears from current board data, show `Flight stale`.
+- Keep operational status primary. Qualify freshness separately as cached or update needed when the pinned flight expires or can no longer be resolved.
 - The Live Activity should remain pinned-flight-only; it must not mirror the full board.
 
 ## Snapshot Contract
@@ -101,7 +101,7 @@ type WidgetFlight = {
 };
 ```
 
-The app derives this from the existing `FidsRow` data and `pinnedCallsign` / `flightPinKey(row)` behavior. The snapshot refreshes after Board data changes, pin changes, setup airport changes, widget preference changes, and app foreground refreshes.
+The app derives this from existing `FidsRow` data and a versioned `PinnedFlightReference`. The stable pin reference preserves direction, movement key, callsign, flight number, route, and scheduled time without conflating those identities. The snapshot refreshes after Board data changes, pin changes, setup airport changes, widget preference changes, explicit widget refreshes, source timestamp changes, and app foreground refreshes.
 
 Current app-side file:
 
@@ -119,11 +119,11 @@ allowed to open LAN, relay, or provider connections.
 
 ## Visual Rules
 
-- Dark airport-board shell by default, matching Mobile's technical skin vocabulary.
+- Warm cloud/ivory and midnight V2 surfaces follow the app appearance.
 - Green, amber, red, and blue status tones must always include readable text labels.
 - Avoid tiny decorative labels as the only source of important information.
 - Small widget critical text should stay readable on the smallest supported iPhone widget surface.
-- Medium widget rows may truncate route names, but flight number, time, and status must remain visible.
+- Medium widget rows may truncate route names, but display identity, time, and operational status must remain visible.
 
 ## Preview Coverage
 

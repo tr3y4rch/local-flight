@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, AppState, Easing, type AppStateStatus } from "react-native";
+import { Animated, AppState, Easing, Linking, type AppStateStatus } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 
 import { useReducedMotionPreference } from "../accessibility/mobileA11y";
@@ -21,17 +21,19 @@ import {
   loadCachedLanAirport,
   loadCachedLanConfig,
   loadMobileDiagnosticsMode,
-  loadPinnedFlight,
+  loadPinnedFlightReference,
   loadProfiles,
   loadServerUrl,
   resolveMobileSetupState,
   type MobileDiagnosticsMode,
   type MobileSetupState
 } from "../storage/settings";
+import type { PinnedFlightReference } from "../domain/pinnedFlight";
 
 export type LaunchHydration = {
   savedUrl: string | null;
-  savedPin: string | null;
+  savedPin: PinnedFlightReference | null;
+  initialUrl: string | null;
   savedProfiles: ConfigProfile[];
   savedConfig: AppConfig | null;
   savedAirport: AirportResolved | null;
@@ -80,6 +82,11 @@ export function useLaunchOverlay(
   const logoBreathLoopRef = useRef<Animated.CompositeAnimation | null>(null);
   const ceilingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startFrameRef = useRef<number | null>(null);
+  const bypassCinematicRef = useRef(false);
+
+  const isDirectContentLaunch = useCallback((url: string | null) => (
+    Boolean(url && /^localflight:\/\/(?:board|flight|widgets)(?:[/?#]|$)/i.test(url))
+  ), []);
 
   const stopAmbient = useCallback(() => {
     ambientSweepLoopRef.current?.stop();
@@ -168,6 +175,17 @@ export function useLaunchOverlay(
       !hydrationCompleteRef.current
     ) return;
     nativeSplashHiddenRef.current = true;
+    if (bypassCinematicRef.current) {
+      enteredRef.current = true;
+      visibleRef.current = false;
+      sequenceCompleteRef.current = true;
+      sequence.setValue(1);
+      setSequenceComplete(true);
+      setReady(true);
+      setVisible(false);
+      void SplashScreen.hideAsync().catch(() => undefined);
+      return;
+    }
     void SplashScreen.hideAsync()
       .catch(() => {
         // Simulator fast refresh can race an already-hidden native splash.
@@ -175,7 +193,7 @@ export function useLaunchOverlay(
       .finally(() => {
         startFrameRef.current = requestAnimationFrame(startCinematic);
       });
-  }, [appearanceReady, startCinematic]);
+  }, [appearanceReady, sequence, startCinematic]);
 
   const markFirstFrameReady = useCallback(() => {
     if (firstFrameRef.current) return;
@@ -228,18 +246,20 @@ export function useLaunchOverlay(
 
     void Promise.all([
       settledValue(loadServerUrl(), null),
-      settledValue(loadPinnedFlight(), null),
+      settledValue(loadPinnedFlightReference(), null),
       settledValue(loadProfiles(), []),
       settledValue(loadCachedLanConfig(), null),
       settledValue(loadCachedLanAirport(), null),
       settledValue(getCompanionIdentity(), fallbackIdentity),
-      settledValue(loadMobileDiagnosticsMode(), "unset" as MobileDiagnosticsMode)
-    ]).then(async ([savedUrl, savedPin, savedProfiles, savedConfig, savedAirport, identity, mobileDiagnosticsMode]) => {
+      settledValue(loadMobileDiagnosticsMode(), "unset" as MobileDiagnosticsMode),
+      settledValue(Linking.getInitialURL(), null)
+    ]).then(async ([savedUrl, savedPin, savedProfiles, savedConfig, savedAirport, identity, mobileDiagnosticsMode, initialUrl]) => {
       const setupState = await settledValue(
         resolveMobileSetupState(savedUrl || "", mobileDiagnosticsMode),
         incompleteMobileSetupState(savedUrl || "", mobileDiagnosticsMode)
       );
       if (!alive) return;
+      bypassCinematicRef.current = isDirectContentLaunch(initialUrl);
       onHydrated({
         savedUrl,
         savedPin,
@@ -248,7 +268,8 @@ export function useLaunchOverlay(
         savedAirport,
         identity,
         mobileDiagnosticsMode,
-        setupState
+        setupState,
+        initialUrl
       });
       hydrationCompleteRef.current = true;
       setHydrated(true);
@@ -257,7 +278,7 @@ export function useLaunchOverlay(
     return () => {
       alive = false;
     };
-  }, [onHydrated]);
+  }, [isDirectContentLaunch, onHydrated]);
 
   useEffect(() => {
     hideNativeSplashWhenReady();

@@ -71,6 +71,16 @@ assert.doesNotMatch(overlay, /AircraftGlyph color=\{appearance\.text\} accent=/,
 assert.match(overlay, /styles\.aircraftMotion[\s\S]*translateX: aircraftX[\s\S]*styles\.aircraftLockMotion/, "aircraft and lock must share one translated route");
 assert.doesNotMatch(overlay, /expo-haptics|expo-av|Audio\./);
 assert.match(hook, /requestAnimationFrame\(startCinematic\)/, "cinematic must begin after the native-splash handoff");
+assert.match(hook, /Linking\.getInitialURL\(\)/, "the initial external route must be inspected before starting the cinematic");
+assert.ok(
+  hook.includes("^localflight:\\/\\/(?:board|flight|widgets)"),
+  "only recognized widget and Live Activity routes may bypass the cinematic"
+);
+assert.match(hook, /bypassCinematicRef\.current = isDirectContentLaunch\(initialUrl\)/);
+assert.match(hook, /if \(bypassCinematicRef\.current\)[\s\S]*setVisible\(false\)/, "direct content launches must hydrate and bypass the cinematic");
+assert.match(shell, /Latest details are not available yet/, "an unresolved Live Activity must fall back to Board with a safe notice");
+assert.ok(shell.includes("^localflight:\\/\\/(?:board|widgets)"), "widget routes must open Board contextually");
+assert.match(shell, /\[\?&\]refresh=1/, "the widget refresh route must request one bounded Board refresh");
 assert.match(hook, /AppState\.addEventListener\("change"/);
 assert.match(hook, /stopAmbient\(\)/);
 assert.match(hook, /sequenceCompleteRef\.current/);

@@ -150,10 +150,12 @@ def normalize_flights(
             origin=AirportRef(
                 iata=record.get("origin_iata"),
                 icao=record.get("origin_icao"),
+                name=record.get("origin_name"),
             ) if record.get("origin_iata") or record.get("origin_icao") else None,
             destination=AirportRef(
                 iata=record.get("destination_iata"),
                 icao=record.get("destination_icao"),
+                name=record.get("destination_name"),
             ) if record.get("destination_iata") or record.get("destination_icao") else None,
             aircraft_type=aircraft_short or None,
             aircraft_type_full=aircraft_full or None,

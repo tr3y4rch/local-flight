@@ -2,6 +2,10 @@ import type { FidsRow, FlightView } from "../api/types";
 import { flightPinKey, routeCode, routeName, statusShort, statusTone } from "./flights";
 import type { StatusTone } from "./types";
 import type { MobileWidgetPreferences } from "../storage/settings";
+import {
+  findPinnedFlight,
+  type PinnedFlightReference
+} from "./pinnedFlight";
 
 export type WidgetFlightPreview = {
   id: string;
@@ -32,7 +36,7 @@ export const WIDGET_SNAPSHOT_FILENAME = "localflight-widget-snapshot.json";
 export const WIDGET_SNAPSHOT_STALE_AFTER_MS = 60 * 60 * 1000;
 export const WIDGET_STANDALONE_STALE_AFTER_MS = 90 * 60 * 1000;
 export const WIDGET_SNAPSHOT_MAX_BYTES = 64 * 1024;
-const WIDGET_MAX_MEDIUM_ROWS_WITH_PIN = 4;
+const WIDGET_MAX_MEDIUM_ROWS_WITH_PIN = 3;
 
 export type WidgetSnapshotMode = "lan_companion" | "standalone";
 
@@ -162,17 +166,16 @@ export function deriveWidgetPreviewSnapshot({
   preferences
 }: {
   rows: FidsRow[];
-  pinnedCallsign: string;
+  pinnedCallsign: string | PinnedFlightReference | null;
   airportCode: string;
   airportName: string;
   updatedLabel?: string;
   view: FlightView;
   preferences: MobileWidgetPreferences;
 }): WidgetPreviewSnapshot {
-  const pinnedRow = pinnedCallsign
-    ? rows.find((row) => flightPinKey(row) === pinnedCallsign) || null
-    : null;
+  const pinnedRow = findPinnedFlight(rows, pinnedCallsign);
   const liveRows = rows
+    .filter((row) => (row.view === "arrivals" ? "arrivals" : "departures") === view)
     .filter((row) => !pinnedRow || flightPinKey(row) !== flightPinKey(pinnedRow))
     .slice(0, preferences.mediumRowCount)
     .map(rowToWidgetFlight);
@@ -229,15 +232,18 @@ export function buildWidgetExchangeSnapshot({
 }): LocalFlightWidgetSnapshot {
   const normalizedPreferences = normalizeWidgetPreferences(preferences);
   const pinned = preview.pinnedFlight ? normalizeWidgetFlight(preview.pinnedFlight) : null;
-  const mediumRowLimit = normalizedPreferences.mediumRowCount + (pinned ? 1 : 0);
+  const pinnedForMedium = pinned && (
+    (preview.view === "arrivals" && pinned.direction === "arr") ||
+    (preview.view === "departures" && pinned.direction === "dep")
+  ) ? pinned : null;
   const mediumRows = [
-    ...(pinned ? [{ ...pinned, pinned: true }] : []),
+    ...(pinnedForMedium ? [{ ...pinnedForMedium, pinned: true }] : []),
     ...preview.liveFlights
       .map((flight) => normalizeWidgetFlight(flight))
       .filter((flight): flight is WidgetFlightPreview => Boolean(flight))
-      .slice(0, normalizedPreferences.mediumRowCount)
+      .slice(0, normalizedPreferences.mediumRowCount - (pinnedForMedium ? 1 : 0))
       .map((flight) => ({ ...flight, pinned: false }))
-  ].slice(0, Math.min(WIDGET_MAX_MEDIUM_ROWS_WITH_PIN, mediumRowLimit));
+  ].slice(0, normalizedPreferences.mediumRowCount);
 
   const parsedSourceUpdatedAt = parseWidgetDate(sourceUpdatedAt);
   const effectiveSourceUpdatedAt = parsedSourceUpdatedAt == null ? generatedAt.getTime() : parsedSourceUpdatedAt;
@@ -294,7 +300,7 @@ export function normalizeWidgetExchangeSnapshot(value: unknown): LocalFlightWidg
         return normalized ? { ...normalized, pinned: Boolean((flight as { pinned?: unknown }).pinned) } : null;
       })
       .filter((flight): flight is WidgetFlightPreview & { pinned: boolean } => Boolean(flight))
-      .slice(0, Math.min(WIDGET_MAX_MEDIUM_ROWS_WITH_PIN, preferences.mediumRowCount + 1))
+      .slice(0, Math.min(WIDGET_MAX_MEDIUM_ROWS_WITH_PIN, preferences.mediumRowCount))
     : [];
   const expired = expiresAt <= Date.now();
 

@@ -51,13 +51,18 @@
   <style name="LocalFlightWidgetRow">
     <item name="android:layout_width">match_parent</item>
     <item name="android:layout_height">wrap_content</item>
+    <item name="android:background">@color/localflight_widget_panel</item>
     <item name="android:ellipsize">end</item>
-    <item name="android:fontFamily">@font/space_mono_bold</item>
+    <item name="android:fontFamily">@font/dm_sans</item>
     <item name="android:gravity">center_vertical</item>
-    <item name="android:maxLines">1</item>
-    <item name="android:minHeight">27dp</item>
+    <item name="android:layout_marginBottom">4dp</item>
+    <item name="android:maxLines">2</item>
+    <item name="android:minHeight">38dp</item>
+    <item name="android:paddingLeft">9dp</item>
+    <item name="android:paddingRight">9dp</item>
+    <item name="android:paddingTop">5dp</item>
+    <item name="android:paddingBottom">5dp</item>
     <item name="android:textColor">@color/localflight_widget_text</item>
-    <item name="android:textSize">10sp</item>
-    <item name="android:textStyle">bold</item>
+    <item name="android:textSize">11sp</item>
   </style>
 </resources>

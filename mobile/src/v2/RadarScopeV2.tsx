@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Pressable, StyleSheet, View } from "react-native";
-import Svg, { Circle, ClipPath, Defs, G, Line, Path, Polygon, Polyline } from "react-native-svg";
+import Svg, { Circle, ClipPath, Defs, G, Line, Path, Polygon, Polyline, Text as SvgText } from "react-native-svg";
 
 import { accessibleButton, tapTargetHitSlop, useReducedMotionPreference } from "../accessibility/mobileA11y";
 import type { RadarBlip, RadarMapFeature, RadarMapResponse, RadarResponse } from "../api/types";
@@ -9,13 +9,20 @@ import {
   RADAR_FRAME_INTERVAL_MS,
   RADAR_INTERACTIVE_MIN_OPACITY,
   RADAR_TRAIL_DEGREES,
+  compareRadarPriority,
+  radarLabelPriority,
   radarPhaseLabel,
   radarSweepAngleAfter,
   radarSweepOpacity,
   radarTargetShape,
   radarTargetTone
 } from "../domain/radarPresentation";
-import { projectBlip, projectLatLonToScope, type ProjectedRadarPoint } from "../domain/radar";
+import {
+  normalizeRadarCoordinatePair,
+  projectBlip,
+  projectLatLonToScope,
+  type ProjectedRadarPoint
+} from "../domain/radar";
 import type { RadarRadius } from "../domain/types";
 import type { MobileRadarDrawingLayers } from "../storage/settings";
 import { useMobileTheme } from "../theme/runtime";
@@ -42,10 +49,9 @@ function featurePoints(
 ): ProjectedRadarPoint[] {
   return (feature.points || [])
     .map((point) => {
-      const lat = Number(point[0]);
-      const lon = Number(point[1]);
-      return Number.isFinite(lat) && Number.isFinite(lon)
-        ? projectLatLonToScope(lat, lon, center, radiusNm, scopeSize)
+      const coordinate = normalizeRadarCoordinatePair(point, center);
+      return coordinate
+        ? projectLatLonToScope(coordinate.lat, coordinate.lon, center, radiusNm, scopeSize)
         : null;
     })
     .filter((point): point is ProjectedRadarPoint => Boolean(point));
@@ -53,6 +59,22 @@ function featurePoints(
 
 function drawable(features: RadarMapFeature[] | undefined): RadarMapFeature[] {
   return (features || []).filter((feature) => Array.isArray(feature.points) && feature.points.length >= 2);
+}
+
+function terrainContextFeatures(groundData: RadarMapResponse | null): RadarMapFeature[] {
+  const rows = [
+    ...(groundData?.terrain?.contours || []),
+    ...(groundData?.terrain?.features || [])
+  ];
+  const seen = new Set<string>();
+  return rows.filter((feature, index) => {
+    const kind = String(feature.kind || "").toLowerCase();
+    if (/band|tile|cell|grid/.test(kind)) return false;
+    const key = String(feature.id || `${kind}:${index}`);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function visibleFeatures(
@@ -88,11 +110,79 @@ function groundStatus(
 
 function paint(a: MobileAppearance, feature: RadarMapFeature, layer: FeatureLayer, radiusNm: number) {
   const kind = String(feature.kind || "").toLowerCase();
-  if (layer === "terrain") return { fill: kind.includes("band") ? `${a.green}0D` : "none", stroke: `${a.green}24`, width: 0.7 };
+  if (layer === "terrain") return { fill: "none", stroke: `${a.green}24`, width: 0.7 };
   if (layer === "map") return { fill: kind === "water" ? `${a.blue}12` : "none", stroke: `${a.textDim}30`, width: radiusNm <= 5 ? 0.9 : 0.55 };
-  if (layer === "runway") return { fill: "none", stroke: `${a.text}B8`, width: radiusNm <= 5 ? 3.2 : 1.8 };
+  if (layer === "runway") return { fill: `${a.amber}1F`, stroke: `${a.amber}E0`, width: radiusNm <= 5 ? 3.8 : 2.1 };
   if (["apron", "terminal", "building"].includes(kind)) return { fill: `${a.blue2}14`, stroke: `${a.blue2}4D`, width: 1.1 };
+  if (kind === "taxiway") return { fill: "none", stroke: `${a.amber}78`, width: radiusNm <= 5 ? 1.9 : 1.1 };
+  if (kind === "boundary") return { fill: "none", stroke: `${a.green}30`, width: 0.8 };
   return { fill: "none", stroke: `${a.green}59`, width: radiusNm <= 5 ? 1.45 : 0.9 };
+}
+
+function runwayAxis(points: ProjectedRadarPoint[]): { start: ProjectedRadarPoint; end: ProjectedRadarPoint } | null {
+  if (points.length < 2) return null;
+  const centerX = points.reduce((total, point) => total + point.x, 0) / points.length;
+  const centerY = points.reduce((total, point) => total + point.y, 0) / points.length;
+  let xx = 0;
+  let yy = 0;
+  let xy = 0;
+  for (const point of points) {
+    const x = point.x - centerX;
+    const y = point.y - centerY;
+    xx += x * x;
+    yy += y * y;
+    xy += x * y;
+  }
+  const angle = 0.5 * Math.atan2(2 * xy, xx - yy);
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  const projected = points.map((point) => ({
+    point,
+    distance: (point.x - centerX) * ux + (point.y - centerY) * uy
+  })).sort((left, right) => left.distance - right.distance);
+  const first = projected[0]?.point;
+  const last = projected[projected.length - 1]?.point;
+  return first && last ? { start: first, end: last } : null;
+}
+
+function runwayDesignators(label: string): [string, string] {
+  const parts = label.toUpperCase().match(/^(\d{1,2}[LCR]?)\s*[\/-]\s*(\d{1,2}[LCR]?)$/);
+  return [parts?.[1] || "", parts?.[2] || ""];
+}
+
+function RunwayIndicators({
+  item,
+  appearance,
+  radiusNm
+}: {
+  item: { feature: RadarMapFeature; points: ProjectedRadarPoint[] };
+  appearance: MobileAppearance;
+  radiusNm: number;
+}) {
+  const axis = runwayAxis(item.points);
+  if (!axis || radiusNm > 5) return null;
+  const dx = axis.end.x - axis.start.x;
+  const dy = axis.end.y - axis.start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 14) return null;
+  const ux = dx / length;
+  const uy = dy / length;
+  const px = -uy * Math.min(7, Math.max(4, length * 0.035));
+  const py = ux * Math.min(7, Math.max(4, length * 0.035));
+  const [startLabel, endLabel] = runwayDesignators(String(item.feature.label || ""));
+  const labelInset = Math.min(17, Math.max(9, length * 0.09));
+  return (
+    <G>
+      <Line x1={axis.start.x - px} y1={axis.start.y - py} x2={axis.start.x + px} y2={axis.start.y + py} stroke={`${appearance.amber}F2`} strokeWidth={1.4} />
+      <Line x1={axis.end.x - px} y1={axis.end.y - py} x2={axis.end.x + px} y2={axis.end.y + py} stroke={`${appearance.amber}F2`} strokeWidth={1.4} />
+      {startLabel ? (
+        <SvgText x={axis.start.x + ux * labelInset} y={axis.start.y + uy * labelInset + 3} fill={appearance.amber} fontFamily={BOARD_BOLD_FONT_FAMILY} fontSize={radiusNm <= 1 ? 8 : 7} textAnchor="middle">{startLabel}</SvgText>
+      ) : null}
+      {endLabel ? (
+        <SvgText x={axis.end.x - ux * labelInset} y={axis.end.y - uy * labelInset + 3} fill={appearance.amber} fontFamily={BOARD_BOLD_FONT_FAMILY} fontSize={radiusNm <= 1 ? 8 : 7} textAnchor="middle">{endLabel}</SvgText>
+      ) : null}
+    </G>
+  );
 }
 
 function GroundFeature({
@@ -108,7 +198,7 @@ function GroundFeature({
 }) {
   const points = item.points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
   const colors = paint(appearance, item.feature, layer, radiusNm);
-  const polygon = Boolean(item.feature.closed && item.points.length >= 3 && layer !== "runway");
+  const polygon = Boolean(item.feature.closed && item.points.length >= 3);
   return polygon
     ? <Polygon points={points} fill={colors.fill} stroke={colors.stroke} strokeWidth={colors.width} strokeLinejoin="round" />
     : <Polyline points={points} fill="none" stroke={colors.stroke} strokeWidth={colors.width} strokeLinecap="round" strokeLinejoin="round" />;
@@ -168,7 +258,7 @@ export function RadarScopeV2(props: RadarScopeV2Props) {
     ? visibleFeatures(props.groundData?.map_features, groundCenter, props.radiusNm, scopeSize)
     : [];
   const terrain = groundCenter && props.drawingLayers.terrain
-    ? visibleFeatures(props.groundData?.terrain?.features, groundCenter, props.radiusNm, scopeSize)
+    ? visibleFeatures(terrainContextFeatures(props.groundData), groundCenter, props.radiusNm, scopeSize)
     : [];
   const status = groundStatus(props.groundData, props.groundError, runways.length + surface.length, map.length + terrain.length, props.radiusNm);
 
@@ -182,29 +272,42 @@ export function RadarScopeV2(props: RadarScopeV2Props) {
       return { item, key, focused, opacity };
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
-  const visibleLabelKeys = new Set<string>();
+  const labelPlacements = new Map<string, { left: number; top: number; width: number }>();
   const occupiedLabels: Array<{ x: number; y: number; width: number; height: number }> = [];
-  for (const candidate of [...projected].sort((left, right) => left.item.distanceNm - right.item.distanceNm)) {
+  const labelBudget = Math.max(
+    4,
+    (props.radiusNm <= 1 ? 8 : props.radiusNm <= 3 ? 7 : props.radiusNm <= 5 ? 6 : 5)
+      - (projected.length >= 24 ? 2 : projected.length >= 14 ? 1 : 0)
+  );
+  const labelCandidates = [...projected].sort((left, right) => compareRadarPriority(
+    radarLabelPriority(right.item.blip, right.focused),
+    radarLabelPriority(left.item.blip, left.focused)
+  ));
+  for (const candidate of labelCandidates) {
     if (!candidate.focused && candidate.opacity <= 0.72) continue;
     const callsign = String(candidate.item.blip.callsign || "").trim();
     if (!callsign) continue;
-    const rect = {
-      x: candidate.item.left + 14,
-      y: candidate.item.top - 4,
-      width: Math.min(90, Math.max(48, callsign.length * 7)),
-      height: 17
-    };
-    const outside = rect.x + rect.width > scopeSize - 5 || rect.y < 4 || rect.y + rect.height > scopeSize - 5;
-    const collides = occupiedLabels.some((other) => (
-      rect.x < other.x + other.width
-      && rect.x + rect.width > other.x
-      && rect.y < other.y + other.height
-      && rect.y + rect.height > other.y
-    ));
-    if ((outside || collides) && !candidate.focused) continue;
-    occupiedLabels.push(rect);
-    visibleLabelKeys.add(candidate.key);
-    if (visibleLabelKeys.size >= 10) break;
+    const width = Math.min(90, Math.max(48, callsign.length * 7));
+    const top = Math.max(4, Math.min(scopeSize - 22, candidate.item.top - 4));
+    const placements = [
+      { rect: { x: candidate.item.left + 14, y: top, width, height: 17 }, style: { left: 14, top: top - candidate.item.top, width } },
+      { rect: { x: candidate.item.left - width - 7, y: top, width, height: 17 }, style: { left: -width - 7, top: top - candidate.item.top, width } }
+    ];
+    const placement = placements.find(({ rect }) => {
+      const outside = rect.x < 5 || rect.x + rect.width > scopeSize - 5;
+      const collides = occupiedLabels.some((other) => (
+        rect.x < other.x + other.width
+        && rect.x + rect.width > other.x
+        && rect.y < other.y + other.height
+        && rect.y + rect.height > other.y
+      ));
+      return !outside && !collides;
+    });
+    if (!placement && !candidate.focused) continue;
+    const resolved = placement || placements[0]!;
+    occupiedLabels.push(resolved.rect);
+    labelPlacements.set(candidate.key, resolved.style);
+    if (labelPlacements.size >= labelBudget) break;
   }
 
   useEffect(() => {
@@ -256,10 +359,11 @@ export function RadarScopeV2(props: RadarScopeV2Props) {
             {map.map((item, index) => <GroundFeature key={`map-${index}`} item={item} layer="map" appearance={appearance} radiusNm={props.radiusNm} />)}
             {surface.map((item, index) => <GroundFeature key={`surface-${index}`} item={item} layer="surface" appearance={appearance} radiusNm={props.radiusNm} />)}
             {runways.map((item, index) => <GroundFeature key={`runway-${index}`} item={item} layer="runway" appearance={appearance} radiusNm={props.radiusNm} />)}
+            {runways.map((item, index) => <RunwayIndicators key={`runway-indicators-${index}`} item={item} appearance={appearance} radiusNm={props.radiusNm} />)}
             {!reduceMotion ? (
               <G transform={`rotate(${sweepDeg} ${scopeSize / 2} ${scopeSize / 2})`}>
-                <Path d={sweepSectorPath(scopeSize, -RADAR_TRAIL_DEGREES, 0)} fill={`${appearance.blue2}18`} />
-                <Line x1={scopeSize / 2} y1={scopeSize / 2} x2={scopeSize / 2} y2={scopeSize * 0.06} stroke={`${appearance.blue2}C0`} strokeWidth={1.5} />
+                <Path d={sweepSectorPath(scopeSize, -RADAR_TRAIL_DEGREES, 0)} fill={`${appearance.blue2}24`} />
+                <Line x1={scopeSize / 2} y1={scopeSize / 2} x2={scopeSize / 2} y2={scopeSize * 0.06} stroke={`${appearance.blue2}E0`} strokeWidth={1.8} />
               </G>
             ) : null}
           </G>
@@ -274,6 +378,7 @@ export function RadarScopeV2(props: RadarScopeV2Props) {
           const tone = radarTargetTone(item.blip, appearance);
           const shape = radarTargetShape(item.blip);
           const interactive = opacity >= RADAR_INTERACTIVE_MIN_OPACITY;
+          const labelPlacement = labelPlacements.get(key);
           return (
             <Pressable
               key={key}
@@ -284,6 +389,9 @@ export function RadarScopeV2(props: RadarScopeV2Props) {
                 props.onOpenDetail(item.blip.callsign, item.blip);
               }}
               {...accessibleButton({ label: `${item.blip.callsign}, ${radarPhaseLabel(item.blip) || "tracked aircraft"}. Opens aircraft details.` })}
+              accessible={interactive}
+              accessibilityElementsHidden={!interactive}
+              importantForAccessibility={interactive ? "auto" : "no-hide-descendants"}
             >
               <View style={[
                 styles.target,
@@ -292,7 +400,7 @@ export function RadarScopeV2(props: RadarScopeV2Props) {
                 shape === "hollow" && styles.targetHollow,
                 focused && styles.targetFocused
               ]} />
-              {visibleLabelKeys.has(key) ? <Text style={styles.targetLabel} numberOfLines={1}>{item.blip.callsign}</Text> : null}
+              {labelPlacement ? <Text style={[styles.targetLabel, labelPlacement]} numberOfLines={1}>{item.blip.callsign}</Text> : null}
             </Pressable>
           );
         })}
@@ -330,7 +438,7 @@ function makeStyles(a: MobileAppearance) {
     targetDiamond: { borderRadius: 2, transform: [{ rotate: "45deg" }] },
     targetHollow: { borderWidth: 2 },
     targetFocused: { borderWidth: 2.5, transform: [{ scale: 1.35 }] },
-    targetLabel: { position: "absolute", left: 14, top: -4, minWidth: 74, color: a.text, fontFamily: BOARD_FONT_FAMILY, fontSize: 10, lineHeight: 14 },
+    targetLabel: { position: "absolute", color: a.text, fontFamily: BOARD_FONT_FAMILY, fontSize: 10, lineHeight: 14 },
     centerDot: { position: "absolute", left: "50%", top: "50%", width: 8, height: 8, marginLeft: -4, marginTop: -4, borderRadius: 5, backgroundColor: a.blue2, zIndex: 4 },
     footer: { width: "100%", paddingHorizontal: 4, paddingTop: 12 },
     hint: { color: a.textMuted, fontSize: 13, lineHeight: 18 },

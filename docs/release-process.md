@@ -121,9 +121,10 @@ store build at this stage.
    LAN health, Linux desktop/server behavior, Raspberry Pi modes, and Matrix on
    the required native and physical systems. Publish the GitHub release only
    after those gates pass.
-6. Build and submit iOS `0.5.2 (9)` to TestFlight and Android `0.5.2 (12)` to
-   Google Play internal testing. Complete real-device checks before the public
-   site describes those builds as available.
+6. Build iOS `0.5.2 (11)` and Android `0.5.2 (15)`. Submit only the iOS build
+   to TestFlight in this hardening pass; retain the signed Android AAB without
+   uploading it to a Play track. Complete real-device checks before the public
+   site describes a build as available.
 7. Deploy the Cloudflare Worker and site only after the complete GitHub release
    is public. Then verify the home, product, mobile, network, privacy, privacy
    choices, and support pages; all ten manifest entries; all checksum links;

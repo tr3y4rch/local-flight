@@ -70,7 +70,24 @@ import {
   EMPTY_SNAPSHOT
 } from "../domain/constants";
 import { mobileClientContext } from "../domain/feedback";
-import { fidsRowDetailResponse, flightPinKey, historyRowDetailResponse, radarBlipDetailResponse } from "../domain/flights";
+import {
+  projectStandaloneBoardLocally,
+  STANDALONE_BOARD_PROJECTION_MS
+} from "../domain/boardLifecycle";
+import {
+  fidsRowDetailResponse,
+  flightPinKey,
+  historyRowDetailResponse,
+  matchRadarBlipToFidsRows,
+  radarBlipDetailResponse
+} from "../domain/flights";
+import {
+  createPinnedFlightReference,
+  findPinnedFlight,
+  pinnedFlightId,
+  pinnedFlightMatches,
+  type PinnedFlightReference
+} from "../domain/pinnedFlight";
 import {
   companionSyncMs,
   errorMessage,
@@ -349,7 +366,8 @@ export function AppShell() {
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>("ok");
   const [autoReportMessage, setAutoReportMessage] = useState<string | null>(null);
-  const [pinnedCallsign, setPinnedCallsign] = useState("");
+  const [pinnedFlightReference, setPinnedFlightReference] = useState<PinnedFlightReference | null>(null);
+  const pinnedCallsign = pinnedFlightId(pinnedFlightReference);
   const [actionRow, setActionRow] = useState<FidsRow | null>(null);
   const [configSheetVisible, setConfigSheetVisible] = useState(false);
   const [weatherSheetVisible, setWeatherSheetVisible] = useState(false);
@@ -366,6 +384,7 @@ export function AppShell() {
   });
   const [widgetBackgroundState, setWidgetBackgroundState] = useState<"checking" | "active" | "restricted" | "off">("checking");
   const [widgetRefreshRequest, setWidgetRefreshRequest] = useState(0);
+  const [widgetForceWriteNonce, setWidgetForceWriteNonce] = useState(0);
   const [widgetPendingAirport, setWidgetPendingAirport] = useState<WidgetPendingAirport | null>(null);
   const [widgetSnapshotHydrated, setWidgetSnapshotHydrated] = useState(false);
   const [liveActivitySupported, setLiveActivitySupported] = useState(false);
@@ -383,6 +402,7 @@ export function AppShell() {
   const [pendingRemoteCompanionGrant, setPendingRemoteCompanionGrant] = useState<RemoteCompanionGrant | null>(null);
   const [pairingNonce, setPairingNonce] = useState(0);
   const [pairingNotice, setPairingNotice] = useState<string | null>(null);
+  const [pendingExternalFlightPin, setPendingExternalFlightPin] = useState("");
   const [serverPanelRequest, setServerPanelRequest] = useState(0);
   const [setupSuccess, setSetupSuccess] = useState<SetupSuccessState | null>(null);
 
@@ -403,9 +423,11 @@ export function AppShell() {
   const widgetSnapshotWasReadyRef = useRef(false);
   const lastPinnedWidgetFlightRef = useRef<WidgetFlightPreview | null>(null);
   const liveActivityStartFlightRef = useRef("");
+  const widgetForceWriteHandledRef = useRef(0);
   const previousWidgetAirportKeyRef = useRef("");
   const standaloneBoardRef = useRef<MobileBoardResponse | null>(null);
   const standaloneBoardReadAtRef = useRef(0);
+  const companionBoardRowsRef = useRef<Record<FlightView, FidsRow[]>>({ departures: [], arrivals: [] });
   const flightDetail = useFlightDetail(serverUrl);
   const matrix = useMatrixCompanion(serverUrl);
   const {
@@ -471,7 +493,7 @@ export function AppShell() {
         setDraftUrl(effectiveSavedUrl);
       }
       if (savedPin) {
-        setPinnedCallsign(savedPin);
+        setPinnedFlightReference(savedPin);
       }
       if (savedProfiles.length) {
         setProfiles(savedProfiles);
@@ -563,12 +585,27 @@ export function AppShell() {
   }, [airportTimeZone]);
 
   const handlePairingUrl = useCallback((incomingUrl: string) => {
-    if (/^localflight:\/\/widgets(?:[/?#]|$)/i.test(incomingUrl)) {
-      setScreen(isStandalone ? "settings" : "control");
-      openMobileMorePanel("widgets");
+    if (/^localflight:\/\/(?:board|widgets)(?:[/?#]|$)/i.test(incomingUrl)) {
+      setScreen("fids");
+      navigateMobileSection("board");
       if (/[?&]refresh=1(?:&|$)/i.test(incomingUrl)) {
         setWidgetRefreshRequest((value) => value + 1);
       }
+      if (/[?&]liveActivity=1(?:&|$)/i.test(incomingUrl) && pinnedCallsign) {
+        setPendingExternalFlightPin(pinnedCallsign);
+      }
+      return;
+    }
+    if (/^localflight:\/\/flight(?:[/?#]|$)/i.test(incomingUrl)) {
+      let pin = "";
+      try {
+        pin = new URL(incomingUrl).searchParams.get("pin") || "";
+      } catch {
+        pin = "";
+      }
+      setScreen("fids");
+      navigateMobileSection("board");
+      setPendingExternalFlightPin(pin || pinnedCallsign);
       return;
     }
     const parsed = parsePairingLink(incomingUrl);
@@ -606,7 +643,7 @@ export function AppShell() {
       setPairingNotice(null);
     }
     hapticLight();
-  }, [closeFlightDetail, isStandalone, mobileSetupComplete]);
+  }, [closeFlightDetail, mobileSetupComplete, pinnedCallsign]);
 
   const queueOrHandlePairingUrl = useCallback((incomingUrl: string) => {
     if (!launchHydrated) {
@@ -777,14 +814,16 @@ export function AppShell() {
     if (standaloneCredentials) {
       const existing = standaloneBoardRef.current;
       const existingAgeMs = Date.now() - standaloneBoardReadAtRef.current;
-      if (existing && existingAgeMs < Math.max(60, existing.refresh_after_s) * 1000) {
+      if (existing && existingAgeMs < STANDALONE_BOARD_PROJECTION_MS) {
+        const projected = projectStandaloneBoardLocally(existing);
+        standaloneBoardRef.current = projected;
         if (requestGeneration === fidsRequestGenerationRef.current) {
-          setRows(nextView === "arrivals" ? existing.arrivals : existing.departures);
+          setRows(nextView === "arrivals" ? projected.arrivals : projected.departures);
           setLaunchDataOutcome((current) => current === "pending" ? "cached" : current);
         }
         return;
       }
-      const board = await getStandaloneBoard(standaloneCredentials);
+      const board = projectStandaloneBoardLocally(await getStandaloneBoard(standaloneCredentials));
       standaloneBoardRef.current = board;
       standaloneBoardReadAtRef.current = Date.now();
       await Promise.all([
@@ -799,7 +838,10 @@ export function AppShell() {
           state: {
             ...(current.state || { ok: true }),
             ok: current.state?.ok !== false,
-            last_success_utc: board.generated_at,
+            // Compatibility Board responses deliberately omit a synthetic
+            // receipt timestamp. Preserve the relay summary's source freshness
+            // until the combined Board route supplies generated_at itself.
+            last_success_utc: board.generated_at || current.state?.last_success_utc || "",
             source_name: current.state?.source_name || "relay_standalone"
           }
         }));
@@ -808,6 +850,7 @@ export function AppShell() {
       return;
     }
     const fids = await getFids(normalized, nextView);
+    companionBoardRowsRef.current[nextView] = fids;
     lastFidsRefreshAtRef.current = Date.now();
     if (requestGeneration === fidsRequestGenerationRef.current) {
       setRows(fids);
@@ -919,8 +962,13 @@ export function AppShell() {
         setRadarGroundError(radarGroundSurfaceReady(ground, Math.min(10, nextRadius)) ? null : "Surface loading");
       } catch (exc) {
         if (!isCurrentRadarRequest()) return;
-        setRadarGroundData(cachedGround);
-        setRadarGroundError(cachedGround ? null : errorMessage(exc));
+        // The traffic response can carry a bounded embedded surface even when
+        // the optional full ground endpoint is disabled or still preparing.
+        // Never blank that usable runway/taxiway fallback on a second-request
+        // failure.
+        const fallbackGround = cachedGround || data.radar_map || null;
+        setRadarGroundData(fallbackGround);
+        setRadarGroundError(fallbackGround ? (data.radar_map_error || errorMessage(exc)) : errorMessage(exc));
       }
       return;
     }
@@ -1123,6 +1171,7 @@ export function AppShell() {
   const refreshWidgetSnapshotNow = useCallback(async () => {
     setWidgetSnapshotStatus({ state: "waiting", detail: "refreshing board" });
     await refreshScreen({ target: "fids", includeDashboard: true });
+    setWidgetForceWriteNonce((value) => value + 1);
   }, [refreshScreen]);
 
   useEffect(() => {
@@ -1502,32 +1551,33 @@ export function AppShell() {
 
   const togglePinnedFlight = useCallback(
     async (row: FidsRow) => {
-      const key = flightPinKey(row);
-      const next = pinnedCallsign === key ? "" : key;
-      liveActivityStartFlightRef.current = next && widgetPreferences.liveActivityEnabled ? next : "";
+      const wasPinned = pinnedFlightMatches(pinnedFlightReference, row);
+      const next = wasPinned ? null : createPinnedFlightReference(row);
+      liveActivityStartFlightRef.current = next && widgetPreferences.liveActivityEnabled ? next.id : "";
       if (!next) {
         // Unpinning is an explicit user dismissal. End immediately instead of
         // waiting for the next bounded snapshot write to reconcile ActivityKit.
         await endLocalFlightLiveActivity().catch(() => undefined);
       }
-      setPinnedCallsign(next);
+      setPinnedFlightReference(next);
       setActionRow(null);
       await savePinnedFlight(next);
     },
-    [pinnedCallsign, widgetPreferences.liveActivityEnabled]
+    [pinnedFlightReference, widgetPreferences.liveActivityEnabled]
   );
 
   const pinAndShowOnLockScreen = useCallback(async (row: FidsRow) => {
-    const key = flightPinKey(row);
+    const nextReference = createPinnedFlightReference(row);
+    const key = nextReference.id;
     const nextPreferences = await saveWidgetPreferences({
       ...widgetPreferences,
       liveActivityEnabled: true
     });
     setWidgetPreferences(nextPreferences);
     liveActivityStartFlightRef.current = key;
-    setPinnedCallsign(key);
+    setPinnedFlightReference(nextReference);
     setActionRow(null);
-    await savePinnedFlight(key);
+    await savePinnedFlight(nextReference);
     hapticSuccess();
     // The snapshot writer starts ActivityKit only after the pinned snapshot is
     // safely in the shared app-group container. No extension performs a fetch.
@@ -1682,16 +1732,27 @@ export function AppShell() {
   );
   const widgetRowsPendingAirport =
     widgetAirportChangedBeforeEffect || widgetPendingAirport?.key === widgetAirportKey;
+  const allBoardRows = useMemo(() => {
+    if (isStandalone && standaloneBoardRef.current) {
+      return [
+        ...(standaloneBoardRef.current.departures || []),
+        ...(standaloneBoardRef.current.arrivals || [])
+      ];
+    }
+    const cached = companionBoardRowsRef.current;
+    const combined = [...cached.departures, ...cached.arrivals];
+    return combined.length ? combined : rows;
+  }, [isStandalone, rows]);
   const widgetRowsForPreview = useMemo(
     () => widgetRowsPendingAirport
       ? []
-      : rows.filter((row) => (row.view === "arrivals" ? "arrivals" : "departures") === view),
-    [rows, view, widgetRowsPendingAirport]
+      : allBoardRows,
+    [allBoardRows, widgetRowsPendingAirport]
   );
   const widgetPreview = useMemo(() => {
     const next = deriveWidgetPreviewSnapshot({
       rows: widgetRowsForPreview,
-      pinnedCallsign,
+      pinnedCallsign: pinnedFlightReference,
       airportCode,
       airportName,
       updatedLabel: widgetUpdatedLabel(state?.last_success_utc),
@@ -1715,11 +1776,22 @@ export function AppShell() {
     airportCode,
     airportName,
     pinnedCallsign,
+    pinnedFlightReference,
     widgetRowsForPreview,
     state?.last_success_utc,
     view,
     widgetPreferences
   ]);
+
+  useEffect(() => {
+    if (!pinnedFlightReference || !allBoardRows.length) return;
+    const matched = findPinnedFlight(allBoardRows, pinnedFlightReference);
+    if (!matched) return;
+    const migrated = createPinnedFlightReference(matched);
+    if (pinnedFlightReference.id === migrated.id) return;
+    setPinnedFlightReference(migrated);
+    void savePinnedFlight(migrated);
+  }, [allBoardRows, pinnedFlightReference]);
   const refreshing = Boolean(refreshingByTarget[screen]);
   const visibleError = refreshErrorByTarget[screen] || error;
   const boardError = refreshErrorByTarget.fids || error;
@@ -1735,7 +1807,7 @@ export function AppShell() {
   );
   const standaloneBoardIntervalMs = Math.max(
     60 * 1000,
-    Number(snapshot.standalone_policy?.board_refresh_seconds || 3600) * 1000
+    Number(snapshot.standalone_policy?.board_projection_seconds || 300) * 1000
   );
   const standaloneRadarIntervalMs = Math.max(
     60 * 1000,
@@ -1754,7 +1826,7 @@ export function AppShell() {
   const widgetSnapshotLabel = `Snapshot ${widgetSnapshotStatus.state} · ${widgetSnapshotStatus.detail} · ${widgetAutomaticLabel}`;
   const enrichDetailsFromLan = !isStandalone && Boolean(serverUrl);
   const openFidsDetail = useCallback((callsign: string, row?: FidsRow) => {
-    const normalizedCallsign = callsign || row?.callsign || row?.id || "";
+    const normalizedCallsign = callsign || row?.callsign || row?.flight_number || row?.flight_display || row?.id || "";
     if (!normalizedCallsign) return;
     hapticLight();
     openFlightDetail(
@@ -1766,13 +1838,20 @@ export function AppShell() {
   const openRadarDetail = useCallback((callsign: string, blip?: RadarBlip) => {
     const normalizedCallsign = callsign || blip?.callsign || blip?.flight_number || blip?.display_title || blip?.icao24 || "";
     if (!normalizedCallsign) return;
+    const scheduleRows = isStandalone && standaloneBoardRef.current
+      ? [
+          ...(standaloneBoardRef.current.departures || []),
+          ...(standaloneBoardRef.current.arrivals || [])
+        ]
+      : rows;
+    const scheduleRow = blip ? matchRadarBlipToFidsRows(blip, scheduleRows) : null;
     hapticLight();
     openFlightDetail(
       normalizedCallsign,
-      blip ? radarBlipDetailResponse(blip) : null,
+      blip ? radarBlipDetailResponse(blip, scheduleRow, airportCode) : null,
       { fetch: enrichDetailsFromLan }
     );
-  }, [enrichDetailsFromLan, openFlightDetail]);
+  }, [airportCode, enrichDetailsFromLan, isStandalone, openFlightDetail, rows]);
   const openHistoryDetail = useCallback((callsign: string, row?: HistoryFlightRow) => {
     const normalizedCallsign = callsign || row?.callsign || row?.flight_number || String(row?.id || "");
     if (!normalizedCallsign) return;
@@ -1783,6 +1862,28 @@ export function AppShell() {
       { fetch: enrichDetailsFromLan }
     );
   }, [enrichDetailsFromLan, openFlightDetail]);
+
+  useEffect(() => {
+    if (!pendingExternalFlightPin || !launchHydrated) return;
+    const matched = allBoardRows.find((row) => flightPinKey(row) === pendingExternalFlightPin)
+      || findPinnedFlight(allBoardRows, pinnedFlightReference);
+    if (matched) {
+      setPendingExternalFlightPin("");
+      openFidsDetail(matched.callsign || matched.flight_number || matched.id, matched);
+      return;
+    }
+    if (!dataReady || refreshingByTarget.fids) return;
+    setPendingExternalFlightPin("");
+    setError("Latest details are not available yet. The pinned flight remains on Board when cached information is available.");
+  }, [
+    allBoardRows,
+    dataReady,
+    launchHydrated,
+    openFidsDetail,
+    pendingExternalFlightPin,
+    pinnedFlightReference,
+    refreshingByTarget.fids
+  ]);
 
   useEffect(() => {
     if (!mobileSetupComplete) {
@@ -1820,7 +1921,7 @@ export function AppShell() {
       ? widgetPreview
       : deriveWidgetPreviewSnapshot({
           rows: [],
-          pinnedCallsign: "",
+          pinnedCallsign: null,
           airportCode: "---",
           airportName: "Local Flight Airport",
           updatedLabel: "Setup reset",
@@ -1831,7 +1932,7 @@ export function AppShell() {
       preview: writePreview,
       preferences: widgetPreferences,
       mode: isStandalone ? "standalone" : "lan_companion",
-      stale: !mobileSetupComplete || !connected || Boolean(boardError) || widgetRowsPendingAirport || Boolean(pinnedCallsign && !rows.some((row) => flightPinKey(row) === pinnedCallsign)),
+      stale: !mobileSetupComplete || widgetRowsPendingAirport || Boolean(pinnedCallsign && !widgetPreview.pinnedFlight),
       sourceLabel,
       sourceUpdatedAt: widgetLastSuccess || null,
       staleAfterMs: widgetSnapshotStaleAfterMs(
@@ -1839,8 +1940,10 @@ export function AppShell() {
         cfg?.refresh_seconds
       )
     });
+    const forceWrite = widgetForceWriteHandledRef.current !== widgetForceWriteNonce;
+    widgetForceWriteHandledRef.current = widgetForceWriteNonce;
     let alive = true;
-    void writeWidgetSnapshot(payload, { force: !mobileSetupComplete })
+    void writeWidgetSnapshot(payload, { force: !mobileSetupComplete || forceWrite })
       .then((result) => {
         if (!alive) return;
         if (result.ok) {
@@ -1874,8 +1977,6 @@ export function AppShell() {
       alive = false;
     };
   }, [
-    connected,
-    boardError,
     isStandalone,
     launchHydrated,
     mobileSetupComplete,
@@ -1883,10 +1984,10 @@ export function AppShell() {
     view,
     widgetRowsPendingAirport,
     pinnedCallsign,
-    rows,
     widgetPreferences,
     widgetPreview,
-    widgetSnapshotHydrated
+    widgetSnapshotHydrated,
+    widgetForceWriteNonce
   ]);
 
   useEffect(() => {
@@ -1898,14 +1999,28 @@ export function AppShell() {
         target: screen,
         includeDashboard: true,
         // Companion snapshots can update the Board opportunistically. Standalone
-        // Board traffic remains on its conservative three-hour schedule even
-        // while Radar refreshes more frequently.
+        // re-projects its hour-cached schedule candidates every five minutes
+        // without spending another provider allowance.
         includeBoardSnapshot: !isStandalone,
         background: true
       });
     }, effectiveIntervalMs);
     return () => clearInterval(timer);
   }, [connected, dataReady, isStandalone, refreshScreen, screen, syncIntervalMs]);
+
+  useEffect(() => {
+    if (!dataReady || !isStandalone) return;
+    const prune = () => {
+      const current = standaloneBoardRef.current;
+      if (!current) return;
+      const projected = projectStandaloneBoardLocally(current);
+      standaloneBoardRef.current = projected;
+      setRows(view === "arrivals" ? projected.arrivals : projected.departures);
+    };
+    prune();
+    const timer = setInterval(prune, 60 * 1000);
+    return () => clearInterval(timer);
+  }, [dataReady, isStandalone, view]);
 
   useEffect(() => {
     if (!dataReady || !connected || !isStandalone || screen === "fids") return;

@@ -50,7 +50,7 @@
     ],
     "ios": {
       "bundleIdentifier": "cc.beacontools.localflight",
-      "buildNumber": "9",
+      "buildNumber": "11",
       "icon": {
         "light": "./assets/localflight-ios-light.png",
         "dark": "./assets/localflight-ios-dark.png",
@@ -76,7 +76,7 @@
     },
     "android": {
       "package": "cc.beacontools.localflight",
-      "versionCode": 12,
+      "versionCode": 15,
       "icon": "./assets/localflight-android-legacy.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/localflight-android-foreground.png",

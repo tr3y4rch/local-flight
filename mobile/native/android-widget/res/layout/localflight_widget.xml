@@ -181,27 +181,16 @@
         android:contentDescription="@string/localflight_widget_refresh_description" />
     </LinearLayout>
 
-    <TextView
-      android:layout_width="match_parent"
-      android:layout_height="wrap_content"
-      android:layout_marginTop="5dp"
-      android:fontFamily="@font/space_mono_bold"
-      android:text="@string/localflight_widget_board_columns"
-      android:textColor="@color/localflight_widget_muted"
-      android:textSize="8sp"
-      android:textStyle="bold" />
-
     <View
       android:layout_width="match_parent"
       android:layout_height="1dp"
-      android:layout_marginBottom="2dp"
-      android:layout_marginTop="3dp"
+      android:layout_marginBottom="5dp"
+      android:layout_marginTop="6dp"
       android:background="@color/localflight_widget_separator" />
 
     <TextView android:id="@+id/widget_row_1" style="@style/LocalFlightWidgetRow" />
     <TextView android:id="@+id/widget_row_2" style="@style/LocalFlightWidgetRow" />
     <TextView android:id="@+id/widget_row_3" style="@style/LocalFlightWidgetRow" />
-    <TextView android:id="@+id/widget_row_4" style="@style/LocalFlightWidgetRow" />
 
     <TextView
       android:id="@+id/widget_empty"

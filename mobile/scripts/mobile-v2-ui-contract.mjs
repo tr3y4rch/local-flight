@@ -32,7 +32,7 @@ const companionApi = read("src/api/client.ts");
 for (const tab of ["Board", "Radar", "History", "More"]) {
   assert.ok(navigator.includes(`<Tabs.Screen name="${tab}"`), `missing stable ${tab} tab`);
 }
-for (const route of ["board", "radar", "history", "more", "display", "pairing", "widgets", "widget-refresh"]) {
+for (const route of ["board", "radar", "history", "more", "display", "pairing", "widgets", "widget-refresh", "flight"]) {
   assert.ok(navigator.includes(`"${route}"`) || navigator.includes(`: "${route}"`), `missing ${route} deep-link route`);
 }
 assert.match(navigator, /tabBarPosition: rail \? "left" : "bottom"/);
@@ -47,7 +47,9 @@ assert.match(nativeShortcutHost, /"1" \| "2" \| "3" \| "4" \| "r" \| "f" \| "esc
 assert.match(nativeShortcutHost, /requireNativeViewManager/);
 assert.match(nativeShortcutHost, /Platform\.OS !== "ios" && Platform\.OS !== "android"/);
 assert.match(navigator, /openMobileMorePanel/);
-assert.match(navigator, /action === "pairing" \? "host" : "widgets"/);
+assert.match(navigator, /screen: action === "pairing" \? "More" : "Board"/);
+assert.match(navigator, /minHeight: 66 \+ insets\.bottom/);
+assert.match(navigator, /paddingBottom: Math\.max\(6, insets\.bottom\)/);
 
 for (const column of ["Time", "Flight", "Route", "Status", "Aircraft", "Gate"]) {
   assert.ok(board.includes(`>${column}<`), `wide Board missing ${column} column`);
@@ -124,7 +126,7 @@ assert.match(nativeActivity, /2 \* 60 \* 60/);
 assert.match(nativeActivity, /hadActiveActivity \? await start\(\) : response\(action: "no_activity"\)/);
 assert.match(shell, /includeBoardSnapshot: true/);
 assert.match(shell, /includeBoardSnapshot: !isStandalone/);
-assert.match(shell, /standalone_policy\?\.board_refresh_seconds \|\| 3600/);
+assert.match(shell, /standalone_policy\?\.board_projection_seconds \|\| 300/);
 assert.match(shell, /standalone_policy\?\.radar_refresh_seconds \|\| 180/);
 assert.match(shell, /getStandaloneBoard/);
 assert.match(shell, /foregroundRefreshGenerationByTargetRef/);

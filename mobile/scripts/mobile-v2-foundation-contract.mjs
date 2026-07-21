@@ -17,6 +17,9 @@ const appConfig = JSON.parse(read("app.json"));
 const iosWidget = read("native/ios-widget/SmallWidgetViewV2.swift");
 const androidWidget = read("native/android-widget/LocalFlightWidgetProvider.kt");
 const androidWidgetStrings = read("native/android-widget/res/values/localflight_widget_strings.xml");
+const standaloneApi = read("src/api/standalone.ts");
+const appShell = read("src/app/AppShell.tsx");
+const widgetRefresh = read("src/background/widgetRefresh.ts");
 const userFacingCopy = [
   copy,
   read("src/domain/formatting.ts"),
@@ -176,10 +179,18 @@ assert.equal(
   appConfig.expo.ios.infoPlist.NSLocalNetworkUsageDescription,
   "Local Flight connects to a Local Flight host on the same Wi-Fi."
 );
-requireText(iosWidget, 'Text("PINNED FLIGHT")', "iOS widget terminology");
+requireText(iosWidget, 'Text("Pinned flight")', "iOS widget terminology");
 requireText(androidWidgetStrings, '<string name="localflight_widget_pinned_flight">Pinned flight</string>', "Android widget terminology");
 requireText(androidWidget, "R.string.localflight_widget_pinned_flight", "Android widget resource usage");
 assert.doesNotMatch(userFacingCopy, /\bthis phone\b|phone localhost|fastest and safest/i, "User-facing copy must remain device-neutral and substantiated.");
+assert.match(standaloneApi, /ROUTE_UNAVAILABLE_STATUSES = new Set\(\[404, 405\]\)/);
+assert.match(standaloneApi, /getStandaloneFids\(\s*credentials,\s*"departures",\s*STANDALONE_BOARD_ROWS_PER_DIRECTION\s*\)/);
+assert.match(standaloneApi, /getStandaloneFids\(\s*credentials,\s*"arrivals",\s*STANDALONE_BOARD_ROWS_PER_DIRECTION\s*\)/);
+assert.doesNotMatch(standaloneApi, /Promise\.all\(\[\s*getStandaloneFids/);
+assert.match(standaloneApi, /cache_state: "legacy-fids-compatibility"/);
+assert.match(standaloneApi, /generated_at: ""/);
+assert.match(appShell, /board\.generated_at \|\| current\.state\?\.last_success_utc \|\| ""/);
+assert.match(widgetRefresh, /board\.generated_at \|\| summary\.state\?\.last_success_utc \|\| previous\?\.source\.updatedAt \|\| ""/);
 for (const glossaryTerm of [
   "flight board",
   "Companion",

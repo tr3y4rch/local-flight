@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Tuple
 
-from localflight.core.models import Flight, FlightDirection
+from localflight.core.models import Flight, FlightDirection, FlightStatus, FlightTime
 from localflight.decode.mappings.airlines import format_flight_identifier
 
 
@@ -26,6 +26,12 @@ _REGISTRATION_OPERATOR_HINTS: tuple[tuple[str, frozenset[str]], ...] = (
 
 def _best_time(f: Flight) -> Optional[datetime]:
     return f.times.actual or f.times.estimated or f.times.scheduled
+
+
+def _movement_identity_time(f: Flight) -> Optional[datetime]:
+    # Scheduled time is the stable movement identity. Estimated/actual times
+    # can legitimately differ between codeshare rows while providers settle.
+    return f.times.scheduled or f.times.estimated or f.times.actual
 
 
 def _route_key(f: Flight) -> Tuple[str, str]:
@@ -54,9 +60,10 @@ def _bucket_time(dt: Optional[datetime], minutes: int) -> Optional[datetime]:
 
 
 def _marketing_identifier(f: Flight) -> str:
+    if not f.flight_number:
+        return ""
     return format_flight_identifier(
         flight_number=f.flight_number,
-        callsign=f.callsign,
         airline_iata=f.airline.iata if f.airline else None,
         airline_icao=f.airline.icao if f.airline else None,
     ).strip().upper()
@@ -71,6 +78,10 @@ def _format_codeshare_text(value: str) -> str:
 
 def _compact_identifier(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _is_public_marketed_identifier(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Z0-9]{2,3}0*[0-9]{1,5}[A-Z]?", _compact_identifier(value)))
 
 
 def _provider_codeshare_status(f: Flight) -> str:
@@ -140,6 +151,41 @@ def _provider_main_score(f: Flight) -> int:
     return 1 if primary and marketed and primary == marketed and not (f.sold_as or ()) else 0
 
 
+def _has_public_flight_number(f: Flight) -> bool:
+    return bool(re.fullmatch(r"[A-Z0-9]{2,3}0*[0-9]{1,5}[A-Z]?", _compact_identifier(f.flight_number or "")))
+
+
+def _compatible_shadow_pair(group: list[Flight]) -> bool:
+    """Recognize one provider shadow row without collapsing real simultaneity.
+
+    Some schedule payloads emit the same movement once with its published
+    flight number and once with only an operational callsign. The provider key
+    already binds route and minute; this narrow rule additionally requires one
+    public identity, one callsign-only identity, the same airline, and no
+    conflicting aircraft/location evidence.
+    """
+
+    if len(group) != 2:
+        return False
+    public = [item for item in group if _has_public_flight_number(item)]
+    shadows = [item for item in group if not _has_public_flight_number(item)]
+    if len(public) != 1 or len(shadows) != 1:
+        return False
+    first, second = public[0], shadows[0]
+    first_codes = _flight_airline_codes(first)
+    second_codes = _flight_airline_codes(second)
+    if not first_codes.intersection(second_codes):
+        return False
+    for left, right in (
+        (first.aircraft_registration, second.aircraft_registration),
+        (first.gate or first.stand, second.gate or second.stand),
+        (first.aircraft_type, second.aircraft_type),
+    ):
+        if left and right and _compact_identifier(left) != _compact_identifier(right):
+            return False
+    return True
+
+
 def _completion_score(f: Flight) -> int:
     return sum(
         1
@@ -193,7 +239,7 @@ def _strong_movement_key(f: Flight) -> str:
     aircraft = _compact_identifier(f.aircraft_type or "")
     if not reg and not (gate and aircraft):
         return ""
-    t_bucket = _bucket_time(_best_time(f), 1)
+    t_bucket = _bucket_time(_movement_identity_time(f), 1)
     if not t_bucket:
         return ""
     origin, destination = _route_key(f)
@@ -213,6 +259,8 @@ def _safe_provider_link_keys(items: list[Flight]) -> set[str]:
         operators = [item for item in group if _provider_codeshare_status(item) == "isoperator"]
         marketed = [item for item in group if _provider_codeshare_status(item) == "iscodeshared"]
         if len(operators) == 1 and marketed:
+            safe.add(key)
+        elif _compatible_shadow_pair(group):
             safe.add(key)
 
     strong_groups: dict[str, list[Flight]] = {}
@@ -239,7 +287,7 @@ def _codeshares_for(primary: Flight, items: list[Flight]) -> tuple[str, ...]:
     for existing in [*(primary.sold_as or ()), *(primary.codeshares or ())]:
         text = _format_codeshare_text(str(existing or "").strip())
         compact = _compact_identifier(text)
-        if text and compact and compact not in seen:
+        if text and compact and _is_public_marketed_identifier(text) and compact not in seen:
             seen.add(compact)
             out.append(text)
 
@@ -247,7 +295,7 @@ def _codeshares_for(primary: Flight, items: list[Flight]) -> tuple[str, ...]:
         for candidate in [_marketing_identifier(item), item.marketing_flight_number or "", *(item.sold_as or ()), *(item.codeshares or ())]:
             text = _format_codeshare_text(str(candidate or "").strip())
             compact = _compact_identifier(text)
-            if not text or not compact or compact in seen:
+            if not text or not compact or not _is_public_marketed_identifier(text) or compact in seen:
                 continue
             seen.add(compact)
             out.append(text)
@@ -265,7 +313,7 @@ def _sold_as_for(primary: Flight, items: list[Flight]) -> tuple[str, ...]:
         for candidate in candidates:
             text = _format_codeshare_text(str(candidate or "").strip())
             compact = _compact_identifier(text)
-            if not text or not compact or compact in seen:
+            if not text or not compact or not _is_public_marketed_identifier(text) or compact in seen:
                 continue
             seen.add(compact)
             out.append(text)
@@ -310,7 +358,7 @@ def dedupe_codeshares(
     groups: dict[tuple, list[Flight]] = {}
 
     for f in flights:
-        t_bucket = _bucket_time(_best_time(f), time_bucket_minutes)
+        t_bucket = _bucket_time(_movement_identity_time(f), time_bucket_minutes)
         o, d = _route_key(f)
         key = (f.direction.value, o, d, t_bucket)
         groups.setdefault(key, []).append(f)
@@ -341,11 +389,45 @@ def dedupe_codeshares(
                 )
 
             primary = sorted(linked_items, key=score, reverse=True)[0]
+            ranked = sorted(linked_items, key=score, reverse=True)
+
+            def first_value(name: str):
+                return next((getattr(item, name) for item in ranked if getattr(item, name)), None)
+
+            times = FlightTime(
+                scheduled=next((item.times.scheduled for item in ranked if item.times.scheduled), None),
+                estimated=next((item.times.estimated for item in ranked if item.times.estimated), None),
+                actual=next((item.times.actual for item in ranked if item.times.actual), None),
+            )
+            status = primary.status
+            if status == FlightStatus.UNKNOWN:
+                status = next((item.status for item in ranked if item.status != FlightStatus.UNKNOWN), status)
             out.append(
                 replace(
                     primary,
                     codeshares=_codeshares_for(primary, linked_items),
                     sold_as=_sold_as_for(primary, linked_items),
+                    origin=primary.origin or first_value("origin"),
+                    destination=primary.destination or first_value("destination"),
+                    aircraft_type=primary.aircraft_type or first_value("aircraft_type"),
+                    aircraft_type_full=primary.aircraft_type_full or first_value("aircraft_type_full"),
+                    aircraft_registration=primary.aircraft_registration or first_value("aircraft_registration"),
+                    gate=primary.gate or first_value("gate"),
+                    terminal=primary.terminal or first_value("terminal"),
+                    stand=primary.stand or first_value("stand"),
+                    gate_source=primary.gate_source or first_value("gate_source"),
+                    terminal_source=primary.terminal_source or first_value("terminal_source"),
+                    gate_confidence=primary.gate_confidence or first_value("gate_confidence"),
+                    terminal_confidence=primary.terminal_confidence or first_value("terminal_confidence"),
+                    times=times,
+                    delay_minutes=primary.delay_minutes if primary.delay_minutes is not None else next(
+                        (item.delay_minutes for item in ranked if item.delay_minutes is not None),
+                        None,
+                    ),
+                    status=status,
+                    position=primary.position or first_value("position"),
+                    enriched_by=primary.enriched_by or first_value("enriched_by"),
+                    updated_at=primary.updated_at or first_value("updated_at"),
                 )
             )
 

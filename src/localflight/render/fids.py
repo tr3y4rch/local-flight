@@ -5,7 +5,7 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from localflight.core.airports import lookup_airport
-from localflight.core.models import Flight
+from localflight.core.models import Flight, FlightStatus
 from localflight.display.fids_from_flights import FidsView, flight_to_fids_row
 from localflight.storage.config import (
     DEFAULT_DISPLAY_GRACE_MINUTES,
@@ -49,7 +49,11 @@ def _display_window(cfg: Any) -> tuple[int, int]:
 
 
 def _best_time_for_display(flight: Flight) -> datetime | None:
-    value = flight.times.actual or flight.times.estimated or flight.times.scheduled
+    value = (
+        flight.times.scheduled
+        if flight.status == FlightStatus.CANCELLED
+        else flight.times.actual or flight.times.estimated or flight.times.scheduled
+    )
     if value is None:
         return None
     if value.tzinfo is None:
@@ -84,7 +88,11 @@ def _filter_for_display(flights: list[Flight], now: datetime, *, cfg: Any) -> li
             result.append(f)
             continue
 
-        t = f.times.actual or f.times.estimated or f.times.scheduled
+        t = (
+            f.times.scheduled
+            if f.status == FlightStatus.CANCELLED
+            else f.times.actual or f.times.estimated or f.times.scheduled
+        )
         if t is None:
             result.append(f)
             continue

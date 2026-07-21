@@ -321,7 +321,7 @@ module.exports = { openDatabaseAsync };
   assert.equal(snapshot.schemaVersion, 1);
   assert.equal(snapshot.small.flight.flightDisplay, "LX 2800");
   assert.equal(snapshot.liveActivity.stale, false);
-  assert.equal(snapshot.medium.rows.length, 4);
+  assert.equal(snapshot.medium.rows.length, 3);
   assert.equal(snapshot.medium.rows[0].pinned, true);
 
   const snapshot2Rows = widgets.buildWidgetExchangeSnapshot({
@@ -332,7 +332,7 @@ module.exports = { openDatabaseAsync };
   });
   assert.equal(snapshot2Rows.mode, "standalone");
   assert.equal(snapshot2Rows.medium.rowCount, 2);
-  assert.equal(snapshot2Rows.medium.rows.length, 3);
+  assert.equal(snapshot2Rows.medium.rows.length, 2);
 
   const missingPinPreview = widgets.deriveWidgetPreviewSnapshot({
     rows,
@@ -400,7 +400,7 @@ module.exports = { openDatabaseAsync };
   assert.equal(normalized.small.flight, null);
   assert.equal(normalized.liveActivity.flight, null);
   assert.equal(normalized.liveActivity.stale, true);
-  assert.equal(normalized.medium.rows.length, 4);
+  assert.equal(normalized.medium.rows.length, 3);
   assert.equal(normalized.medium.rows[0].statusTone, "scheduled");
   assert.equal(normalized.medium.rows[0].direction, "dep");
   assert.equal(normalized.medium.rows[0].flightDisplay.length, 24);
@@ -648,7 +648,8 @@ module.exports = { openDatabaseAsync };
 
   const appScreenSource = readFileSync(path.join(mobileRoot, "src/screens/AppScreens.tsx"), "utf8");
   const backgroundRefreshSource = readFileSync(path.join(mobileRoot, "src/background/widgetRefresh.ts"), "utf8");
-  assert.match(backgroundRefreshSource, /STANDALONE_FIDS_MINIMUM_REFRESH_MS/);
+  assert.match(backgroundRefreshSource, /STANDALONE_BOARD_PROJECTION_MINIMUM_MS = 5 \* 60 \* 1000/);
+  assert.match(backgroundRefreshSource, /loadPinnedFlightReference/);
   assert.match(backgroundRefreshSource, /configureWidgetBackgroundRefresh/);
   assert.match(backgroundRefreshSource, /getStandaloneBoard/);
   assert.match(backgroundRefreshSource, /board\.generated_at/);

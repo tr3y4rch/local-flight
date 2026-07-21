@@ -226,7 +226,7 @@ lf update
 
 ## Mobile App
 
-The mobile app is aligned to `0.5.2` using iOS build 9 and Android versionCode 12 for TestFlight and Google Play internal testing. Public availability is published at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development.
+The mobile app is aligned to `0.5.2` using iOS build 11 and Android versionCode 15 for testing. Public availability is published at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development.
 
 Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or Android device.
 

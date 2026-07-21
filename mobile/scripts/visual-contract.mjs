@@ -9,6 +9,8 @@ const screensSource = fs.readFileSync(path.join(mobileRoot, "src/screens/AppScre
 const appShellSource = fs.readFileSync(path.join(mobileRoot, "src/app/AppShell.tsx"), "utf8");
 const styleBridgeSource = fs.readFileSync(path.join(mobileRoot, "src/theme/styleBridge.ts"), "utf8");
 const flightDetailHookSource = fs.readFileSync(path.join(mobileRoot, "src/hooks/useFlightDetail.ts"), "utf8");
+const flightDomainSource = fs.readFileSync(path.join(mobileRoot, "src/domain/flights.ts"), "utf8");
+const boardModelSource = fs.readFileSync(path.join(mobileRoot, "src/v2/boardModel.ts"), "utf8");
 
 function sourceSection(source, startMarker, endMarker, label) {
   const start = source.indexOf(startMarker);
@@ -114,6 +116,21 @@ assert.match(
   flightDetailHookSource,
   /preserveAvailableDetail/,
   "Empty enrichment responses must preserve usable seeded flight details."
+);
+assert.match(
+  flightDomainSource,
+  /origin_iata: row\.origin_iata \|\| origin \|\| null/,
+  "Standalone Board details must retain supplied origin information."
+);
+assert.match(
+  flightDomainSource,
+  /sched_time: row\.sched_time \|\| row\.time_primary \|\| row\.display_time \|\| null/,
+  "Standalone Board details must retain supplied schedule timing."
+);
+assert.match(
+  boardModelSource,
+  /row\.callsign\) \|\| clean\(row\.flight_number\) \|\| clean\(row\.flight_display\)/,
+  "Board rows without a canonical callsign must still open schedule details."
 );
 
 console.log("Mobile visual contract checks passed.");

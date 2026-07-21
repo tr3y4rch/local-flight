@@ -21,6 +21,9 @@ const CLIENT_KIND = "mobile_standalone";
 const AIRPORT_SEARCH_QUERY_LIMIT = 20;
 const RELAY_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_RELAY_FALLBACK_URL = "https://localflight-community-relay.fly.dev";
+const STANDALONE_BOARD_ROWS_PER_DIRECTION = 50;
+const STANDALONE_BOARD_REFRESH_SECONDS = 3_600;
+const ROUTE_UNAVAILABLE_STATUSES = new Set([404, 405]);
 
 export type StandaloneCredentials = {
   relayUrl?: string;
@@ -75,6 +78,11 @@ async function fetchRelayJson<T>(
   for (const base of relayBases(relayUrl)) {
     try {
       response = await fetchRelayResponse(base, path, init);
+      // The canonical relay and its official origin can be deployed a few
+      // minutes apart. A missing route is a compatibility result, not an
+      // authorization failure, so allow the other public entry point to serve
+      // it. Never retry authorization or allowance responses on another base.
+      if (ROUTE_UNAVAILABLE_STATUSES.has(response.status)) continue;
       break;
     } catch (error) {
       lastError = error;
@@ -210,7 +218,42 @@ export async function getStandaloneBoard(
   credentials: StandaloneCredentials
 ): Promise<MobileBoardResponse> {
   const params = await standaloneParams(credentials);
-  return fetchRelayJson<MobileBoardResponse>(credentials.relayUrl, `/v1/mobile/board?${params}`);
+  try {
+    return await fetchRelayJson<MobileBoardResponse>(credentials.relayUrl, `/v1/mobile/board?${params}`);
+  } catch (error) {
+    if (!(error instanceof LocalFlightApiError) || !ROUTE_UNAVAILABLE_STATUSES.has(error.status || 0)) {
+      throw error;
+    }
+
+    // Mobile V2 introduced one combined Board response so both directions can
+    // share a metered schedule snapshot. During a staged relay rollout, keep
+    // released relays usable through the compatible FIDS endpoint instead of
+    // presenting an empty Board. The server still owns caching and freshness;
+    // an empty generated_at tells callers to retain summary/source freshness.
+    // Keep these reads sequential. Older relays can reject one of two
+    // simultaneous cache-miss schedule requests while the shared upstream
+    // snapshot is being prepared. The first direction establishes that cache;
+    // the second direction then reads the same snapshot without racing it.
+    const departures = await getStandaloneFids(
+      credentials,
+      "departures",
+      STANDALONE_BOARD_ROWS_PER_DIRECTION
+    );
+    const arrivals = await getStandaloneFids(
+      credentials,
+      "arrivals",
+      STANDALONE_BOARD_ROWS_PER_DIRECTION
+    );
+    return {
+      schema_version: "mobile-board-v2",
+      generated_at: "",
+      cache_state: "legacy-fids-compatibility",
+      refresh_after_s: STANDALONE_BOARD_REFRESH_SECONDS,
+      rows_per_direction: STANDALONE_BOARD_ROWS_PER_DIRECTION,
+      departures,
+      arrivals
+    };
+  }
 }
 
 export async function getStandaloneRadar(

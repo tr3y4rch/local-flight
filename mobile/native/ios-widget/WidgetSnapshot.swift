@@ -5,7 +5,7 @@ enum LocalFlightWidgetConstants {
   static let snapshotFilename = "localflight-widget-snapshot.json"
   static let schemaVersion = 1
   static let maxSnapshotBytes = 64 * 1024
-  static let maxMediumRowsWithPinned = 4
+  static let maxMediumRowsWithPinned = 3
   static let statusTones: Set<String> = ["scheduled", "departed", "boarding", "delayed", "cancelled"]
 }
 
@@ -178,7 +178,7 @@ private extension LocalFlightWidgetSnapshot {
     let pinnedFlight = small.source == "pinned" ? small.flight?.sanitized(pinned: true) : nil
     let rows = medium.rows
       .compactMap { flight in flight.sanitized(pinned: flight.pinned == true) }
-      .prefix(min(LocalFlightWidgetConstants.maxMediumRowsWithPinned, rowCount + 1))
+      .prefix(min(LocalFlightWidgetConstants.maxMediumRowsWithPinned, rowCount))
     let staleSnapshot = stale || isExpired
     let sanitizedPreferences = LocalFlightWidgetPreferences(
       mediumRowCount: rowCount,

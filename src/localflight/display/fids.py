@@ -72,6 +72,21 @@ class FIDSRow:
     ground_speed_kt: Optional[int] = None
     squawk: str = ""
     transponder: str = ""
+    # Additive schedule-detail fields used by bounded clients such as Mobile
+    # Standalone. They are sourced from the same normalized movement as the
+    # Board row and never imply a separate live-detail lookup.
+    origin_iata: str = ""
+    origin_icao: str = ""
+    origin_name: str = ""
+    dest_iata: str = ""
+    dest_icao: str = ""
+    dest_name: str = ""
+    sched_time: str = ""
+    est_time: str = ""
+    actual_time: str = ""
+    updated_at: str = ""
+    aircraft_registration: str = ""
+    icao24: str = ""
 
 
 def _parse_dt(value: Optional[str]) -> Optional[datetime]:

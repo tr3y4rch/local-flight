@@ -1,6 +1,9 @@
 import type { FidsRow, FlightView } from "../api/types";
+import { dedupeBoardRows } from "../domain/boardDedupe";
 import { flightPinKey, routeMeta, routeName, statusTone } from "../domain/flights";
 import type { StatusTone } from "../domain/types";
+
+export { dedupeBoardRows } from "../domain/boardDedupe";
 
 export type BoardSourceKind = "airline" | "vatsim";
 
@@ -71,7 +74,7 @@ export function boardRowViewModel(
 
   return {
     id: instanceId,
-    callsign: clean(row.callsign) || clean(row.id),
+    callsign: clean(row.callsign) || clean(row.flight_number) || clean(row.flight_display) || clean(row.id),
     view: rowView(row),
     time: clean(row.time_primary) || clean(row.display_time) || "--:--",
     timeDetail: clean(row.time_delta_text) || clean(row.time_delta_label),
@@ -93,7 +96,7 @@ export function boardRowViewModel(
 
 export function boardRowsViewModel(rows: FidsRow[], pinnedCallsign = ""): BoardRowViewModel[] {
   const occurrenceByIdentity = new Map<string, number>();
-  const mapped = rows.map((row) => {
+  const mapped = dedupeBoardRows(rows).map((row) => {
     const identity = boardRowIdentity(row);
     const occurrence = occurrenceByIdentity.get(identity) || 0;
     occurrenceByIdentity.set(identity, occurrence + 1);

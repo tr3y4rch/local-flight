@@ -14,14 +14,14 @@ import {
   loadCachedLanAirport,
   loadCachedLanConfig,
   loadMobileSetupState,
-  loadPinnedFlight,
+  loadPinnedFlightReference,
   loadWidgetPreferences
 } from "../storage/settings";
 import { readWidgetSnapshot, writeWidgetSnapshot } from "../storage/widgetSnapshot";
 
 export const LOCAL_FLIGHT_WIDGET_BACKGROUND_TASK = "localflight-widget-background-refresh";
 export const WIDGET_BACKGROUND_MINIMUM_INTERVAL_MINUTES = 30;
-const STANDALONE_FIDS_MINIMUM_REFRESH_MS = 60 * 60 * 1000;
+const STANDALONE_BOARD_PROJECTION_MINIMUM_MS = 5 * 60 * 1000;
 
 function updatedLabel(value?: string | null): string {
   const parsed = Date.parse(String(value || ""));
@@ -44,18 +44,18 @@ export async function refreshWidgetSnapshotInBackground(): Promise<boolean> {
   const [setup, preferences, pinnedCallsign, previous] = await Promise.all([
     loadMobileSetupState(),
     loadWidgetPreferences(),
-    loadPinnedFlight(),
+    loadPinnedFlightReference(),
     readWidgetSnapshot()
   ]);
   if (!preferences.automaticRefresh || !isMobileSetupComplete(setup)) return true;
 
   const view: FlightView = previous?.airport.view === "arrivals" ? "arrivals" : "departures";
   if (setup.mode === "standalone") {
-    const previousSourceTime = Date.parse(previous?.source.updatedAt || "");
+    const previousProjectionTime = Date.parse(previous?.generatedAt || "");
     if (
       previous?.mode === "standalone" &&
-      Number.isFinite(previousSourceTime) &&
-      Date.now() - previousSourceTime < STANDALONE_FIDS_MINIMUM_REFRESH_MS
+      Number.isFinite(previousProjectionTime) &&
+      Date.now() - previousProjectionTime < STANDALONE_BOARD_PROJECTION_MINIMUM_MS
     ) {
       return true;
     }
@@ -70,8 +70,8 @@ export async function refreshWidgetSnapshotInBackground(): Promise<boolean> {
       getStandaloneSummary(credentials),
       getStandaloneBoard(credentials)
     ]);
-    const rows = view === "arrivals" ? board.arrivals : board.departures;
-    const sourceUpdatedAt = board.generated_at;
+    const rows = [...board.departures, ...board.arrivals];
+    const sourceUpdatedAt = board.generated_at || summary.state?.last_success_utc || previous?.source.updatedAt || "";
     const preview = deriveWidgetPreviewSnapshot({
       rows,
       pinnedCallsign,
@@ -85,7 +85,9 @@ export async function refreshWidgetSnapshotInBackground(): Promise<boolean> {
       preview,
       preferences,
       mode: "standalone",
-      stale: summary.state?.ok === false,
+      // A successful bounded snapshot remains useful while offline. Freshness
+      // is derived from its source timestamp/expiry, not current connectivity.
+      stale: false,
       sourceLabel: summary.state?.source_name || summary.config?.source || "relay",
       sourceUpdatedAt,
       staleAfterMs: widgetSnapshotStaleAfterMs("standalone")
@@ -95,14 +97,16 @@ export async function refreshWidgetSnapshotInBackground(): Promise<boolean> {
 
   const serverUrl = normalizeServerUrl(setup.serverUrl);
   if (!serverUrl) return false;
-  const [summary, rows, cachedConfig, cachedAirport] = await Promise.all([
+  const [summary, departures, arrivals, cachedConfig, cachedAirport] = await Promise.all([
     getMobileSummary(serverUrl),
-    getFids(serverUrl, view),
+    getFids(serverUrl, "departures"),
+    getFids(serverUrl, "arrivals"),
     loadCachedLanConfig(),
     loadCachedLanAirport()
   ]);
   const config = summary.config || cachedConfig;
   if (!config) return false;
+  const rows = [...departures, ...arrivals];
   const sourceUpdatedAt = summary.state?.last_success_utc || new Date().toISOString();
   const preview = deriveWidgetPreviewSnapshot({
     rows,
@@ -117,7 +121,7 @@ export async function refreshWidgetSnapshotInBackground(): Promise<boolean> {
     preview,
     preferences,
     mode: "lan_companion",
-    stale: summary.state?.ok === false,
+    stale: false,
     sourceLabel: summary.state?.source_name || config.source || "host",
     sourceUpdatedAt,
     staleAfterMs: widgetSnapshotStaleAfterMs("lan_companion", config.refresh_seconds)

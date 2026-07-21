@@ -1,6 +1,11 @@
 import * as SecureStore from "expo-secure-store";
 import type { AirportResolved, AppConfig } from "../api/types";
 import {
+  normalizePinnedFlightReference,
+  pinnedFlightId,
+  type PinnedFlightReference
+} from "../domain/pinnedFlight";
+import {
   DEFAULT_CONTRAST_PREFERENCE,
   DEFAULT_THEME_PREFERENCE,
   resolveMobileThemeMode,
@@ -288,15 +293,30 @@ export async function saveStandaloneAirport(value: StandaloneAirport | null): Pr
 }
 
 export async function loadPinnedFlight(): Promise<string> {
-  return (await SecureStore.getItemAsync(PINNED_FLIGHT_KEY)) || "";
+  return pinnedFlightId(await loadPinnedFlightReference());
 }
 
-export async function savePinnedFlight(value: string): Promise<void> {
+export async function loadPinnedFlightReference(): Promise<PinnedFlightReference | null> {
+  const raw = await SecureStore.getItemAsync(PINNED_FLIGHT_KEY);
+  if (!raw) return null;
+  try {
+    return normalizePinnedFlightReference(JSON.parse(raw));
+  } catch {
+    return normalizePinnedFlightReference(raw);
+  }
+}
+
+export async function savePinnedFlight(value: string | PinnedFlightReference | null): Promise<void> {
   if (!value) {
     await SecureStore.deleteItemAsync(PINNED_FLIGHT_KEY);
     return;
   }
-  await SecureStore.setItemAsync(PINNED_FLIGHT_KEY, value);
+  const normalized = normalizePinnedFlightReference(value);
+  if (!normalized) {
+    await SecureStore.deleteItemAsync(PINNED_FLIGHT_KEY);
+    return;
+  }
+  await SecureStore.setItemAsync(PINNED_FLIGHT_KEY, JSON.stringify(normalized));
 }
 
 export async function loadProfiles(): Promise<ConfigProfile[]> {

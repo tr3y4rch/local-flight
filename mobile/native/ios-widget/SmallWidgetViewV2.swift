@@ -58,7 +58,7 @@ struct LFSmallWidgetViewV2: View {
         .font(LocalFlightWidgetFont.boardBold(size: 12))
         .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
       Text(snapshot.airport.view == "arrivals" ? "ARRIVALS" : "DEPARTURES")
-        .font(LocalFlightWidgetFont.boardBold(size: 7))
+        .font(LocalFlightWidgetFont.uiBold(size: 8))
         .lineLimit(1)
         .minimumScaleFactor(0.75)
         .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
@@ -68,8 +68,8 @@ struct LFSmallWidgetViewV2: View {
           ? LFWidgetDesignV2.statusColor(tone: "delayed", scheme: scheme)
           : LFWidgetDesignV2.statusColor(tone: "boarding", scheme: scheme))
         .frame(width: 5, height: 5)
-      Text(snapshot.stale ? "STALE" : "READY")
-        .font(LocalFlightWidgetFont.boardBold(size: 7))
+      Text(snapshot.stale ? "Cached" : "Updated")
+        .font(LocalFlightWidgetFont.uiBold(size: 8))
         .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
     }
   }
@@ -80,12 +80,12 @@ struct LFSmallWidgetViewV2: View {
       HStack(spacing: 5) {
         Image(systemName: "pin.fill")
           .font(.system(size: 7, weight: .bold))
-        Text("PINNED FLIGHT")
-          .font(LocalFlightWidgetFont.boardBold(size: 7))
+        Text("Pinned flight")
+          .font(LocalFlightWidgetFont.uiBold(size: 9))
         Spacer(minLength: 4)
         LFStatusCapsuleV2(
-          label: snapshot.stale ? "STALE" : flight.statusDisplay,
-          tone: snapshot.stale ? "delayed" : flight.statusTone,
+          label: flight.statusDisplay,
+          tone: flight.statusTone,
           scheme: scheme
         )
       }
@@ -150,8 +150,8 @@ struct LFSmallWidgetViewV2: View {
           .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
       }
       Spacer(minLength: 4)
-      Text(snapshot.source.lastUpdatedLabel.uppercased())
-        .font(LocalFlightWidgetFont.boardBold(size: 7))
+      Text(snapshot.stale ? "Cached · \(snapshot.source.lastUpdatedLabel)" : snapshot.source.lastUpdatedLabel)
+        .font(LocalFlightWidgetFont.ui(size: 8))
         .lineLimit(1)
         .minimumScaleFactor(0.68)
         .foregroundStyle(LFWidgetDesignV2.textDim(scheme))

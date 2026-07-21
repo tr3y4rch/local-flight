@@ -3,6 +3,7 @@ export type HistoryDirection = "both" | "dep" | "arr";
 
 export type StandalonePolicy = {
   board_refresh_seconds: number;
+  board_projection_seconds?: number;
   radar_refresh_seconds: number;
   rows_per_direction: number;
   display_page_seconds: number;
@@ -307,6 +308,8 @@ export type Budget = {
 
 export type Metar = {
   raw_text?: string;
+  raw_ob?: string;
+  rawOb?: string;
   decoded_summary?: string;
   flight_cat?: string;
   flight_cat_color?: string;
@@ -318,12 +321,26 @@ export type Metar = {
   wind?: string;
   wind_display?: string;
   wind_dir_deg?: number | null;
+  wind_dir?: number | string | null;
+  windDir?: number | string | null;
+  wdir?: number | string | null;
   wind_speed_kt?: number | null;
+  wind_speed?: number | string | null;
+  windSpeed?: number | string | null;
+  wspd?: number | string | null;
   wind_gust_kt?: number | null;
+  wind_gust?: number | string | null;
+  windGust?: number | string | null;
+  wgst?: number | string | null;
   visibility_m?: number | null;
   visibility_sm?: number | null;
+  visibility?: number | string | null;
+  visibilitySm?: number | string | null;
+  visib?: number | string | null;
   ceiling_ft?: number | null;
   altimeter_hpa?: number | null;
+  altim?: number | string | null;
+  altimeter?: number | string | null;
   qnh_hpa?: number;
   wx_string?: string;
   clouds?: Array<Record<string, unknown>>;
@@ -568,6 +585,18 @@ export type FidsRow = {
   ground_speed_kt?: number | null;
   squawk?: string | null;
   transponder?: string | null;
+  origin_iata?: string | null;
+  origin_icao?: string | null;
+  origin_name?: string | null;
+  dest_iata?: string | null;
+  dest_icao?: string | null;
+  dest_name?: string | null;
+  sched_time?: string | null;
+  est_time?: string | null;
+  actual_time?: string | null;
+  updated_at?: string | null;
+  aircraft_registration?: string | null;
+  icao24?: string | null;
 };
 
 export type FlightDetail = {

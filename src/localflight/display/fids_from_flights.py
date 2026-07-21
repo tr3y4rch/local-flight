@@ -43,6 +43,10 @@ def _best_time(f: Flight) -> Optional[datetime]:
     return f.times.actual or f.times.estimated or f.times.scheduled
 
 
+def _iso_time(value: Optional[datetime]) -> str:
+    return value.isoformat() if value is not None else ""
+
+
 def _route_display_from_code(code: str) -> str:
     c = (code or "").strip().upper()
     if not c:
@@ -310,4 +314,16 @@ def flight_to_fids_row(
         ground_speed_kt=f.speed_kts(),
         squawk=squawk,
         transponder=squawk,
+        origin_iata=(f.origin.iata or "") if f.origin else "",
+        origin_icao=(f.origin.icao or "") if f.origin else "",
+        origin_name=(f.origin.name or "") if f.origin else "",
+        dest_iata=(f.destination.iata or "") if f.destination else "",
+        dest_icao=(f.destination.icao or "") if f.destination else "",
+        dest_name=(f.destination.name or "") if f.destination else "",
+        sched_time=_iso_time(f.times.scheduled),
+        est_time=_iso_time(f.times.estimated),
+        actual_time=_iso_time(f.times.actual),
+        updated_at=_iso_time(f.updated_at),
+        aircraft_registration="" if is_virtual else (f.aircraft_registration or ""),
+        icao24="" if is_virtual else ((f.position.icao24 or "") if f.position else ""),
     )

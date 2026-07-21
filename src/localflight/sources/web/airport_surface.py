@@ -18,6 +18,8 @@ AIRPORT_SURFACE_ESTIMATED_PROVIDER = "localflight-estimated"
 AIRPORT_SURFACE_ESTIMATED_ATTRIBUTION = "Estimated airport surface"
 DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 MAX_OVERPASS_RESPONSE_BYTES = 16 * 1024 * 1024
+MAX_SURFACE_FEATURES = 450
+SURFACE_SELECTION_VERSION = 2
 
 
 class OverpassPayloadTooLarge(ValueError):
@@ -64,6 +66,7 @@ _AEROWAY_KIND = {
 _BUILDING_TAGS = {"terminal", "hangar", "transportation", "airport"}
 _KIND_ORDER = {"boundary": 0, "apron": 1, "terminal": 2, "building": 3, "taxiway": 4, "runway": 5}
 _POLYGON_KINDS = {"boundary", "apron", "terminal", "building"}
+_SELECTION_PRIORITY = {"runway": 0, "taxiway": 1, "apron": 2, "terminal": 3, "building": 4, "boundary": 5}
 
 
 def _clean_code(value: str | None) -> str:
@@ -211,14 +214,38 @@ def normalize_overpass_surface(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 features.append(relation_feature)
                 seen.add(relation_feature["id"])
 
-    features.sort(
+    return select_surface_features(features)
+
+
+def select_surface_features(
+    features: Iterable[dict[str, Any]],
+    *,
+    limit: int = MAX_SURFACE_FEATURES,
+) -> list[dict[str, Any]]:
+    """Keep operational airport geometry when a large OSM result is bounded.
+
+    Surface features are painted in background-to-foreground order, but using
+    that order for truncation allowed large terminal/building collections to
+    evict runways and taxiways. Select operational geometry first, then restore
+    paint order for deterministic clients.
+    """
+    rows = [dict(item) for item in features if isinstance(item, dict)]
+    rows.sort(
+        key=lambda item: (
+            _SELECTION_PRIORITY.get(str(item.get("kind") or "").lower(), 99),
+            str(item.get("label") or ""),
+            str(item.get("id") or ""),
+        )
+    )
+    selected = rows[: max(0, int(limit))]
+    selected.sort(
         key=lambda item: (
             _KIND_ORDER.get(str(item.get("kind")), 99),
             str(item.get("label") or ""),
             str(item.get("id") or ""),
         )
     )
-    return features[:450]
+    return selected
 
 
 def build_surface_payload(

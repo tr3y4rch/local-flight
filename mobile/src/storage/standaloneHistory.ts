@@ -484,7 +484,7 @@ function rowToInsert(airport: StandaloneAirport, row: FidsRow, snapshotTs: strin
     airportIata: airportDisplayCode(airport),
     view,
     callsign,
-    flightNumber: row.flight_number || row.flight_display || null,
+    flightNumber: row.flight_number || null,
     airlineIata: row.airline_iata || null,
     routeCode: row.route_code || null,
     status: row.status_display || row.status_kind || "scheduled",

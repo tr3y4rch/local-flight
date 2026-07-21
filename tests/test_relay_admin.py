@@ -3983,6 +3983,11 @@ def test_mobile_standalone_board_returns_fifty_each_direction_from_one_metered_s
     assert len(payload["departures"]) == 50
     assert len(payload["arrivals"]) == 50
     assert len({row["callsign"] for row in payload["departures"]}) == 50
+    first_departure = payload["departures"][0]
+    assert first_departure["origin_iata"] == "ZRH"
+    assert first_departure["dest_iata"]
+    assert first_departure["sched_time"]
+    assert "est_time" in first_departure
     assert second.status_code == 200
     assert second.headers["x-lf-mobile-standalone-cache"] == "hit"
     assert upstream_calls == 1
@@ -3993,6 +3998,63 @@ def test_mobile_standalone_board_returns_fifty_each_direction_from_one_metered_s
     ).fetchone()["calls"]
     conn.close()
     assert int(access_count) == 1
+
+
+def test_mobile_board_reprojects_cached_candidates_as_movements_age_out() -> None:
+    reference = datetime(2026, 7, 21, 20, 30, tzinfo=timezone.utc)
+    records: list[dict[str, object]] = []
+    for index in range(51):
+        scheduled = reference + timedelta(minutes=index)
+        records.append({
+            "callsign": f"TSC{100 + index}",
+            "flight_number": f"TS{100 + index}",
+            "direction": "DEP",
+            "status": "scheduled",
+            "scheduled": scheduled.isoformat(),
+            "estimated": scheduled.isoformat(),
+            "actual": None,
+            "airline_name": "Air Transat",
+            "airline_iata": "TS",
+            "airline_icao": "TSC",
+            "origin_iata": "ZRH",
+            "origin_icao": "LSZH",
+            "destination_iata": "YUL",
+            "destination_icao": "CYUL",
+            "provider_movement_key": f"candidate:{index}",
+        })
+    records[0].update({
+        "status": "departed",
+        "scheduled": (reference - timedelta(minutes=20)).isoformat(),
+        "estimated": (reference - timedelta(minutes=16)).isoformat(),
+        "actual": (reference - timedelta(minutes=14)).isoformat(),
+    })
+    payload = {
+        "generated_at": reference.isoformat(),
+        "provider": "aviationstack",
+        "records": records,
+    }
+    airport = {"iata": "ZRH", "icao": "LSZH", "timezone": "Europe/Zurich"}
+
+    first = relay_main._mobile_fids_rows_from_schedule_payload(
+        payload,
+        airport=airport,
+        view="departures",
+        limit=50,
+        reference_now=reference,
+    )
+    projected = relay_main._mobile_fids_rows_from_schedule_payload(
+        payload,
+        airport=airport,
+        view="departures",
+        limit=50,
+        reference_now=reference + timedelta(minutes=2),
+    )
+
+    assert len(first) == 50
+    assert len(projected) == 50
+    assert "TSC100" in {row["callsign"] for row in first}
+    assert "TSC100" not in {row["callsign"] for row in projected}
+    assert "TSC150" in {row["callsign"] for row in projected}
 
 
 def test_mobile_standalone_rejects_non_uuid_install_ids(tmp_path: Path, monkeypatch) -> None:

@@ -18,6 +18,7 @@ import {
   type NativeBottomTabIcon
 } from "@react-navigation/bottom-tabs/unstable";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ClientNotice } from "../api/types";
 import { accessibleButton, useReducedMotionPreference } from "../accessibility/mobileA11y";
@@ -50,6 +51,7 @@ export type MobileRootStackParamList = {
   Pairing: undefined;
   Widgets: undefined;
   WidgetRefresh: undefined;
+  Flight: { pin?: string; source?: string } | undefined;
 };
 
 const Tabs = createBottomTabNavigator<MobileTabParamList>();
@@ -97,7 +99,8 @@ const linking: LinkingOptions<MobileRootStackParamList> = {
       Display: "display",
       Pairing: { path: "pairing", alias: ["pair"] },
       Widgets: "widgets",
-      WidgetRefresh: { path: "widget-refresh", alias: ["refresh-widget"] }
+      WidgetRefresh: { path: "widget-refresh", alias: ["refresh-widget"] },
+      Flight: "flight"
     }
   }
 };
@@ -251,11 +254,8 @@ function DeepLinkActionRoute({
       routes: [{
         name: "Main",
         params: {
-          screen: "More",
-          params: {
-            panel: action === "pairing" ? "host" : "widgets",
-            requestKey
-          }
+          screen: action === "pairing" ? "More" : "Board",
+          params: action === "pairing" ? { panel: "host", requestKey } : undefined
         }
       }]
     }));
@@ -367,6 +367,7 @@ function AdaptiveTabs({
 }) {
   const { appearance } = useMobileTheme();
   const layout = useResponsiveLayout();
+  const insets = useSafeAreaInsets();
   if (nativeNavigation.usesNativeLiquidGlassTabs) {
     return <LiquidGlassTabs more={more} dismissRequestKey={dismissRequestKey} />;
   }
@@ -396,11 +397,12 @@ function AdaptiveTabs({
               paddingVertical: 12
             }
           : {
-              minHeight: 66,
+              minHeight: 66 + insets.bottom,
               backgroundColor: appearance.shell,
               borderTopWidth: StyleSheet.hairlineWidth,
               borderTopColor: appearance.line,
-              paddingTop: 6
+              paddingTop: 6,
+              paddingBottom: Math.max(6, insets.bottom)
             },
         tabBarItemStyle: rail
           ? { minHeight: 54, borderRadius: 16, marginVertical: 3 }
@@ -534,6 +536,9 @@ export function MobileNavigatorV2({
           </Stack.Screen>
           <Stack.Screen name="WidgetRefresh" options={{ animation: "none" }}>
             {() => <DeepLinkActionRoute action="widget-refresh" more={more} />}
+          </Stack.Screen>
+          <Stack.Screen name="Flight" options={{ animation: "none" }}>
+            {() => <DeepLinkActionRoute action="widgets" more={more} />}
           </Stack.Screen>
         </Stack.Navigator>
       </NavigationContainer>

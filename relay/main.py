@@ -135,6 +135,7 @@ _COMMUNITY_RADAR_GLOBAL_DAILY_LIMIT = 3000
 _STANDALONE_SCHEDULE_LIMIT = 800
 _STANDALONE_RADAR_LIMIT = 6000
 _STANDALONE_SCHEDULE_MIN_REFRESH_SECONDS = 60 * 60
+_STANDALONE_BOARD_PROJECTION_SECONDS = 5 * 60
 _STANDALONE_RADAR_MIN_REFRESH_SECONDS = 3 * 60
 _STANDALONE_ROWS_PER_DIRECTION = 50
 _STANDALONE_DISPLAY_PAGE_SECONDS = 8
@@ -5023,7 +5024,10 @@ def _airport_surface_payload_from_row(
 
 
 def _surface_payload_to_mobile_radar_map(surface: Dict[str, Any], *, radius_nm: float) -> Dict[str, Any]:
-    features = surface.get("features") if isinstance(surface.get("features"), list) else []
+    from localflight.sources.web.airport_surface import select_surface_features
+
+    raw_features = surface.get("features") if isinstance(surface.get("features"), list) else []
+    features = select_surface_features(raw_features)
     runways = [
         dict(feature)
         for feature in features
@@ -5311,6 +5315,7 @@ def _fetch_airport_surface_from_osm(
     radius_nm: float,
 ) -> Dict[str, Any]:
     from localflight.sources.web.airport_surface import (
+        SURFACE_SELECTION_VERSION,
         build_surface_payload,
         clamp_surface_radius_m,
         clamp_surface_radius_nm,
@@ -5342,6 +5347,9 @@ def _fetch_airport_surface_from_osm(
             "lookup_radius_m": lookup_radius_m,
             "feature_count": len(features),
             "raw_elements": len(raw.get("elements") or []) if isinstance(raw, dict) else 0,
+            "surface_selection_version": SURFACE_SELECTION_VERSION,
+            "runway_count": sum(1 for feature in features if feature.get("kind") == "runway"),
+            "taxiway_count": sum(1 for feature in features if feature.get("kind") == "taxiway"),
         },
     )
 
@@ -5430,8 +5438,35 @@ def _ground_layer_state(row: Optional[sqlite3.Row], *, requested_radius_nm: int)
         return "miss"
     age_s = (datetime.now(timezone.utc) - updated_at).total_seconds()
     layer = str(row["layer"] or "map")
+    surface_needs_selection_refresh = False
+    if layer == "surface":
+        try:
+            cached_payload = json.loads(str(row["payload_json"] or "{}"))
+        except Exception:
+            cached_payload = {}
+        if isinstance(cached_payload, dict):
+            meta = cached_payload.get("meta") if isinstance(cached_payload.get("meta"), dict) else {}
+            features = cached_payload.get("features") if isinstance(cached_payload.get("features"), list) else []
+            provider = str(cached_payload.get("provider") or "").lower()
+            has_runway = any(
+                isinstance(feature, dict) and str(feature.get("kind") or "").lower() == "runway"
+                for feature in features
+            )
+            # OSM snapshots generated before semantic selection v2 may have
+            # dropped operational geometry at large airports. Serve them as a
+            # stale fallback while queuing one safe refresh.
+            surface_needs_selection_refresh = bool(
+                provider == "openstreetmap"
+                and (
+                    not has_runway
+                    or (
+                        int(meta.get("raw_elements") or 0) > 0
+                        and int(meta.get("surface_selection_version") or 0) < 2
+                    )
+                )
+            )
     if age_s <= _ground_layer_ttl_s(layer):
-        return "fresh"
+        return "stale" if surface_needs_selection_refresh else "fresh"
     if age_s <= _ground_layer_ttl_s(layer, stale=True):
         return "stale"
     return "miss"
@@ -9969,7 +10004,7 @@ def _standalone_config_payload(airport: Dict[str, Any], *, diagnostics_mode: str
         "diagnostics_mode": diagnostics_mode or "manual",
         "web_row_limit": _STANDALONE_ROWS_PER_DIRECTION,
         "web_rotation_seconds": _STANDALONE_DISPLAY_PAGE_SECONDS,
-        "display_grace_minutes": 30,
+        "display_grace_minutes": 15,
         "display_horizon_hours": 12,
         "radar_surface_enabled": False,
     }
@@ -9979,6 +10014,7 @@ def _standalone_policy_payload() -> Dict[str, int]:
     """One additive, client-readable policy for Mobile V2 Standalone."""
     return {
         "board_refresh_seconds": _standalone_schedule_min_refresh_seconds(),
+        "board_projection_seconds": _STANDALONE_BOARD_PROJECTION_SECONDS,
         "radar_refresh_seconds": _standalone_radar_min_refresh_seconds(),
         "rows_per_direction": _STANDALONE_ROWS_PER_DIRECTION,
         "display_page_seconds": _STANDALONE_DISPLAY_PAGE_SECONDS,
@@ -10018,6 +10054,7 @@ def _mobile_fids_rows_from_schedule_payload(
     airport: Dict[str, Any],
     view: str,
     limit: int,
+    reference_now: Optional[datetime] = None,
 ) -> list[Dict[str, Any]]:
     from localflight.decode.dedupe import dedupe_codeshares
     from localflight.decode.normalize import normalize_flights
@@ -10041,6 +10078,8 @@ def _mobile_fids_rows_from_schedule_payload(
         refresh_seconds=_standalone_schedule_min_refresh_seconds(),
         flights=filtered,
         last_refreshed=_parse_iso_utc(payload.get("generated_at")),
+        reference_now=reference_now,
+        allow_sparse_fallback=False,
         source_status=str(payload.get("provider") or "relay"),
     )
     return [asdict(row) for row in list(ctx.get("rows") or [])[:limit]]
@@ -10953,7 +10992,7 @@ def relay_mobile_fids(
         request,
         airport_iata=str(airport.get("iata") or airport_iata),
         timezone=timezone_name,
-        display_grace_minutes=30,
+        display_grace_minutes=15,
         display_horizon_hours=12,
         refresh_seconds=_standalone_schedule_min_refresh_seconds(),
         install_id=install_id,
@@ -11004,34 +11043,45 @@ def relay_mobile_board(
         diagnostics_mode=diagnostics_mode,
     )
 
-    cache_key = f"{airport.get('iata') or airport.get('icao')}:{timezone_name}:30:12"
+    cache_key = f"{airport.get('iata') or airport.get('icao')}:{timezone_name}:15:12"
     cached = _mobile_cache_load(
         install_id=install_id,
-        service="board_v2",
+        service="board_v2_candidates",
         cache_key=cache_key,
         max_age_seconds=_standalone_schedule_min_refresh_seconds(),
     )
-    if cached is not None:
-        return JSONResponse(cached, headers={"X-LF-Mobile-Standalone-Cache": "hit"})
-
-    schedule_response = relay_schedule(
-        request,
-        airport_iata=str(airport.get("iata") or airport_iata),
-        timezone=timezone_name,
-        display_grace_minutes=30,
-        display_horizon_hours=12,
-        refresh_seconds=_standalone_schedule_min_refresh_seconds(),
-        install_id=install_id,
-        activation_token=activation_token,
-        app_version=app_version,
-        client_kind="mobile_standalone",
-        device_type=device_type,
-        os_family="mobile",
-        source_mode="real",
-    )
-    if schedule_response.status_code >= 400:
-        return schedule_response
-    schedule_payload = _response_json_payload(schedule_response)
+    cache_result = "hit"
+    if cached is None:
+        cache_result = "miss"
+        schedule_response = relay_schedule(
+            request,
+            airport_iata=str(airport.get("iata") or airport_iata),
+            timezone=timezone_name,
+            display_grace_minutes=15,
+            display_horizon_hours=12,
+            refresh_seconds=_standalone_schedule_min_refresh_seconds(),
+            install_id=install_id,
+            activation_token=activation_token,
+            app_version=app_version,
+            client_kind="mobile_standalone",
+            device_type=device_type,
+            os_family="mobile",
+            source_mode="real",
+        )
+        if schedule_response.status_code >= 400:
+            return schedule_response
+        schedule_payload = _response_json_payload(schedule_response)
+        # Cache the broader provider candidate pool, not a time-frozen final
+        # Board. Each bounded read below can then remove completed movements
+        # and admit later candidates without another provider pull or allowance.
+        _mobile_cache_store(
+            install_id=install_id,
+            service="board_v2_candidates",
+            cache_key=cache_key,
+            payload=schedule_payload,
+        )
+    else:
+        schedule_payload = cached
     try:
         board_payload = {
             "schema_version": "mobile-board-v2",
@@ -11054,8 +11104,7 @@ def relay_mobile_board(
         }
     except Exception as exc:
         raise HTTPException(status_code=502, detail="The flight board is temporarily unavailable") from exc
-    _mobile_cache_store(install_id=install_id, service="board_v2", cache_key=cache_key, payload=board_payload)
-    return JSONResponse(board_payload, headers={"X-LF-Mobile-Standalone-Cache": "miss"})
+    return JSONResponse(board_payload, headers={"X-LF-Mobile-Standalone-Cache": cache_result})
 
 
 @app.get("/v1/mobile/radar")

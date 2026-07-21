@@ -5,6 +5,7 @@ import type {
   HistoryFlightRow,
   RadarBlip
 } from "../api/types";
+import { flightStablePinId } from "./pinnedFlight";
 import type { StatusTone } from "./types";
 
 export function routeCode(route: string): string {
@@ -67,14 +68,23 @@ export function detailOrNull(value: FidsDetailResponse | null): FlightDetail | n
   if (!value?.detail || typeof value.detail !== "object") {
     return null;
   }
-  if (!("callsign" in value.detail) || typeof value.detail.callsign !== "string") {
+  const detail = value.detail as FlightDetail;
+  if (!clean(detail.callsign) && !clean(detail.flight_number) && !clean(detail.flight_display)) {
     return null;
   }
-  return value.detail as FlightDetail;
+  return detail;
 }
 
 function clean(value?: unknown): string {
   return String(value || "").trim();
+}
+
+function compactIdentity(value?: unknown): string {
+  return clean(value).toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function isPublicFlightNumber(value?: unknown): boolean {
+  return /^[A-Z0-9]{2,3}0*\d{1,5}[A-Z]?$/.test(compactIdentity(value));
 }
 
 function directionLabel(value?: string | null): string {
@@ -94,18 +104,23 @@ export function fidsRowDetailResponse(row: FidsRow, airportCode = ""): FidsDetai
   const destination = view === "departures" ? route : airportCode;
   return {
     detail: {
-      callsign: row.callsign || row.flight_display || row.id,
-      flight_number: row.flight_number || row.flight_display || row.callsign,
-      flight_display: row.flight_display || row.callsign,
+      callsign: row.callsign || row.operating_callsign || undefined,
+      flight_number: isPublicFlightNumber(row.flight_number) ? row.flight_number : null,
+      flight_display: row.flight_display || row.flight_number || row.callsign || row.id,
       airline: row.airline_display || row.marketing_airline_name || null,
       airline_iata: row.airline_iata || row.marketing_airline_iata || null,
       airline_icao: row.airline_icao || row.marketing_airline_icao || null,
       codeshares: row.codeshares || [],
       sold_as: row.sold_as || [],
-      origin_iata: origin || null,
-      dest_iata: destination || null,
-      sched_time: row.time_primary || row.display_time || null,
-      actual_time: null,
+      origin_iata: row.origin_iata || origin || null,
+      origin_icao: row.origin_icao || null,
+      origin_name: row.origin_name || null,
+      dest_iata: row.dest_iata || destination || null,
+      dest_icao: row.dest_icao || null,
+      dest_name: row.dest_name || null,
+      sched_time: row.sched_time || row.time_primary || row.display_time || null,
+      est_time: row.est_time || null,
+      actual_time: row.actual_time || null,
       delay_minutes: row.delay_minutes ?? null,
       delay_kind: row.delay_kind || null,
       delay_class: row.delay_class || null,
@@ -122,6 +137,11 @@ export function fidsRowDetailResponse(row: FidsRow, airportCode = ""): FidsDetai
       direction: view,
       status: row.status_display || row.status_kind || null,
       source: row.source_hint || "mobile",
+      updated_at: row.updated_at || null,
+      data_sources: {
+        schedule: row.source_hint || "airline schedules",
+        snapshot_generated_at: row.updated_at || null
+      },
       enriched_by: row.live_hint || null,
       detail_mode: row.detail_mode || "real",
       operating_callsign: row.operating_callsign || null,
@@ -134,27 +154,65 @@ export function fidsRowDetailResponse(row: FidsRow, airportCode = ""): FidsDetai
   };
 }
 
-export function radarBlipDetailResponse(blip: RadarBlip): FidsDetailResponse {
-  const callsign = clean(blip.callsign) || clean(blip.flight_number) || clean(blip.display_title) || clean(blip.icao24) || "RADAR TRACK";
+export function matchRadarBlipToFidsRows(blip: RadarBlip, rows: FidsRow[]): FidsRow | null {
+  const registration = compactIdentity(blip.registration);
+  const icao24 = compactIdentity(blip.icao24);
+  const callsign = compactIdentity(blip.operating_callsign || blip.callsign);
+  const flightNumber = isPublicFlightNumber(blip.flight_number) ? compactIdentity(blip.flight_number) : "";
+  const ranked = rows.flatMap((row) => {
+    const rowRegistration = compactIdentity(row.aircraft_registration);
+    const rowIcao24 = compactIdentity(row.icao24);
+    const rowCallsigns = new Set([
+      compactIdentity(row.callsign),
+      compactIdentity(row.operating_callsign)
+    ].filter(Boolean));
+    const rowFlight = isPublicFlightNumber(row.flight_number) ? compactIdentity(row.flight_number) : "";
+    let score = 0;
+    if (registration && rowRegistration && registration === rowRegistration) score = 100;
+    if (icao24 && rowIcao24 && icao24 === rowIcao24) score = Math.max(score, 100);
+    if (callsign && rowCallsigns.has(callsign)) score = Math.max(score, 90);
+    if (flightNumber && rowFlight && flightNumber === rowFlight) score = Math.max(score, 80);
+    return score ? [{ row, score }] : [];
+  }).sort((a, b) => b.score - a.score);
+  const top = ranked[0];
+  if (!top) return null;
+  const tied = ranked.filter((candidate) => candidate.score === top.score);
+  return tied.length === 1 ? top.row : null;
+}
+
+export function radarBlipDetailResponse(
+  blip: RadarBlip,
+  scheduleRow?: FidsRow | null,
+  airportCode = ""
+): FidsDetailResponse {
+  const callsign = clean(blip.callsign) || clean(blip.operating_callsign);
+  const displayIdentity = clean(blip.display_title) || clean(blip.flight_number) || callsign || clean(blip.icao24) || "RADAR TRACK";
+  const scheduleDetail = scheduleRow
+    ? fidsRowDetailResponse(scheduleRow, airportCode).detail as FlightDetail
+    : {};
+  const publicFlightNumber = isPublicFlightNumber(blip.flight_number) ? clean(blip.flight_number) : null;
+  const flightNumber = scheduleDetail.flight_number || publicFlightNumber;
+  const flightDisplay = scheduleDetail.flight_display || publicFlightNumber || displayIdentity;
   return {
     detail: {
-      callsign,
-      flight_number: blip.flight_number || blip.display_title || callsign,
-      flight_display: blip.display_title || blip.flight_number || callsign,
-      airline: blip.airline_name || null,
-      airline_iata: blip.airline_iata || null,
-      airline_icao: blip.airline_icao || null,
-      codeshares: blip.codeshares || [],
-      sold_as: blip.sold_as || [],
-      aircraft_type: blip.aircraft_type || null,
+      ...scheduleDetail,
+      callsign: callsign || undefined,
+      flight_number: flightNumber || null,
+      flight_display: flightDisplay,
+      airline: scheduleDetail.airline || blip.airline_name || null,
+      airline_iata: scheduleDetail.airline_iata || blip.airline_iata || null,
+      airline_icao: scheduleDetail.airline_icao || blip.airline_icao || null,
+      codeshares: scheduleDetail.codeshares || blip.codeshares || [],
+      sold_as: scheduleDetail.sold_as || blip.sold_as || [],
+      aircraft_type: scheduleDetail.aircraft_type || blip.aircraft_type || null,
       aircraft_registration: blip.registration || null,
-      direction: null,
-      status: blip.radar_status_label || blip.radar_phase || "Tracked target",
+      direction: scheduleDetail.direction || null,
+      status: scheduleDetail.status || blip.radar_status_label || blip.radar_phase || "Tracked target",
       source: blip.source || blip.source_quality || "radar",
       enriched_by: blip.enriched ? "radar" : null,
       detail_mode: blip.detail_mode || "real",
-      operating_callsign: blip.operating_callsign || null,
-      identity_source: blip.identity_source || null,
+      operating_callsign: blip.operating_callsign || callsign || null,
+      identity_source: scheduleDetail.identity_source || blip.identity_source || "radar_callsign",
       position: {
         lat: blip.lat,
         lon: blip.lon,
@@ -173,14 +231,14 @@ export function radarBlipDetailResponse(blip: RadarBlip): FidsDetailResponse {
         schema_version: "flight-intel-v1",
         detail_mode: blip.detail_mode || "real",
         identity: {
-          callsign,
-          flight_display: blip.display_title || blip.flight_number || callsign,
-          operating_callsign: blip.operating_callsign || callsign,
-          airline_name: blip.airline_name || null,
-          airline_iata: blip.airline_iata || null,
-          airline_icao: blip.airline_icao || null,
-          codeshares: blip.codeshares || [],
-          sold_as: blip.sold_as || []
+          callsign: callsign || null,
+          flight_display: flightDisplay,
+          operating_callsign: blip.operating_callsign || callsign || null,
+          airline_name: scheduleDetail.airline || blip.airline_name || null,
+          airline_iata: scheduleDetail.airline_iata || blip.airline_iata || null,
+          airline_icao: scheduleDetail.airline_icao || blip.airline_icao || null,
+          codeshares: scheduleDetail.codeshares || blip.codeshares || [],
+          sold_as: scheduleDetail.sold_as || blip.sold_as || []
         },
         aircraft: {
           type: blip.aircraft_type || null,
@@ -190,7 +248,11 @@ export function radarBlipDetailResponse(blip: RadarBlip): FidsDetailResponse {
         },
         operations: {},
         timing: {
-          status: blip.board_status || blip.status || null
+          scheduled: scheduleDetail.sched_time || null,
+          estimated: scheduleDetail.est_time || null,
+          actual: scheduleDetail.actual_time || null,
+          delay_minutes: scheduleDetail.delay_minutes ?? null,
+          status: scheduleDetail.status || blip.board_status || blip.status || null
         },
         motion: {
           altitude_ft: blip.altitude_ft ?? blip.geo_altitude_ft ?? null,
@@ -209,12 +271,13 @@ export function radarBlipDetailResponse(blip: RadarBlip): FidsDetailResponse {
 }
 
 export function historyRowDetailResponse(row: HistoryFlightRow): FidsDetailResponse {
-  const callsign = clean(row.callsign) || clean(row.flight_number) || clean(row.id) || "HISTORY MOVEMENT";
+  const callsign = clean(row.callsign) || clean(row.operating_callsign);
+  const displayIdentity = clean(row.flight_number) || callsign || clean(row.id) || "HISTORY MOVEMENT";
   return {
     detail: {
-      callsign,
-      flight_number: row.flight_number || callsign,
-      flight_display: row.flight_number || callsign,
+      callsign: callsign || undefined,
+      flight_number: isPublicFlightNumber(row.flight_number) ? row.flight_number : null,
+      flight_display: displayIdentity,
       airline_iata: row.airline_iata || null,
       codeshares: row.codeshares || [],
       sold_as: row.sold_as || [],
@@ -267,7 +330,7 @@ export function detailRouteLabel(detail: FlightDetail | null, fallback: string):
 }
 
 export function flightPinKey(row: FidsRow): string {
-  return row.callsign || row.id;
+  return flightStablePinId(row);
 }
 
 /**

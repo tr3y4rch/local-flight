@@ -176,7 +176,7 @@ function ensureWidgetTarget(project, config) {
   }
 
   const version = config.version || "0.5.2";
-  const buildNumber = config.ios?.buildNumber || "9";
+  const buildNumber = config.ios?.buildNumber || "11";
   updateBuildSettings(project, targetUuid, {
     APPLICATION_EXTENSION_API_ONLY: "YES",
     CODE_SIGN_ENTITLEMENTS: `${WIDGET_TARGET}/${WIDGET_TARGET}.entitlements`,

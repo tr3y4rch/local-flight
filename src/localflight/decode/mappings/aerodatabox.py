@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any, Dict, List, Optional
 
 from localflight.core.aircraft import aircraft_full_label, short_aircraft_type
@@ -186,10 +187,19 @@ def _flight_number(row: Dict[str, Any], airline: Dict[str, Any]) -> Optional[str
     if not number:
         return None
     compact = number.replace(" ", "").upper()
-    if any(ch.isalpha() for ch in compact):
-        return compact
     airline_iata = _pick(airline.get("iata"), airline.get("IATA"))
     airline_icao = _pick(airline.get("icao"), airline.get("ICAO"))
+    # AeroDataBox can place an operational callsign suffix (for example 9GD)
+    # in `number`. It is useful as a callsign, but it is not evidence for a
+    # published passenger flight number. Preserve only complete identifiers or
+    # the normal digits-plus-optional-one-letter public form.
+    for prefix in (airline_iata, airline_icao):
+        if prefix and compact.startswith(prefix.upper()):
+            suffix = compact[len(prefix):]
+            if re.fullmatch(r"0*[0-9]{1,5}[A-Z]?", suffix):
+                return compact
+    if not re.fullmatch(r"0*[0-9]{1,5}", compact):
+        return None
     prefix = airline_iata or airline_icao
     return f"{prefix}{compact}".upper() if prefix else compact
 
