@@ -7,7 +7,7 @@ import type {
   HistoryResponse,
   HistorySummary
 } from "../api/types";
-import type { StandaloneAirport } from "./settings";
+import type { StandaloneAirport, StandaloneFlightSource } from "./settings";
 
 type StoredHistoryRow = {
   id: number;
@@ -306,8 +306,12 @@ function cleanAirportKey(value?: unknown): string {
   return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "") || "UNKNOWN";
 }
 
-function airportKey(airport: StandaloneAirport): string {
-  return cleanAirportKey(airport.iata || airport.icao || airport.name);
+function airportKey(airport: StandaloneAirport, source: StandaloneFlightSource = "real"): string {
+  const key = cleanAirportKey(airport.iata || airport.icao || airport.name);
+  // Preserve the legacy key for Airline schedules. Existing history therefore
+  // migrates in place, while VATSIM observations are isolated without a schema
+  // rewrite or destructive migration.
+  return source === "virtual" ? `${key}:VIRTUAL` : key;
 }
 
 function airportDisplayCode(airport: StandaloneAirport): string {
@@ -443,11 +447,12 @@ function movementKeyForRow(
   row: FidsRow,
   snapshotTs: string,
   eventTime: string,
-  view: string
+  view: string,
+  source: StandaloneFlightSource
 ): string {
   const route = String(row.route_code || "").toUpperCase().replace(/[^A-Z0-9]+/g, "") || "-";
   const direction = directionForView(view).toUpperCase();
-  const key = airportKey(airport);
+  const key = airportKey(airport, source);
   const code = airportDisplayCode(airport);
   const origin = view === "arrivals" ? route : code;
   const destination = view === "departures" ? route : code;
@@ -471,13 +476,18 @@ function movementKeyForRow(
   ].join("|");
 }
 
-function rowToInsert(airport: StandaloneAirport, row: FidsRow, snapshotTs: string): StoredInsert {
+function rowToInsert(
+  airport: StandaloneAirport,
+  row: FidsRow,
+  snapshotTs: string,
+  source: StandaloneFlightSource
+): StoredInsert {
   const view = String(row.view || "departures");
   const callsign = String(row.callsign || row.id || row.flight_display || "UNKNOWN").toUpperCase();
   const { eventTime, schedTime, actualTime } = eventTimeForRow(row, snapshotTs, airport.timezone);
-  const key = airportKey(airport);
+  const key = airportKey(airport, source);
   return {
-    movementKey: movementKeyForRow(airport, row, snapshotTs, eventTime, view),
+    movementKey: movementKeyForRow(airport, row, snapshotTs, eventTime, view, source),
     airportKey: key,
     snapshotTs,
     eventTime,
@@ -517,9 +527,10 @@ async function pruneHistory(database: SQLite.SQLiteDatabase): Promise<void> {
 async function storeStandaloneFidsRowsNow(
   airport: StandaloneAirport,
   rows: FidsRow[],
-  snapshotTs = nowIso()
+  snapshotTs = nowIso(),
+  source: StandaloneFlightSource = "real"
 ): Promise<void> {
-  const key = airportKey(airport);
+  const key = airportKey(airport, source);
   historyDiagnostics = {
     ...historyDiagnostics,
     airport_key: key,
@@ -531,7 +542,7 @@ async function storeStandaloneFidsRowsNow(
   const database = await db();
   await database.withExclusiveTransactionAsync(async (txn) => {
     for (const row of rows) {
-      const stored = rowToInsert(airport, row, snapshotTs);
+      const stored = rowToInsert(airport, row, snapshotTs, source);
       await txn.runAsync(
         `
         INSERT INTO standalone_fids_history (
@@ -596,12 +607,13 @@ async function storeStandaloneFidsRowsNow(
 export async function storeStandaloneFidsRows(
   airport: StandaloneAirport,
   rows: FidsRow[],
-  snapshotTs = nowIso()
+  snapshotTs = nowIso(),
+  source: StandaloneFlightSource = "real"
 ): Promise<void> {
-  return enqueueHistory(() => storeStandaloneFidsRowsNow(airport, rows, snapshotTs)).catch((exc) => {
+  return enqueueHistory(() => storeStandaloneFidsRowsNow(airport, rows, snapshotTs, source)).catch((exc) => {
     historyDiagnostics = {
       ...historyDiagnostics,
-      airport_key: airportKey(airport),
+      airport_key: airportKey(airport, source),
       last_store_at: snapshotTs,
       last_store_rows: rows.length,
       last_store_error: transientSqliteMessage(exc) || "Standalone history write failed"
@@ -653,8 +665,8 @@ function storedToHistory(row: StoredHistoryRow): HistoryFlightRow {
     aircraft_type: row.aircraft_type,
     sched_time: row.sched_time,
     actual_time: row.actual_time,
-    source: "mobile_standalone",
-    enriched_by: "relay",
+    source: String(row.airport_key || "").endsWith(":VIRTUAL") ? "vatsim" : "mobile_standalone",
+    enriched_by: String(row.airport_key || "").endsWith(":VIRTUAL") ? "vatsim" : "relay",
     snapshot_ts: row.last_seen_ts || row.snapshot_ts,
     event_time: row.event_time,
     first_seen_ts: row.first_seen_ts,
@@ -685,10 +697,11 @@ async function getStandaloneHistoryNow(
     limit?: number;
     callsign?: string;
     airline_iata?: string;
-  } = {}
+  } = {},
+  source: StandaloneFlightSource = "real"
 ): Promise<HistoryResponse> {
   const database = await db();
-  const key = airportKey(airport);
+  const key = airportKey(airport, source);
   const since = new Date(Date.now() - Math.max(1, hours) * 60 * 60 * 1000).toISOString();
   const upper = upperBoundIso();
   const directionWhere = direction === "dep"
@@ -755,9 +768,10 @@ export async function getStandaloneHistory(
     limit?: number;
     callsign?: string;
     airline_iata?: string;
-  } = {}
+  } = {},
+  source: StandaloneFlightSource = "real"
 ): Promise<HistoryResponse> {
-  return enqueueHistory(() => getStandaloneHistoryNow(airport, options));
+  return enqueueHistory(() => getStandaloneHistoryNow(airport, options, source));
 }
 
 function summarizeStandaloneHistoryRows(
@@ -908,7 +922,8 @@ async function getStandaloneHistorySummaryNow(
     direction?: HistoryDirection;
     callsign?: string;
     airline_iata?: string;
-  } = {}
+  } = {},
+  source: StandaloneFlightSource = "real"
 ): Promise<HistorySummary> {
   const history = await getStandaloneHistoryNow(airport, {
     hours,
@@ -916,7 +931,7 @@ async function getStandaloneHistorySummaryNow(
     callsign,
     airline_iata,
     limit: 1000
-  });
+  }, source);
   return summarizeStandaloneHistoryRows(airport, hours, history.flights, history.raw_observation_rows || history.flights.length);
 }
 
@@ -927,9 +942,10 @@ export async function getStandaloneHistorySummary(
     direction?: HistoryDirection;
     callsign?: string;
     airline_iata?: string;
-  } = {}
+  } = {},
+  source: StandaloneFlightSource = "real"
 ): Promise<HistorySummary> {
-  return enqueueHistory(() => getStandaloneHistorySummaryNow(airport, options));
+  return enqueueHistory(() => getStandaloneHistorySummaryNow(airport, options, source));
 }
 
 export async function clearStandaloneHistory(): Promise<void> {

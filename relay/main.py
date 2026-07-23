@@ -6,6 +6,7 @@ import html
 import hmac
 import asyncio
 import json
+import math
 import os
 import re
 import secrets
@@ -9959,6 +9960,7 @@ def _require_mobile_standalone_access(
     airport_icao: str = "",
     timezone_name: str = "",
     diagnostics_mode: str = "",
+    source_mode: str = "real",
 ) -> Dict[str, Any]:
     install_id = _validate_install_id(install_id)
     if _clean_client_kind(client_kind) != "mobile_standalone":
@@ -9982,22 +9984,27 @@ def _require_mobile_standalone_access(
         app_version=app_version,
         requested_gui="mobile_standalone",
         effective_gui="mobile",
-        source_mode="real",
+        source_mode="virtual" if source_mode == "virtual" else "real",
         diagnostics_mode=diagnostics_mode,
     )
     return access
 
 
-def _standalone_config_payload(airport: Dict[str, Any], *, diagnostics_mode: str = "manual") -> Dict[str, Any]:
+def _standalone_config_payload(
+    airport: Dict[str, Any],
+    *,
+    diagnostics_mode: str = "manual",
+    source_mode: str = "real",
+) -> Dict[str, Any]:
     iata = str(airport.get("iata") or "").upper()
     icao = str(airport.get("icao") or "").upper()
     return {
         "airport_iata": iata,
         "airport_icao": icao,
-        "refresh_seconds": _standalone_schedule_min_refresh_seconds(),
+        "refresh_seconds": 60 if source_mode == "virtual" else _standalone_schedule_min_refresh_seconds(),
         "display_name": f"{iata or icao or 'Mobile'} Standalone",
         "theme": "dark",
-        "source": "real",
+        "source": "virtual" if source_mode == "virtual" else "real",
         "timezone": str(airport.get("timezone") or "UTC"),
         "skin": "standard",
         "display_outputs": ["mobile"],
@@ -10010,17 +10017,26 @@ def _standalone_config_payload(airport: Dict[str, Any], *, diagnostics_mode: str
     }
 
 
-def _standalone_policy_payload() -> Dict[str, int]:
+def _standalone_policy_payload(source_mode: str = "real") -> Dict[str, Any]:
     """One additive, client-readable policy for Mobile V2 Standalone."""
+    virtual = source_mode == "virtual"
     return {
-        "board_refresh_seconds": _standalone_schedule_min_refresh_seconds(),
-        "board_projection_seconds": _STANDALONE_BOARD_PROJECTION_SECONDS,
-        "radar_refresh_seconds": _standalone_radar_min_refresh_seconds(),
+        "source": "virtual" if virtual else "real",
+        "board_refresh_seconds": 60 if virtual else _standalone_schedule_min_refresh_seconds(),
+        "board_projection_seconds": 60 if virtual else _STANDALONE_BOARD_PROJECTION_SECONDS,
+        "radar_refresh_seconds": 60 if virtual else _standalone_radar_min_refresh_seconds(),
         "rows_per_direction": _STANDALONE_ROWS_PER_DIRECTION,
         "display_page_seconds": _STANDALONE_DISPLAY_PAGE_SECONDS,
         "schedule_access_limit": _standalone_schedule_limit(),
         "radar_access_limit": _standalone_radar_limit(),
     }
+
+
+def _mobile_standalone_source(value: str) -> str:
+    source = str(value or "real").strip().lower()
+    if source not in {"real", "virtual"}:
+        raise HTTPException(status_code=422, detail="source must be real or virtual")
+    return source
 
 
 def _response_json_payload(response: Response) -> Dict[str, Any]:
@@ -10071,11 +10087,12 @@ def _mobile_fids_rows_from_schedule_payload(
     )
     direction = FlightDirection.DEPARTURE if view == "departures" else FlightDirection.ARRIVAL
     filtered = [flight for flight in dedupe_codeshares(flights) if flight.direction == direction]
-    cfg = AppConfig(**_standalone_config_payload(airport))
+    source_mode = "virtual" if str(payload.get("provider") or "").lower() == "vatsim" else "real"
+    cfg = AppConfig(**_standalone_config_payload(airport, source_mode=source_mode))
     ctx = build_fids_context(
         cfg=cfg,
         view=view,
-        refresh_seconds=_standalone_schedule_min_refresh_seconds(),
+        refresh_seconds=60 if source_mode == "virtual" else _standalone_schedule_min_refresh_seconds(),
         flights=filtered,
         last_refreshed=_parse_iso_utc(payload.get("generated_at")),
         reference_now=reference_now,
@@ -10083,6 +10100,123 @@ def _mobile_fids_rows_from_schedule_payload(
         source_status=str(payload.get("provider") or "relay"),
     )
     return [asdict(row) for row in list(ctx.get("rows") or [])[:limit]]
+
+
+def _mobile_vatsim_schedule_payload(airport: Dict[str, Any]) -> Dict[str, Any]:
+    """Return only privacy-safe flight-plan records from the shared VATSIM feed."""
+    from localflight.sources.web.vatsim_client import fetch_vatsim_data_cached, vatsim_to_raw_records
+
+    payload = fetch_vatsim_data_cached(ttl_s=60)
+    records = vatsim_to_raw_records(
+        payload,
+        airport_icao=str(airport.get("icao") or ""),
+        mode="both",
+    )
+    general = payload.get("general") if isinstance(payload.get("general"), dict) else {}
+    generated_at = str(
+        general.get("update_timestamp")
+        or general.get("update")
+        or _utc_now()
+    )
+    return {
+        "provider": "vatsim",
+        "generated_at": generated_at,
+        "cache_state": "shared-vatsim",
+        "records": records,
+    }
+
+
+def _mobile_distance_nm(center_lat: float, center_lon: float, lat: float, lon: float) -> float:
+    dlat = math.radians(lat - center_lat)
+    dlon = math.radians(lon - center_lon)
+    a = (
+        math.sin(dlat / 2.0) ** 2
+        + math.cos(math.radians(center_lat))
+        * math.cos(math.radians(lat))
+        * math.sin(dlon / 2.0) ** 2
+    )
+    return 3440.065 * 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+
+
+def _mobile_vatsim_radar_payload(airport: Dict[str, Any], radius_nm: int) -> Dict[str, Any]:
+    """Project privacy-safe VATSIM positions for one airport and circular range."""
+    from localflight.sources.web.vatsim_client import fetch_vatsim_data_cached, vatsim_to_raw_records
+
+    payload = fetch_vatsim_data_cached(ttl_s=60)
+    records = vatsim_to_raw_records(
+        payload,
+        airport_icao=str(airport.get("icao") or ""),
+        mode="both",
+    )
+    records_by_callsign = {
+        str(record.get("callsign") or "").strip().upper(): record
+        for record in records
+        if str(record.get("callsign") or "").strip()
+    }
+    center_lat = float(airport["lat"])
+    center_lon = float(airport["lon"])
+    blips: list[Dict[str, Any]] = []
+    for pilot in payload.get("pilots") or []:
+        if not isinstance(pilot, dict):
+            continue
+        callsign = str(pilot.get("callsign") or "").strip().upper()
+        record = records_by_callsign.get(callsign)
+        if not record:
+            continue
+        try:
+            lat = float(pilot.get("latitude"))
+            lon = float(pilot.get("longitude"))
+        except (TypeError, ValueError):
+            continue
+        distance_nm = _mobile_distance_nm(center_lat, center_lon, lat, lon)
+        if distance_nm > float(radius_nm):
+            continue
+        altitude_ft = float(pilot.get("altitude") or 0)
+        speed_kt = float(pilot.get("groundspeed") or 0)
+        heading = pilot.get("heading")
+        blips.append({
+            "callsign": callsign,
+            "lat": lat,
+            "lon": lon,
+            "altitude_m": altitude_ft * 0.3048 if altitude_ft else None,
+            "altitude_ft": round(altitude_ft) if altitude_ft else None,
+            "heading": float(heading) if heading is not None else None,
+            "track_deg": float(heading) if heading is not None else None,
+            "speed_ms": speed_kt * 0.514444 if speed_kt else None,
+            "speed_kt": round(speed_kt) if speed_kt else None,
+            "on_ground": altitude_ft < 100 and speed_kt < 50,
+            "icao24": None,
+            "flight_number": None,
+            "airline_name": None,
+            "registration": None,
+            "codeshares": [],
+            "sold_as": [],
+            "aircraft_type": record.get("aircraft_type"),
+            "source": "vatsim",
+            "source_quality": "vatsim-flight-plan",
+            "detail_mode": "virtual",
+            "distance_nm": round(distance_nm, 2),
+            "route_display": " → ".join(filter(None, [record.get("origin_icao"), record.get("destination_icao")])),
+            "display_title": callsign,
+            "identity_source": "vatsim_callsign",
+            "flight_rules": record.get("flight_rules"),
+            "planned_route": record.get("planned_route"),
+            "origin_icao": record.get("origin_icao"),
+            "dest_icao": record.get("destination_icao"),
+        })
+    return {
+        "generated_at": _utc_now(),
+        "center": {"lat": center_lat, "lon": center_lon},
+        "radius_nm": int(radius_nm),
+        "source": "vatsim",
+        "refresh_after_s": 60,
+        "count": len(blips),
+        "radar_mode": "surface" if int(radius_nm) <= 5 else "airborne",
+        "traffic_filter": "airport-flight-plans",
+        "provider_radius_nm": int(radius_nm),
+        "raw_provider_count": len(payload.get("pilots") or []),
+        "blips": blips,
+    }
 
 
 def _mobile_cache_load(
@@ -10838,7 +10972,9 @@ def relay_mobile_summary(
     timezone: str = Query(""),
     diagnostics_mode: str = Query("manual"),
     device_type: str = Query("phone"),
+    source: str = Query("real", pattern="^(real|virtual)$"),
 ) -> Dict[str, Any]:
+    source_mode = _mobile_standalone_source(source)
     airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
     timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
     airport["timezone"] = timezone_name
@@ -10853,6 +10989,7 @@ def relay_mobile_summary(
         airport_icao=str(airport.get("icao") or ""),
         timezone_name=timezone_name,
         diagnostics_mode=diagnostics_mode,
+        source_mode=source_mode,
     )
     status = _build_client_status(install_id=_validate_install_id(install_id), activation_token=activation_token, app_version=app_version)
     metar: Optional[Dict[str, Any]] = None
@@ -10874,14 +11011,18 @@ def relay_mobile_summary(
             )
         )
     return sanitize_client_payload(attach_notices({
-        "config": _standalone_config_payload(airport, diagnostics_mode=diagnostics_mode),
+        "config": _standalone_config_payload(
+            airport,
+            diagnostics_mode=diagnostics_mode,
+            source_mode=source_mode,
+        ),
         "state": {
             "ok": True,
-            "source_name": "relay_standalone",
-            "last_success_utc": (status.get("schedule_cache") or {}).get("updated_at"),
+            "source_name": "vatsim" if source_mode == "virtual" else "relay_standalone",
+            "last_success_utc": None if source_mode == "virtual" else (status.get("schedule_cache") or {}).get("updated_at"),
             "last_error": None,
         },
-        "standalone_policy": _standalone_policy_payload(),
+        "standalone_policy": _standalone_policy_payload(source_mode),
         "system": {
             "version": _localflight_version_label(),
             "python": "relay",
@@ -10899,9 +11040,9 @@ def relay_mobile_summary(
             "schedule_policy": {
                 "shared_relay": True,
                 "active_mode": "standalone",
-                "min_refresh_seconds": _standalone_schedule_min_refresh_seconds(),
+                "min_refresh_seconds": 60 if source_mode == "virtual" else _standalone_schedule_min_refresh_seconds(),
             },
-            "standalone_policy": _standalone_policy_payload(),
+            "standalone_policy": _standalone_policy_payload(source_mode),
             "shared_schedule_budget": status.get("shared_schedule_budget") or {},
             "schedule_access_budget": status.get("schedule_access_budget") or {},
             "aviationstack": {
@@ -10972,7 +11113,9 @@ def relay_mobile_fids(
     view: str = Query("departures", pattern="^(departures|arrivals)$"),
     limit: int = Query(_STANDALONE_ROWS_PER_DIRECTION, ge=1, le=100),
     device_type: str = Query("phone"),
+    source: str = Query("real", pattern="^(real|virtual)$"),
 ) -> Any:
+    source_mode = _mobile_standalone_source(source)
     airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
     timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
     airport["timezone"] = timezone_name
@@ -10987,7 +11130,14 @@ def relay_mobile_fids(
         airport_icao=str(airport.get("icao") or ""),
         timezone_name=timezone_name,
         diagnostics_mode=diagnostics_mode,
+        source_mode=source_mode,
     )
+    if source_mode == "virtual":
+        try:
+            payload = _mobile_vatsim_schedule_payload(airport)
+            return _mobile_fids_rows_from_schedule_payload(payload, airport=airport, view=view, limit=limit)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="VATSIM traffic is temporarily unavailable") from exc
     schedule_response = relay_schedule(
         request,
         airport_iata=str(airport.get("iata") or airport_iata),
@@ -11024,8 +11174,10 @@ def relay_mobile_board(
     timezone: str = Query(""),
     diagnostics_mode: str = Query("manual"),
     device_type: str = Query("phone"),
+    source: str = Query("real", pattern="^(real|virtual)$"),
 ) -> Any:
     """Return both Board directions from one metered shared snapshot."""
+    source_mode = _mobile_standalone_source(source)
     airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
     timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
     airport["timezone"] = timezone_name
@@ -11041,53 +11193,68 @@ def relay_mobile_board(
         airport_icao=str(airport.get("icao") or ""),
         timezone_name=timezone_name,
         diagnostics_mode=diagnostics_mode,
+        source_mode=source_mode,
     )
 
-    cache_key = f"{airport.get('iata') or airport.get('icao')}:{timezone_name}:15:12"
+    cache_key = f"{source_mode}:{airport.get('iata') or airport.get('icao')}:{timezone_name}:15:12"
+    cache_seconds = 60 if source_mode == "virtual" else _standalone_schedule_min_refresh_seconds()
     cached = _mobile_cache_load(
         install_id=install_id,
         service="board_v2_candidates",
         cache_key=cache_key,
-        max_age_seconds=_standalone_schedule_min_refresh_seconds(),
+        max_age_seconds=cache_seconds,
     )
     cache_result = "hit"
     if cached is None:
         cache_result = "miss"
-        schedule_response = relay_schedule(
-            request,
-            airport_iata=str(airport.get("iata") or airport_iata),
-            timezone=timezone_name,
-            display_grace_minutes=15,
-            display_horizon_hours=12,
-            refresh_seconds=_standalone_schedule_min_refresh_seconds(),
-            install_id=install_id,
-            activation_token=activation_token,
-            app_version=app_version,
-            client_kind="mobile_standalone",
-            device_type=device_type,
-            os_family="mobile",
-            source_mode="real",
-        )
-        if schedule_response.status_code >= 400:
-            return schedule_response
-        schedule_payload = _response_json_payload(schedule_response)
-        # Cache the broader provider candidate pool, not a time-frozen final
-        # Board. Each bounded read below can then remove completed movements
-        # and admit later candidates without another provider pull or allowance.
-        _mobile_cache_store(
-            install_id=install_id,
-            service="board_v2_candidates",
-            cache_key=cache_key,
-            payload=schedule_payload,
-        )
+        if source_mode == "virtual":
+            try:
+                schedule_payload = _mobile_vatsim_schedule_payload(airport)
+            except Exception as exc:
+                raise HTTPException(status_code=503, detail="VATSIM traffic is temporarily unavailable") from exc
+            _mobile_cache_store(
+                install_id=install_id,
+                service="board_v2_candidates",
+                cache_key=cache_key,
+                payload=schedule_payload,
+            )
+        else:
+            schedule_response = relay_schedule(
+                request,
+                airport_iata=str(airport.get("iata") or airport_iata),
+                timezone=timezone_name,
+                display_grace_minutes=15,
+                display_horizon_hours=12,
+                refresh_seconds=_standalone_schedule_min_refresh_seconds(),
+                install_id=install_id,
+                activation_token=activation_token,
+                app_version=app_version,
+                client_kind="mobile_standalone",
+                device_type=device_type,
+                os_family="mobile",
+                source_mode="real",
+            )
+            if schedule_response.status_code >= 400:
+                return schedule_response
+            schedule_payload = _response_json_payload(schedule_response)
+            # Cache the broader provider candidate pool, not a time-frozen final
+            # Board. Each bounded read below can then remove completed movements
+            # and admit later candidates without another provider pull or allowance.
+            _mobile_cache_store(
+                install_id=install_id,
+                service="board_v2_candidates",
+                cache_key=cache_key,
+                payload=schedule_payload,
+            )
     else:
         schedule_payload = cached
     try:
         board_payload = {
             "schema_version": "mobile-board-v2",
+            "source": source_mode,
             "generated_at": schedule_payload.get("generated_at") or _utc_now(),
             "cache_state": schedule_payload.get("cache_state") or (schedule_payload.get("meta") or {}).get("cache_state") or "fresh",
-            "refresh_after_s": _standalone_schedule_min_refresh_seconds(),
+            "refresh_after_s": cache_seconds,
             "rows_per_direction": _STANDALONE_ROWS_PER_DIRECTION,
             "departures": _mobile_fids_rows_from_schedule_payload(
                 schedule_payload,
@@ -11120,7 +11287,9 @@ def relay_mobile_radar(
     diagnostics_mode: str = Query("manual"),
     radius_nm: int = Query(5, ge=1, le=10),
     device_type: str = Query("phone"),
+    source: str = Query("real", pattern="^(real|virtual)$"),
 ) -> JSONResponse:
+    source_mode = _mobile_standalone_source(source)
     if int(radius_nm) not in _STANDALONE_RADAR_RADII_NM:
         raise HTTPException(status_code=422, detail="Standalone radar radius must be one of 1, 3, 5, or 10 NM")
     airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
@@ -11138,18 +11307,20 @@ def relay_mobile_radar(
         airport_icao=str(airport.get("icao") or ""),
         timezone_name=_normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC")),
         diagnostics_mode=diagnostics_mode,
+        source_mode=source_mode,
     )
-    cache_key = f"{airport.get('iata')}:{int(radius_nm)}"
+    cache_key = f"{source_mode}:{airport.get('iata')}:{int(radius_nm)}"
+    radar_refresh_seconds = 60 if source_mode == "virtual" else _standalone_radar_min_refresh_seconds()
     cached = _mobile_cache_load(
         install_id="shared:mobile-radar",
         service="radar",
         cache_key=cache_key,
-        max_age_seconds=_standalone_radar_min_refresh_seconds(),
+        max_age_seconds=radar_refresh_seconds,
     )
     if cached is not None:
         cached = dict(cached)
         cached["source"] = str(cached.get("source") or "adsbexchange_relay_cached")
-        cached["refresh_after_s"] = _standalone_radar_min_refresh_seconds()
+        cached["refresh_after_s"] = radar_refresh_seconds
         if not isinstance(cached.get("radar_map"), dict):
             radar_map, radar_map_error = _mobile_standalone_radar_map(
                 airport_iata=str(airport.get("iata") or ""),
@@ -11183,6 +11354,46 @@ def relay_mobile_radar(
         return JSONResponse(
             attach_notices(cached, notices, route_family="mobile-radar", source_category="traffic"),
             headers={"X-LF-Mobile-Standalone-Cache": "hit"},
+        )
+
+    if source_mode == "virtual":
+        try:
+            payload = _mobile_vatsim_radar_payload(airport, int(radius_nm))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="VATSIM traffic is temporarily unavailable") from exc
+        radar_map, radar_map_error = _mobile_standalone_radar_map(
+            airport_iata=str(airport.get("iata") or ""),
+            airport_icao=str(airport.get("icao") or ""),
+            center_lat=float(airport["lat"]),
+            center_lon=float(airport["lon"]),
+            radius_nm=float(min(5, int(radius_nm))),
+        )
+        payload["radar_map"] = radar_map
+        payload["radar_map_error"] = radar_map_error
+        _mobile_cache_store(
+            install_id="shared:mobile-radar",
+            service="radar",
+            cache_key=cache_key,
+            payload=payload,
+        )
+        notices = []
+        if radar_map_error:
+            notices.append(make_notice(
+                "radar.map_unavailable",
+                "info",
+                "The airport map is temporarily unavailable.",
+                next_step="VATSIM traffic can still be displayed.",
+            ))
+        if not payload.get("blips"):
+            notices.append(make_notice(
+                "radar.no_visible_traffic",
+                "info",
+                "No VATSIM aircraft are visible in the selected area right now.",
+                next_step="Try a larger range or check again in a minute.",
+            ))
+        return JSONResponse(
+            attach_notices(payload, notices, route_family="mobile-radar", source_category="traffic"),
+            headers={"X-LF-Mobile-Standalone-Cache": "miss"},
         )
 
     network_tag = _network_tag(_client_ip(request))

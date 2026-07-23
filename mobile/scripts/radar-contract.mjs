@@ -85,8 +85,10 @@ assert.match(v2ScopeSource, /radarLabelPriority/, "Dense V2 labels must use sema
 assert.match(v2ScopeSource, /const labelBudget =/, "Dense V2 scopes must enforce a bounded label budget.");
 assert.match(v2ScopeSource, /radarSweepOpacity\(item\.angleDeg, sweepDeg, focused\)/, "V2 targets must be revealed by the sweep rather than persistently displayed.");
 assert.match(v2ScopeSource, /accessibilityElementsHidden=\{!interactive\}/, "Unrevealed V2 targets must not remain in the accessibility tree.");
-const v2SweepLayer = sourceSection(v2ScopeSource, "{!reduceMotion ? (", ") : null}", "V2 radar sweep layer");
+const v2SweepLayer = sourceSection(v2ScopeSource, "<G transform={`rotate(${sweepDeg}", "</G>", "V2 radar sweep layer");
 assert.equal((v2SweepLayer.match(/<Line/g) || []).length, 1, "V2 Radar must draw exactly one leading sweep line.");
+assert.doesNotMatch(v2ScopeSource, /reduceMotion[\s\S]{0,160}(?:setSweepDeg|radarSweepOpacity|<Line)/, "Reduce Motion must not disable Radar search and reveal behavior.");
+assert.doesNotMatch(sweepLayer, /reducedMotion|reduceMotion/, "The legacy Radar sweep must remain functional with Reduce Motion enabled.");
 assert.match(appShellSource, /const fallbackGround = cachedGround \|\| data\.radar_map \|\| null/, "A failed full-ground request must preserve the embedded runway and surface fallback.");
 
 console.log("Cross-platform radar presentation contract checks passed.");

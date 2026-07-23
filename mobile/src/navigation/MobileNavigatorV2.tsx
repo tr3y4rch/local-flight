@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Animated, Platform, Pressable, StyleSheet, View } from "react-native";
+import * as ScreenOrientation from "expo-screen-orientation";
 import {
   CommonActions,
   NavigationContainer,
@@ -47,7 +48,7 @@ export type MobileTabParamList = {
 
 export type MobileRootStackParamList = {
   Main: NavigatorScreenParams<MobileTabParamList> | undefined;
-  Display: undefined;
+  Display: { entry?: "manual" | "rotation" | "deep-link" } | undefined;
   Pairing: undefined;
   Widgets: undefined;
   WidgetRefresh: undefined;
@@ -66,8 +67,8 @@ export function navigateMobileSection(section: MobileSection) {
   mobileNavigationRef.dispatch(CommonActions.navigate({ name: "Main", params: { screen } }));
 }
 
-export function openMobileDisplay() {
-  if (mobileNavigationRef.isReady()) mobileNavigationRef.navigate("Display");
+export function openMobileDisplay(entry: "manual" | "rotation" | "deep-link" = "manual") {
+  if (mobileNavigationRef.isReady()) mobileNavigationRef.navigate("Display", { entry });
 }
 
 export function openMobileMorePanel(panel?: Exclude<MorePanel, null>) {
@@ -190,7 +191,7 @@ function BoardRoute({ nativeScrollRoot = false }: { nativeScrollRoot?: boolean }
   const navigation = useNavigation<NavigationProp<MobileRootStackParamList>>();
   return (
     <FeatureFrame nativeScrollRoot={nativeScrollRoot}>
-      <BoardScreenV2 {...board} onOpenDisplay={() => navigation.navigate("Display")} />
+      <BoardScreenV2 {...board} onOpenDisplay={() => navigation.navigate("Display", { entry: "manual" })} />
     </FeatureFrame>
   );
 }
@@ -264,9 +265,14 @@ function DeepLinkActionRoute({
   return <View style={{ flex: 1, backgroundColor: appearance.bg }} />;
 }
 
-function DisplayRoute() {
+function DisplayRoute({
+  route,
+  onExit
+}: {
+  route: RouteProp<MobileRootStackParamList, "Display">;
+  onExit: () => void;
+}) {
   const { board } = useMobileSession();
-  const navigation = useNavigation<NavigationProp<MobileRootStackParamList>>();
   return (
     <DisplayScreenV2
       rows={board.rows}
@@ -279,7 +285,10 @@ function DisplayRoute() {
       metar={board.metar}
       pinnedCallsign={board.pinnedCallsign}
       pageSeconds={board.displayPageSeconds}
-      onExit={() => navigation.goBack()}
+      entryReason={route.params?.entry || "deep-link"}
+      autoDisplayOnRotate={board.autoDisplayOnRotate}
+      onAutoDisplayOnRotateChange={board.onAutoDisplayOnRotateChange}
+      onExit={onExit}
     />
   );
 }
@@ -458,12 +467,71 @@ export function MobileNavigatorV2({
   nativeNavigation: NativeNavigationCapabilities;
 }) {
   const { theme, appearance } = useMobileTheme();
-  const { onDismissTransientSurface, onOpenSearchOrFilter, onRefreshCurrent } = useMobileSession();
+  const {
+    onDismissTransientSurface,
+    onOpenSearchOrFilter,
+    onRefreshCurrent,
+    rotationDisplayBlocked
+  } = useMobileSession();
   const [dismissRequestKey, setDismissRequestKey] = useState(0);
+  const [currentRouteName, setCurrentRouteName] = useState<string>("Board");
+  const currentRouteNameRef = useRef(currentRouteName);
+  const rotationReentrySuppressedRef = useRef(false);
+  const landscapeRef = useRef(false);
+
+  useEffect(() => {
+    currentRouteNameRef.current = currentRouteName;
+  }, [currentRouteName]);
+
+  const updateCurrentRoute = useCallback(() => {
+    if (!mobileNavigationRef.isReady()) return;
+    const name = mobileNavigationRef.getCurrentRoute()?.name || "Board";
+    currentRouteNameRef.current = name;
+    setCurrentRouteName(name);
+  }, []);
+
+  const closeDisplay = useCallback(() => {
+    if (landscapeRef.current) rotationReentrySuppressedRef.current = true;
+    if (mobileNavigationRef.isReady() && mobileNavigationRef.canGoBack()) mobileNavigationRef.goBack();
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios" && Platform.OS !== "android") return;
+    const handleOrientation = (orientation: ScreenOrientation.Orientation) => {
+      const landscape = orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT
+        || orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+      const portrait = orientation === ScreenOrientation.Orientation.PORTRAIT_UP
+        || orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN;
+      if (!landscape && !portrait) return;
+      landscapeRef.current = landscape;
+      if (portrait) {
+        rotationReentrySuppressedRef.current = false;
+        const route = mobileNavigationRef.isReady() ? mobileNavigationRef.getCurrentRoute() : undefined;
+        const params = route?.params as MobileRootStackParamList["Display"];
+        if (route?.name === "Display" && params?.entry === "rotation" && mobileNavigationRef.canGoBack()) {
+          mobileNavigationRef.goBack();
+        }
+        return;
+      }
+      if (
+        more.autoDisplayOnRotate
+        && !rotationDisplayBlocked
+        && !rotationReentrySuppressedRef.current
+        && currentRouteNameRef.current === "Board"
+        && mobileNavigationRef.isReady()
+      ) {
+        currentRouteNameRef.current = "Display";
+        mobileNavigationRef.navigate("Display", { entry: "rotation" });
+      }
+    };
+    void ScreenOrientation.getOrientationAsync().then(handleOrientation).catch(() => undefined);
+    const subscription = ScreenOrientation.addOrientationChangeListener((event) => handleOrientation(event.orientationInfo.orientation));
+    return () => ScreenOrientation.removeOrientationChangeListener(subscription);
+  }, [more.autoDisplayOnRotate, rotationDisplayBlocked]);
   const handleShortcut = useCallback((key: NativeShortcutKey) => {
     if (key === "escape") {
       if (mobileNavigationRef.isReady() && mobileNavigationRef.getCurrentRoute()?.name === "Display") {
-        mobileNavigationRef.goBack();
+        closeDisplay();
       } else {
         onDismissTransientSurface();
         setDismissRequestKey((value) => value + 1);
@@ -482,7 +550,7 @@ export function MobileNavigatorV2({
     if (mobileNavigationRef.isReady()) {
       mobileNavigationRef.dispatch(CommonActions.navigate({ name: "Main", params: { screen } }));
     }
-  }, [onDismissTransientSurface, onOpenSearchOrFilter, onRefreshCurrent]);
+  }, [closeDisplay, onDismissTransientSurface, onOpenSearchOrFilter, onRefreshCurrent]);
   useWebKeyboardShortcuts(handleShortcut);
   const navigationTheme = useMemo<Theme>(() => ({
     dark: theme.mode === "dark",
@@ -504,7 +572,13 @@ export function MobileNavigatorV2({
 
   return (
     <NativeShortcutHost onShortcut={handleShortcut}>
-      <NavigationContainer ref={mobileNavigationRef} linking={linking} theme={navigationTheme}>
+      <NavigationContainer
+        ref={mobileNavigationRef}
+        linking={linking}
+        theme={navigationTheme}
+        onReady={updateCurrentRoute}
+        onStateChange={updateCurrentRoute}
+      >
         <Stack.Navigator
           screenOptions={{
             headerShown: false,
@@ -525,9 +599,10 @@ export function MobileNavigatorV2({
           </Stack.Screen>
           <Stack.Screen
             name="Display"
-            component={DisplayRoute}
             options={{ presentation: "fullScreenModal", animation: "fade", gestureEnabled: false }}
-          />
+          >
+            {({ route }) => <DisplayRoute route={route} onExit={closeDisplay} />}
+          </Stack.Screen>
           <Stack.Screen name="Pairing" options={{ animation: "none" }}>
             {() => <DeepLinkActionRoute action="pairing" more={more} />}
           </Stack.Screen>

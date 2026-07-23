@@ -105,6 +105,11 @@ assert.match(pageText["local-flight/index.html"], /live aircraft position data \
 assert.match(pageText["local-flight/mobile/index.html"], /Take your flight board with you\./);
 assert.match(pageText["local-flight/mobile/index.html"], /The mobile apps are currently in testing\./);
 assert.match(pageText["local-flight/mobile/index.html"], /Ask about joining mobile testing/);
+assert.match(pageText["local-flight/mobile/index.html"], /About 1 h Real-world schedules/);
+assert.match(pageText["local-flight/mobile/index.html"], /Every 5 min Saved board view/);
+assert.match(pageText["local-flight/mobile/index.html"], /About 3 min Real-world Radar/);
+assert.match(pageText["local-flight/mobile/index.html"], /About 1 min VATSIM mode/);
+assert.doesNotMatch(pageText["local-flight/mobile/index.html"], /Three-hour boards and five-minute visible radar updates/);
 assert.match(pageText["network/index.html"], /Most of Local Flight stays on your network\./);
 assert.match(pageText["network/index.html"], /home or local network \(LAN\)/);
 assert.match(pageText["network/index.html"], /Beacon Tools cannot read the message\./);

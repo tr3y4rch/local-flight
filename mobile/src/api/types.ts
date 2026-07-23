@@ -9,10 +9,12 @@ export type StandalonePolicy = {
   display_page_seconds: number;
   schedule_access_limit: number;
   radar_access_limit: number;
+  source?: "real" | "virtual";
 };
 
 export type MobileBoardResponse = {
   schema_version: "mobile-board-v2" | string;
+  source?: "real" | "virtual";
   generated_at: string;
   cache_state: string;
   refresh_after_s: number;

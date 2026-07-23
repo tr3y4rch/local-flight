@@ -206,6 +206,20 @@ enum LFWidgetDesignV2 {
   }
 }
 
+extension LocalFlightWidgetPreferences {
+  func widgetScheme(system: ColorScheme) -> ColorScheme {
+    if widgetAppearance == "light" { return .light }
+    if widgetAppearance == "dark" { return .dark }
+    return system
+  }
+
+  func liveActivityScheme(system: ColorScheme) -> ColorScheme {
+    if liveActivityAppearance == "light" { return .light }
+    if liveActivityAppearance == "dark" { return .dark }
+    return system
+  }
+}
+
 struct LFStatusCapsuleV2: View {
   let label: String
   let tone: String

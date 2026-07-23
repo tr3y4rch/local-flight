@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Local Flight Home Screen widgets for Android</title>
+  <desc id="desc">Marketing artwork showing the current Local Flight resizable Android widget in compact pinned-flight and expanded airport-board layouts, using the native RemoteViews hierarchy and sample data.</desc>
+
+  <defs>
+    <style>
+      @font-face { font-family: "LFDM"; src: url("/assets/fonts/DMSans.ttf") format("truetype"); }
+      @font-face { font-family: "LFMono"; src: url("/assets/fonts/SpaceMono-Regular.ttf") format("truetype"); }
+      @font-face { font-family: "LFMono"; src: url("/assets/fonts/SpaceMono-Bold.ttf") format("truetype"); font-weight: 700; }
+      .ui { font-family: "LFDM", "DM Sans", Roboto, sans-serif; }
+      .mono { font-family: "LFMono", "Space Mono", ui-monospace, monospace; }
+      .caps { letter-spacing: .12em; text-transform: uppercase; }
+    </style>
+
+    <!-- Exact Audiowide outlines for “Local Flight”; no external-font fallback. -->
+    <g id="lf-wordmark">
+      <path d="M1468 0L282 0Q254 0 230 10Q206 20 188.5 37.5Q171 55 161 79Q151 103 151 131L151 1434L411 1434L411 260L1468 260Z"/>
+      <path d="M1298 365Q1298 298 1281 244.5Q1264 191 1236 150.5Q1208 110 1171 81.5Q1134 53 1093.5 35Q1053 17 1011.5 8.5Q970 0 933 0L464 0Q410 0 346 19Q282 38 227.5 81.5Q173 125 136.5 194.5Q100 264 100 365L100 717Q100 817 136.5 886.5Q173 956 227.5 999.5Q282 1043 346 1062Q410 1081 464 1081L933 1081Q1033 1081 1103 1045Q1173 1009 1216 954.5Q1259 900 1278.5 836Q1298 772 1298 717ZM1038 715Q1038 769 1011 795Q984 821 933 821L466 821Q414 821 387 794.5Q360 768 360 717L360 365Q360 314 387 287Q414 260 466 260L933 260Q986 260 1012 287Q1038 314 1038 365Z" transform="translate(1536)"/>
+      <path d="M1169 0L464 0Q410 0 346 19Q282 38 227.5 81.5Q173 125 136.5 194.5Q100 264 100 365L100 717Q100 754 108.5 795Q117 836 135 876.5Q153 917 181.5 954Q210 991 250.5 1019Q291 1047 344 1064Q397 1081 464 1081L1169 1081L1169 821L464 821Q413 821 386.5 795Q360 769 360 715L360 365Q360 314 387 287Q414 260 466 260L1169 260Z" transform="translate(2961)"/>
+      <path d="M1238 358Q1238 304 1219 241.5Q1200 179 1157.5 125.5Q1115 72 1046.5 36Q978 0 880 0L411 0Q357 0 294.5 19Q232 38 178.5 80.5Q125 123 89 191.5Q53 260 53 358Q53 412 72 475Q91 538 133.5 591.5Q176 645 244.5 681Q313 717 411 717L880 717L880 469L411 469Q358 469 329 436.5Q300 404 300 356Q300 305 333.5 276.5Q367 248 413 248L880 248Q933 248 962 280Q991 312 991 360L991 723Q991 774 959.5 804Q928 834 880 834L309 834L309 1081L880 1081Q934 1081 996.5 1062Q1059 1043 1112.5 1000.5Q1166 958 1202 889.5Q1238 821 1238 723Z" transform="translate(4251)"/>
+      <path d="M597 0L481 0Q425 0 361.5 19Q298 38 243 81.5Q188 125 152 194.5Q116 264 116 365L116 1538L376 1538L376 365Q376 317 406 288.5Q436 260 481 260L597 260Z" transform="translate(5617)"/>
+      <path d="M1337 586L515 586L515 848L1337 848ZM1453 1174L411 1174L411 0L151 0L151 1303Q151 1330 161 1354Q171 1378 188.5 1396Q206 1414 230 1424Q254 1434 282 1434L1453 1434Z" transform="translate(6981)"/>
+      <path d="M597 0L481 0Q425 0 361.5 19Q298 38 243 81.5Q188 125 152 194.5Q116 264 116 365L116 1538L376 1538L376 365Q376 317 406 288.5Q436 260 481 260L597 260Z" transform="translate(8521)"/>
+      <path d="M386 1303L126 1303L126 1538L386 1538ZM386 0L126 0L126 1081L386 1081Z" transform="translate(9191)"/>
+      <path d="M1298 -104Q1298 -171 1281 -224.5Q1264 -278 1236 -318.5Q1208 -359 1171 -387.5Q1134 -416 1093.5 -434Q1053 -452 1011.5 -460.5Q970 -469 933 -469L464 -469L464 -209L933 -209Q986 -209 1012 -182Q1038 -155 1038 -104L1038 717Q1038 768 1012 794.5Q986 821 933 821L464 821Q416 821 388 791.5Q360 762 360 717L360 365Q360 314 387 287Q414 260 466 260L933 260L933 0L464 0Q427 0 386 8.5Q345 17 304.5 35Q264 53 227 81.5Q190 110 162 150.5Q134 191 117 244.5Q100 298 100 365L100 717Q100 754 108.5 795Q117 836 135 876.5Q153 917 181.5 954Q210 991 250.5 1019Q291 1047 344 1064Q397 1081 464 1081L933 1081Q970 1081 1011.5 1072.5Q1053 1064 1093.5 1046Q1134 1028 1171 999.5Q1208 971 1236 930.5Q1264 890 1281 837Q1298 784 1298 717Z" transform="translate(9732)"/>
+      <path d="M1324 0L1064 0L1064 717Q1064 768 1038 794.5Q1012 821 960 821L491 821L491 1081L960 1081Q997 1081 1038 1072.5Q1079 1064 1119.5 1046Q1160 1028 1197 999.5Q1234 971 1262 930.5Q1290 890 1307 837Q1324 784 1324 717ZM386 0L126 0L126 1538L386 1538Z" transform="translate(11174)"/>
+      <path d="M1105 821L651 821L651 0L388 0L388 821L50 821L50 1081L388 1081L388 1434L651 1434L651 1081L1105 1081Z" transform="translate(12642)"/>
+    </g>
+    <g id="lf-monogram">
+      <path d="M1468 0L282 0Q254 0 230 10Q206 20 188.5 37.5Q171 55 161 79Q151 103 151 131L151 1434L411 1434L411 260L1468 260Z"/>
+      <path d="M1337 586L515 586L515 848L1337 848ZM1453 1174L411 1174L411 0L151 0L151 1303Q151 1330 161 1354Q171 1378 188.5 1396Q206 1414 230 1424Q254 1434 282 1434L1453 1434Z" transform="translate(1540)"/>
+    </g>
+
+    <linearGradient id="scene" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#102633"/>
+      <stop offset="1" stop-color="#091720"/>
+    </linearGradient>
+    <linearGradient id="wallpaper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#244B57"/>
+      <stop offset=".48" stop-color="#18323E"/>
+      <stop offset="1" stop-color="#0B1D27"/>
+    </linearGradient>
+    <filter id="device-shadow" x="-25%" y="-20%" width="150%" height="155%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#000" flood-opacity=".42"/>
+    </filter>
+    <filter id="widget-shadow" x="-20%" y="-25%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity=".26"/>
+    </filter>
+
+    <clipPath id="compact-screen"><rect x="628" y="264" width="364" height="776" rx="48"/></clipPath>
+    <clipPath id="board-screen"><rect x="1068" y="264" width="364" height="776" rx="48"/></clipPath>
+    <clipPath id="compact-widget"><rect x="650" y="360" width="320" height="290" rx="24"/></clipPath>
+    <clipPath id="board-widget"><rect x="1090" y="360" width="320" height="320" rx="24"/></clipPath>
+  </defs>
+
+  <rect width="1600" height="1200" fill="#07131B"/>
+  <path d="M0 1054H1600" stroke="#1D3541"/>
+  <rect x="552" y="198" width="960" height="882" rx="58" fill="url(#scene)" stroke="#1E3845"/>
+  <path d="M598 238H1466" stroke="#284450" stroke-dasharray="2 11"/>
+
+  <!-- Marketing copy -->
+  <use href="#lf-wordmark" transform="translate(86 89) scale(.026 -.026)" fill="#F5F0E8"/>
+  <text x="88" y="151" class="mono caps" font-size="13" font-weight="700" fill="#74B5DE">Android Home Screen widgets</text>
+  <text x="88" y="224" class="ui" font-size="52" font-weight="700" fill="#F5F0E8">Your airport board.</text>
+  <text x="88" y="284" class="ui" font-size="52" font-weight="700" fill="#F5F0E8">One glance away.</text>
+  <text x="88" y="352" class="ui" font-size="20" fill="#A4B3BE">
+    <tspan x="88">Resize from one pinned flight to a full</tspan>
+    <tspan x="88" dy="29">three-row board—right on your Home Screen.</tspan>
+  </text>
+
+  <g transform="translate(88 462)">
+    <path d="M0 0H392" stroke="#284552"/>
+    <text x="0" y="34" class="mono caps" font-size="11" font-weight="700" fill="#E4B454">Compact</text>
+    <text x="0" y="67" class="ui" font-size="20" font-weight="700" fill="#F5F0E8">Keep one pinned flight close</text>
+    <text x="0" y="95" class="ui" font-size="15" fill="#A4B3BE">Flight, route, time, status, and gate.</text>
+    <path d="M0 135H392" stroke="#284552"/>
+    <text x="0" y="169" class="mono caps" font-size="11" font-weight="700" fill="#59C1A5">Expanded</text>
+    <text x="0" y="202" class="ui" font-size="20" font-weight="700" fill="#F5F0E8">See up to three airport movements</text>
+    <text x="0" y="230" class="ui" font-size="15" fill="#A4B3BE">The row count follows the widget’s height.</text>
+    <path d="M0 270H392" stroke="#284552"/>
+    <text x="0" y="304" class="mono caps" font-size="11" font-weight="700" fill="#74B5DE">System-aware</text>
+    <text x="0" y="337" class="ui" font-size="20" font-weight="700" fill="#F5F0E8">Light, dark, and Android accent</text>
+    <text x="0" y="365" class="ui" font-size="15" fill="#A4B3BE">The widget reads a saved copy from the app.</text>
+  </g>
+
+  <text x="628" y="226" class="mono caps" font-size="11" font-weight="700" fill="#A4B3BE">Compact · pinned flight</text>
+  <text x="1068" y="226" class="mono caps" font-size="11" font-weight="700" fill="#A4B3BE">Expanded · airport board</text>
+
+  <!-- Android phone: compact widget -->
+  <g filter="url(#device-shadow)">
+    <rect x="616" y="252" width="388" height="800" rx="60" fill="#02070B" stroke="#35505E" stroke-width="2"/>
+    <rect x="628" y="264" width="364" height="776" rx="48" fill="#17313F"/>
+  </g>
+  <g clip-path="url(#compact-screen)">
+    <rect x="628" y="264" width="364" height="776" fill="url(#wallpaper)"/>
+    <circle cx="912" cy="414" r="190" fill="#74B5DE" opacity=".08"/>
+    <circle cx="680" cy="824" r="210" fill="#E4B454" opacity=".05"/>
+    <text x="650" y="299" class="ui" font-size="12" font-weight="700" fill="#F5F0E8">9:41</text>
+    <path d="M933 292h3m4-3v6m5-9v9" stroke="#F5F0E8" stroke-width="2" stroke-linecap="round"/>
+    <path d="M953 291q7-7 14 0m-11 3q4-4 8 0" fill="none" stroke="#F5F0E8" stroke-width="1.7" stroke-linecap="round"/>
+    <rect x="975" y="287" width="13" height="8" rx="2" fill="#F5F0E8"/>
+    <circle cx="810" cy="282" r="6" fill="#02070B"/>
+    <text x="650" y="331" class="ui" font-size="16" font-weight="700" fill="#F5F0E8">Tue, 23 Jul</text>
+
+    <!-- Compact RemoteViews layout -->
+    <g transform="translate(650 360) scale(.72) translate(-650 -360)" clip-path="url(#compact-widget)" filter="url(#widget-shadow)">
+      <rect x="650" y="360" width="320" height="290" rx="24" fill="#08141D"/>
+      <rect x="662" y="372" width="44" height="3" rx="1.5" fill="#E4B454"/>
+      <text x="662" y="399" class="mono" font-size="10" font-weight="700" fill="#A4B3BE">ZRH  ·  DEPARTURES</text>
+      <text x="958" y="399" text-anchor="end" class="mono" font-size="10" font-weight="700" fill="#59C1A5">UPDATED NOW</text>
+      <text x="662" y="435" class="mono" font-size="10" font-weight="700" fill="#E4B454">PINNED FLIGHT</text>
+      <text x="958" y="435" text-anchor="end" class="mono" font-size="10" font-weight="700" fill="#E4B454">DELAYED</text>
+      <text x="662" y="493" class="mono" font-size="38" font-weight="700" fill="#F5F0E8">LX 2808</text>
+      <text x="662" y="529" class="ui" font-size="21" font-weight="700" fill="#F5F0E8">Geneva</text>
+      <text x="662" y="558" class="mono" font-size="13" font-weight="700" fill="#A4B3BE">17:10  ·  GVA</text>
+      <text x="662" y="622" class="mono" font-size="12" font-weight="700" fill="#A4B3BE">GATE</text>
+      <rect x="706" y="601" width="46" height="30" rx="8" fill="#102330"/>
+      <text x="729" y="621" text-anchor="middle" class="mono" font-size="13" font-weight="700" fill="#F5F0E8">A62</text>
+    </g>
+
+    <g opacity=".88">
+      <rect x="900" y="374" width="58" height="58" rx="17" fill="#F5F0E8" fill-opacity=".15"/>
+      <circle cx="929" cy="403" r="11" fill="none" stroke="#74B5DE" stroke-width="2"/>
+      <path d="M929 392v22M918 403h22" stroke="#74B5DE" stroke-width="1.5" opacity=".7"/>
+      <rect x="900" y="458" width="58" height="58" rx="17" fill="#F5F0E8" fill-opacity=".15"/>
+      <path d="M916 492q13-24 26 0" fill="none" stroke="#59C1A5" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="929" cy="478" r="6" fill="#59C1A5"/>
+      <rect x="650" y="688" width="58" height="58" rx="17" fill="#F5F0E8" fill-opacity=".15"/>
+      <rect x="735" y="688" width="58" height="58" rx="17" fill="#F5F0E8" fill-opacity=".15"/>
+      <rect x="820" y="688" width="58" height="58" rx="17" fill="#F5F0E8" fill-opacity=".15"/>
+      <rect x="905" y="688" width="58" height="58" rx="17" fill="#F5F0E8" fill-opacity=".15"/>
+    </g>
+    <rect x="650" y="948" width="320" height="72" rx="30" fill="#F5F0E8" fill-opacity=".12"/>
+    <circle cx="696" cy="984" r="21" fill="#59C1A5" opacity=".76"/>
+    <circle cx="772" cy="984" r="21" fill="#74B5DE" opacity=".76"/>
+    <circle cx="848" cy="984" r="21" fill="#E4B454" opacity=".76"/>
+    <circle cx="924" cy="984" r="21" fill="#F07C62" opacity=".7"/>
+    <path d="M779 1028h62" stroke="#F5F0E8" stroke-width="4" stroke-linecap="round" opacity=".82"/>
+  </g>
+
+  <!-- Android phone: expanded board widget -->
+  <g filter="url(#device-shadow)">
+    <rect x="1056" y="252" width="388" height="800" rx="60" fill="#02070B" stroke="#35505E" stroke-width="2"/>
+    <rect x="1068" y="264" width="364" height="776" rx="48" fill="#17313F"/>
+  </g>
+  <g clip-path="url(#board-screen)">
+    <rect x="1068" y="264" width="364" height="776" fill="url(#wallpaper)"/>
+    <circle cx="1370" cy="420" r="205" fill="#74B5DE" opacity=".07"/>
+    <circle cx="1106" cy="830" r="210" fill="#59C1A5" opacity=".045"/>
+    <text x="1090" y="299" class="ui" font-size="12" font-weight="700" fill="#F5F0E8">9:41</text>
+    <path d="M1373 292h3m4-3v6m5-9v9" stroke="#F5F0E8" stroke-width="2" stroke-linecap="round"/>
+    <path d="M1393 291q7-7 14 0m-11 3q4-4 8 0" fill="none" stroke="#F5F0E8" stroke-width="1.7" stroke-linecap="round"/>
+    <rect x="1415" y="287" width="13" height="8" rx="2" fill="#F5F0E8"/>
+    <circle cx="1250" cy="282" r="6" fill="#02070B"/>
+    <text x="1090" y="331" class="ui" font-size="16" font-weight="700" fill="#F5F0E8">Tue, 23 Jul</text>
+
+    <!-- Expanded RemoteViews board layout -->
+    <g clip-path="url(#board-widget)" filter="url(#widget-shadow)">
+      <rect x="1090" y="360" width="320" height="320" rx="24" fill="#08141D"/>
+      <rect x="1102" y="372" width="44" height="3" rx="1.5" fill="#E4B454"/>
+      <rect x="1102" y="391" width="28" height="28" rx="5" fill="#102330"/>
+      <use href="#lf-monogram" transform="translate(1107 413) scale(.0065 -.0065)" fill="#E4B454"/>
+      <text x="1140" y="403" class="ui" font-size="14" font-weight="700" fill="#F5F0E8">Zurich Airport</text>
+      <text x="1140" y="418" class="mono" font-size="8" font-weight="700" fill="#E4B454">ZRH  ·  DEPARTURES</text>
+      <text x="1398" y="407" text-anchor="end" class="mono" font-size="8" font-weight="700" fill="#59C1A5">UPDATED NOW</text>
+
+      <g>
+        <rect x="1102" y="432" width="296" height="68" rx="16" fill="#102330" stroke="#284352"/>
+        <rect x="1110" y="452" width="3" height="28" fill="#E4B454"/>
+        <text x="1122" y="470" class="mono" font-size="12" font-weight="700" fill="#F5F0E8">17:10</text>
+        <text x="1177" y="463" class="mono" font-size="12" font-weight="700" fill="#74B5DE">LX 2808</text>
+        <text x="1177" y="479" class="ui" font-size="10" fill="#A4B3BE">Geneva  ·  GVA</text>
+        <text x="1387" y="463" text-anchor="end" class="ui" font-size="10" font-weight="700" fill="#E4B454">Delayed</text>
+        <text x="1387" y="479" text-anchor="end" class="ui" font-size="9" fill="#A4B3BE">Gate A62</text>
+      </g>
+      <g>
+        <rect x="1102" y="506" width="296" height="68" rx="16" fill="#102330" stroke="#284352"/>
+        <text x="1122" y="544" class="mono" font-size="12" font-weight="700" fill="#F5F0E8">17:25</text>
+        <text x="1177" y="537" class="mono" font-size="12" font-weight="700" fill="#74B5DE">LX 1724</text>
+        <text x="1177" y="553" class="ui" font-size="10" fill="#A4B3BE">Bordeaux  ·  BDS</text>
+        <text x="1387" y="537" text-anchor="end" class="ui" font-size="10" font-weight="700" fill="#74B5DE">Scheduled</text>
+        <text x="1387" y="553" text-anchor="end" class="ui" font-size="9" fill="#A4B3BE">Gate A64</text>
+      </g>
+      <g>
+        <rect x="1102" y="580" width="296" height="68" rx="16" fill="#102330" stroke="#284352"/>
+        <text x="1122" y="618" class="mono" font-size="12" font-weight="700" fill="#F5F0E8">17:40</text>
+        <text x="1177" y="611" class="mono" font-size="12" font-weight="700" fill="#74B5DE">WK 200</text>
+        <text x="1177" y="627" class="ui" font-size="10" fill="#A4B3BE">Gran Canaria  ·  LPA</text>
+        <text x="1387" y="611" text-anchor="end" class="ui" font-size="10" font-weight="700" fill="#59C1A5">Boarding</text>
+        <text x="1387" y="627" text-anchor="end" class="ui" font-size="9" fill="#A4B3BE">Gate B31</text>
+      </g>
+    </g>
+
+    <g opacity=".88">
+      <rect x="1090" y="718" width="58" height="58" rx="17" fill="#F5F0E8" fill-opacity=".15"/>
+      <rect x="1175" y="718" width="58" height="58" rx="17" fill="#F5F0E8" fill-opacity=".15"/>
+      <rect x="1260" y="718" width="58" height="58" rx="17" fill="#F5F0E8" fill-opacity=".15"/>
+      <rect x="1345" y="718" width="58" height="58" rx="17" fill="#F5F0E8" fill-opacity=".15"/>
+    </g>
+    <rect x="1090" y="948" width="320" height="72" rx="30" fill="#F5F0E8" fill-opacity=".12"/>
+    <circle cx="1136" cy="984" r="21" fill="#59C1A5" opacity=".76"/>
+    <circle cx="1212" cy="984" r="21" fill="#74B5DE" opacity=".76"/>
+    <circle cx="1288" cy="984" r="21" fill="#E4B454" opacity=".76"/>
+    <circle cx="1364" cy="984" r="21" fill="#F07C62" opacity=".7"/>
+    <path d="M1219 1028h62" stroke="#F5F0E8" stroke-width="4" stroke-linecap="round" opacity=".82"/>
+  </g>
+
+  <!-- Platform and safety disclaimer -->
+  <text x="88" y="1114" class="ui" font-size="13" fill="#7F919C">
+    <tspan x="88">Illustrative rendering based on the current Local Flight testing widget; appearance varies by device, launcher, Android version, theme, system accent, and available data.</tspan>
+    <tspan x="88" dy="22">Android is a trademark of Google LLC. Local Flight is for informational display and hobby use only—not navigation or safety decisions.</tspan>
+  </text>
+</svg>

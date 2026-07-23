@@ -5,12 +5,12 @@ import SectionHeading from "../../../components/SectionHeading.astro";
 import MobileModeSwitcher from "../../../components/MobileModeSwitcher.astro";
 import SafetyNotice from "../../../components/SafetyNotice.astro";
 import { currentRelease } from "../../../data/site";
-import iosFids from "../../../assets/screens/mobile/ios/fids-0.5.1.png";
-import iosRadar from "../../../assets/screens/mobile/ios/radar-0.5.1.png";
-import iosHistory from "../../../assets/screens/mobile/ios/history-0.5.1.png";
-import iosSetup from "../../../assets/screens/mobile/ios/setup-0.5.1.png";
-import androidFids from "../../../assets/screens/mobile/android/fids.png";
-import androidRadar from "../../../assets/screens/mobile/android/radar.png";
+import iosFids from "../../../assets/screens/mobile/ios/current/fids-dark.png";
+import iosRadar from "../../../assets/screens/mobile/ios/current/radar-dark.png";
+import iosHistory from "../../../assets/screens/mobile/ios/current/history-dark.png";
+import androidFids from "../../../assets/screens/mobile/android/current/fids-light.png";
+import androidRadar from "../../../assets/screens/mobile/android/current/radar-light.png";
+import androidHistory from "../../../assets/screens/mobile/android/current/history-light.png";
 ---
 
 <SiteLayout
@@ -32,10 +32,10 @@ import androidRadar from "../../../assets/screens/mobile/android/radar.png";
       </div>
       <div class="hero-visual hero-visual--wide phone-composition" aria-label="Local Flight Mobile interface previews" data-reveal>
         <div class="phone-frame phone-frame--primary">
-          <Picture src={iosFids} formats={["avif", "webp"]} widths={[300, 480, 640]} sizes="(max-width: 680px) 52vw, 280px" alt="Local Flight Mobile board on iOS" loading="eager" />
+          <Picture src={iosFids} formats={["avif", "webp"]} widths={[300, 480, 640]} sizes="(max-width: 680px) 52vw, 280px" alt="Local Flight Mobile flight board on iOS in dark appearance" loading="eager" />
         </div>
         <div class="phone-frame phone-frame--secondary">
-          <Picture src={androidRadar} formats={["avif", "webp"]} widths={[300, 480, 640]} sizes="(max-width: 680px) 52vw, 280px" alt="Local Flight Mobile radar on Android" loading="eager" />
+          <Picture src={androidRadar} formats={["avif", "webp"]} widths={[300, 480, 640]} sizes="(max-width: 680px) 52vw, 280px" alt="Local Flight Mobile radar on Android in light appearance" loading="eager" />
         </div>
       </div>
     </div>
@@ -62,23 +62,41 @@ import androidRadar from "../../../assets/screens/mobile/android/radar.png";
 
   <section class="section">
     <div class="terminal-frame">
-      <SectionHeading index="03 / CURRENT BUILDS" title="Real screens from the current testing build." description={`The iOS captures are from 0.5.1 and remain visually current for ${currentRelease}; Android shows the matching testing interface. These are real Local Flight screens, not generic device mockups.`} />
+      <SectionHeading index="03 / CURRENT BUILDS" title="Real screens from the current testing build." description={`These ${currentRelease} testing-build captures show iOS in dark appearance and Android in light appearance. They are real Local Flight screens, not generic device mockups.`} />
       <div class="preview-strip" data-reveal>
-        <figure class="preview-phone"><Picture src={iosRadar} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Radar on iOS" /><figcaption>iOS / Radar · 0.5.1</figcaption></figure>
-        <figure class="preview-phone"><Picture src={androidFids} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Board on Android" /><figcaption>Android / Board</figcaption></figure>
-        <figure class="preview-phone"><Picture src={iosHistory} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="History on iOS" /><figcaption>iOS / History · 0.5.1</figcaption></figure>
-        <figure class="preview-phone"><Picture src={iosSetup} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Setup on iOS" /><figcaption>iOS / Setup · 0.5.1</figcaption></figure>
+        <figure class="preview-phone"><Picture src={iosRadar} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight Radar on iOS in dark appearance" /><figcaption>iOS / RADAR · DARK APPEARANCE</figcaption></figure>
+        <figure class="preview-phone"><Picture src={androidFids} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight flight board on Android in light appearance" /><figcaption>ANDROID / BOARD · LIGHT APPEARANCE</figcaption></figure>
+        <figure class="preview-phone"><Picture src={iosHistory} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight History on iOS in dark appearance" /><figcaption>iOS / HISTORY · DARK APPEARANCE</figcaption></figure>
+        <figure class="preview-phone"><Picture src={androidHistory} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight History on Android in light appearance" /><figcaption>ANDROID / HISTORY · LIGHT APPEARANCE</figcaption></figure>
       </div>
+    </div>
+  </section>
+
+  <section class="section section--raised section--ruled">
+    <div class="terminal-frame">
+      <SectionHeading index="04 / WIDGETS" title="Flight information where your phone already looks." description="The native extensions turn the latest copy saved by Local Flight into a quick Home Screen view. A pinned flight can also appear as a Live Activity on supported iPhones." />
+      <div class="extension-showcase" data-reveal>
+        <figure class="extension-preview">
+          <img src="/assets/previews/mobile/localflight-ios-widgets-marketing.svg" width="1600" height="1200" loading="lazy" alt="Local Flight iOS small and medium widgets beside a pinned-flight Lock Screen Live Activity" />
+          <figcaption><strong>iOS / WIDGETKIT + LIVE ACTIVITY</strong><span>Current native testing extension · illustrative device context</span></figcaption>
+        </figure>
+        <figure class="extension-preview">
+          <img src="/assets/previews/mobile/localflight-android-widgets-marketing.svg" width="1600" height="1200" loading="lazy" alt="Local Flight Android widget in compact pinned-flight and expanded airport-board sizes" />
+          <figcaption><strong>ANDROID / RESIZABLE HOME SCREEN WIDGET</strong><span>Current native testing widget · illustrative device context</span></figcaption>
+        </figure>
+      </div>
+      <p class="hero-footnote extension-note">Widgets show saved app information and do not fetch from your Local Flight computer, Community Relay, or an aviation-data provider by themselves. Device, operating-system, launcher, theme, and data differences can change the final appearance.</p>
     </div>
   </section>
 
   <section class="section section--quiet section--ruled">
     <div class="terminal-frame">
-      <SectionHeading index="04 / UPDATE TIMING" title="How often phone-only mode checks for new data." description="Standalone uses measured update limits to keep Community Relay sustainable. If a provider has a temporary problem, the last known board can remain visible instead of disappearing." />
-      <div class="cadence-line" data-reveal>
-        <article class="cadence-item"><strong>About 1 h</strong><h3>Flight board</h3><p>Airline schedules usually refresh about once an hour. Shared information may still be cached or delayed.</p></article>
-        <article class="cadence-item"><strong>About 3 min</strong><h3>Open Radar</h3><p>Nearby traffic can refresh about every 3 minutes while Radar is open.</p></article>
-        <article class="cadence-item"><strong>10 NM</strong><h3>Maximum range</h3><p>Phone-only radar offers 1, 3, 5, and 10 nautical mile ranges.</p></article>
+      <SectionHeading index="05 / UPDATE TIMING" title="What updates—and when—in phone-only mode." description="Standalone uses separate timing for new shared data and for updating the saved view already on the phone. These are target intervals, not guarantees; provider delays can keep an older board visible with its freshness time." />
+      <div class="cadence-line cadence-line--mobile" data-reveal>
+        <article class="cadence-item"><strong>About 1 h</strong><h3>Real-world schedules</h3><p>Standalone requests new shared airline-schedule data no more often than about once an hour.</p></article>
+        <article class="cadence-item"><strong>Every 5 min</strong><h3>Saved board view</h3><p>Between data checks, the app re-evaluates the saved board about every five minutes. This does not request a new airline schedule.</p></article>
+        <article class="cadence-item"><strong>About 3 min</strong><h3>Real-world Radar</h3><p>Nearby aircraft can refresh about every three minutes while Radar is open, with 1, 3, 5, and 10 NM ranges.</p></article>
+        <article class="cadence-item"><strong>About 1 min</strong><h3>VATSIM mode</h3><p>When Standalone uses public virtual-network data, both its board and Radar target about one-minute checks.</p></article>
       </div>
     </div>
   </section>
@@ -86,7 +104,7 @@ import androidRadar from "../../../assets/screens/mobile/android/radar.png";
   <section class="section" id="availability">
     <div class="terminal-frame terminal-grid split-story">
       <div class="split-story-copy" data-reveal>
-        <span class="section-index">05 / AVAILABILITY</span>
+        <span class="section-index">06 / AVAILABILITY</span>
         <h2>The mobile apps are currently in testing.</h2>
         <p>Version {currentRelease} is currently distributed through TestFlight and Google Play internal testing. Public store badges remain unavailable until review is complete.</p>
         <ul class="data-list">
@@ -113,8 +131,8 @@ import androidRadar from "../../../assets/screens/mobile/android/radar.png";
       </div>
       <div class="split-story-media">
         <div class="media-stage" data-reveal>
-          <Picture src={androidRadar} formats={["avif", "webp"]} widths={[420, 640, 860]} sizes="(max-width: 680px) 90vw, 46vw" alt="Local Flight Android radar view" />
-          <div class="media-caption"><strong>ANDROID / RADAR</strong><span>Testing build preview</span></div>
+          <Picture src={androidRadar} formats={["avif", "webp"]} widths={[420, 640, 860]} sizes="(max-width: 680px) 90vw, 46vw" alt="Local Flight Android Radar in light appearance" />
+          <div class="media-caption"><strong>ANDROID / RADAR</strong><span>Current testing build · light appearance</span></div>
         </div>
       </div>
     </div>

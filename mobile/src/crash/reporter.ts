@@ -83,6 +83,7 @@ async function postStandaloneCrash(input: CrashInput): Promise<boolean> {
       installId: setup.relayInstallId,
       activationToken: setup.relayActivationToken,
       airport: setup.standaloneAirport,
+      source: setup.standaloneSource || "real",
       diagnosticsMode: mobileDiagnosticsMode
     },
     {

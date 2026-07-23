@@ -14,7 +14,7 @@ import type {
 } from "./types";
 import { LocalFlightApiError, normalizeServerUrl } from "./client";
 import { appVersion, getCompanionIdentity, mobileOsLabel, mobileReportOrigin } from "../device/identity";
-import type { MobileDiagnosticsMode, StandaloneAirport } from "../storage/settings";
+import type { MobileDiagnosticsMode, StandaloneAirport, StandaloneFlightSource } from "../storage/settings";
 
 export const DEFAULT_RELAY_URL = "https://relay.beacontools.cc";
 const CLIENT_KIND = "mobile_standalone";
@@ -24,6 +24,7 @@ const DEFAULT_RELAY_FALLBACK_URL = "https://localflight-community-relay.fly.dev"
 const STANDALONE_BOARD_ROWS_PER_DIRECTION = 50;
 const STANDALONE_BOARD_REFRESH_SECONDS = 3_600;
 const ROUTE_UNAVAILABLE_STATUSES = new Set([404, 405]);
+const VATSIM_UNAVAILABLE_MESSAGE = "VATSIM traffic is not available from this relay yet. Your selection is saved; try again after the relay is updated.";
 
 export type StandaloneCredentials = {
   relayUrl?: string;
@@ -31,6 +32,7 @@ export type StandaloneCredentials = {
   activationToken: string;
   airport: StandaloneAirport;
   diagnosticsMode: MobileDiagnosticsMode;
+  source: StandaloneFlightSource;
 };
 
 export type StandaloneActivationResult = {
@@ -131,7 +133,7 @@ async function fetchRelayResponse(base: string, path: string, init?: RequestInit
 
 async function standaloneParams(credentials: StandaloneCredentials): Promise<URLSearchParams> {
   const identity = await getCompanionIdentity();
-  return new URLSearchParams({
+  const params = new URLSearchParams({
     install_id: credentials.installId,
     activation_token: credentials.activationToken,
     app_version: appVersion(),
@@ -142,6 +144,8 @@ async function standaloneParams(credentials: StandaloneCredentials): Promise<URL
     timezone: credentials.airport.timezone || "UTC",
     diagnostics_mode: credentials.diagnosticsMode
   });
+  params.set("source", credentials.source);
+  return params;
 }
 
 export function searchStandaloneAirports(q: string, limit = 8, relayUrl?: string): Promise<AirportResult[]> {
@@ -200,7 +204,15 @@ export async function activateStandalone(
 
 export async function getStandaloneSummary(credentials: StandaloneCredentials): Promise<DashboardSnapshot> {
   const params = await standaloneParams(credentials);
-  return fetchRelayJson<DashboardSnapshot>(credentials.relayUrl, `/v1/mobile/summary?${params}`);
+  const summary = await fetchRelayJson<DashboardSnapshot>(credentials.relayUrl, `/v1/mobile/summary?${params}`);
+  if (
+    credentials.source === "virtual"
+    && summary.config?.source !== "virtual"
+    && summary.standalone_policy?.source !== "virtual"
+  ) {
+    throw new LocalFlightApiError(VATSIM_UNAVAILABLE_MESSAGE, 503);
+  }
+  return summary;
 }
 
 export async function getStandaloneFids(
@@ -219,10 +231,17 @@ export async function getStandaloneBoard(
 ): Promise<MobileBoardResponse> {
   const params = await standaloneParams(credentials);
   try {
-    return await fetchRelayJson<MobileBoardResponse>(credentials.relayUrl, `/v1/mobile/board?${params}`);
+    const board = await fetchRelayJson<MobileBoardResponse>(credentials.relayUrl, `/v1/mobile/board?${params}`);
+    if (credentials.source === "virtual" && board.source !== "virtual") {
+      throw new LocalFlightApiError(VATSIM_UNAVAILABLE_MESSAGE, 503);
+    }
+    return board;
   } catch (error) {
     if (!(error instanceof LocalFlightApiError) || !ROUTE_UNAVAILABLE_STATUSES.has(error.status || 0)) {
       throw error;
+    }
+    if (credentials.source === "virtual") {
+      throw new LocalFlightApiError(VATSIM_UNAVAILABLE_MESSAGE, 503);
     }
 
     // Mobile V2 introduced one combined Board response so both directions can
@@ -262,7 +281,11 @@ export async function getStandaloneRadar(
 ): Promise<RadarResponse> {
   const params = await standaloneParams(credentials);
   params.set("radius_nm", String(radiusNm));
-  return fetchRelayJson<RadarResponse>(credentials.relayUrl, `/v1/mobile/radar?${params}`);
+  const radar = await fetchRelayJson<RadarResponse>(credentials.relayUrl, `/v1/mobile/radar?${params}`);
+  if (credentials.source === "virtual" && String(radar.source || "").toLowerCase() !== "vatsim") {
+    throw new LocalFlightApiError(VATSIM_UNAVAILABLE_MESSAGE, 503);
+  }
+  return radar;
 }
 
 export async function getStandaloneRadarGround(
@@ -300,7 +323,7 @@ export async function submitStandaloneFeedback(
       platform: "mobile_standalone",
       os: mobileOsLabel(),
       airport: credentials.airport.iata,
-      source: "real",
+      source: credentials.source,
       api_mode: "relay",
       diagnostics_mode: credentials.diagnosticsMode
     })
@@ -328,7 +351,7 @@ export async function submitStandaloneCrash(
       platform: "mobile_standalone",
       os: mobileOsLabel(),
       airport: credentials.airport.iata,
-      source: "real",
+      source: credentials.source,
       api_mode: "relay",
       diagnostics_mode: credentials.diagnosticsMode
     })

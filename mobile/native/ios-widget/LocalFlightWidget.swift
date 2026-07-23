@@ -9,7 +9,7 @@ struct LocalFlightTimelineEntry: TimelineEntry {
 struct LocalFlightWidgetProvider: TimelineProvider {
   private func nextRefresh(for snapshot: LocalFlightWidgetSnapshot) -> Date {
     let fallback = Date().addingTimeInterval(15 * 60)
-    guard let expiry = ISO8601DateFormatter().date(from: snapshot.expiresAt) else {
+    guard let expiry = LocalFlightISO8601.date(from: snapshot.expiresAt) else {
       return fallback
     }
     return min(max(expiry, Date().addingTimeInterval(5 * 60)), Date().addingTimeInterval(30 * 60))

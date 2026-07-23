@@ -25,6 +25,9 @@ export type DisplayScreenV2Props = {
   metar: Metar | null;
   pinnedCallsign: string;
   pageSeconds?: number;
+  entryReason: "manual" | "rotation" | "deep-link";
+  autoDisplayOnRotate: boolean;
+  onAutoDisplayOnRotateChange: (next: boolean) => void;
   onExit: () => void;
 };
 
@@ -52,6 +55,9 @@ export function DisplayScreenV2({
   metar,
   pinnedCallsign,
   pageSeconds = 8,
+  entryReason,
+  autoDisplayOnRotate,
+  onAutoDisplayOnRotateChange,
   onExit
 }: DisplayScreenV2Props) {
   useKeepAwake();
@@ -61,12 +67,14 @@ export function DisplayScreenV2({
   const styles = useMemo(() => makeStyles(appearance), [appearance]);
   const [paused, setPaused] = useState(reduceMotion);
   const [pageIndex, setPageIndex] = useState(0);
+  const [boardHeight, setBoardHeight] = useState(0);
   // Orientation is the one place where the physical screen matters: a tablet
   // in Split View can have a phone-width window but must still respect the
   // user's current window orientation. All composition remains width-driven.
   const screen = Dimensions.get("screen");
   const compactScreen = Math.min(screen.width, screen.height) < 600;
-  const pageSize = height < 430 ? 4 : height < 650 ? 6 : 8;
+  const estimatedBoardHeight = Math.max(120, height - (height < 430 ? 198 : 224));
+  const pageSize = Math.max(1, Math.min(8, Math.floor((boardHeight || estimatedBoardHeight) / (height < 430 ? 58 : 66))));
   const boardRows = useMemo(
     () => boardRowsViewModel(rows, pinnedCallsign).filter((row) => row.view === view),
     [pinnedCallsign, rows, view]
@@ -87,12 +95,12 @@ export function DisplayScreenV2({
   }, [reduceMotion]);
 
   useEffect(() => {
-    if (!compactScreen) return;
+    if (!compactScreen || entryReason === "rotation") return;
     void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => undefined);
     return () => {
       void ScreenOrientation.unlockAsync().catch(() => undefined);
     };
-  }, [compactScreen]);
+  }, [compactScreen, entryReason]);
 
   useEffect(() => {
     setPageIndex((current) => Math.min(current, Math.max(0, pages.length - 1)));
@@ -123,7 +131,7 @@ export function DisplayScreenV2({
       onAccessibilityEscape={onExit}
     >
       <StatusBar hidden />
-      <View style={styles.header}>
+      <View style={[styles.header, height < 430 && styles.headerShort]}>
         <View style={styles.brandBlock}>
           <BrandWordmark color={appearance.text} size={18}>Local Flight</BrandWordmark>
           <Text style={styles.airport} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.78}>{airportHero.airportName}</Text>
@@ -149,6 +157,37 @@ export function DisplayScreenV2({
         </Pressable>
       </View>
 
+      <View style={styles.utilityStrip}>
+        <Pressable style={styles.utilityButton} onPress={previousPage} disabled={pages.length <= 1} {...accessibleButton({ label: "Previous board page", disabled: pages.length <= 1 })}>
+          <LocalFlightIcon name="chevron-left" size={19} color={pages.length <= 1 ? appearance.textDim : appearance.text} />
+        </Pressable>
+        <Text style={styles.pageLabel}>Page {Math.min(pageIndex + 1, pages.length)} of {pages.length}</Text>
+        <Pressable
+          style={styles.pauseButton}
+          onPress={() => setPaused((value) => !value)}
+          disabled={reduceMotion || pages.length <= 1}
+          {...accessibleButton({ label: paused ? "Resume automatic board paging" : "Pause automatic board paging", disabled: reduceMotion || pages.length <= 1 })}
+        >
+          <LocalFlightIcon name={paused ? "play" : "pause"} size={16} color={appearance.blue} />
+          <Text style={styles.pauseText}>{paused ? "Paused" : `${Math.max(3, pageSeconds)} sec`}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.rotationButton, autoDisplayOnRotate && styles.rotationButtonActive]}
+          onPress={() => onAutoDisplayOnRotateChange(!autoDisplayOnRotate)}
+          {...accessibleButton({
+            label: "Enter Display when this device rotates",
+            hint: autoDisplayOnRotate ? "Enabled" : "Disabled",
+            selected: autoDisplayOnRotate
+          })}
+        >
+          <LocalFlightIcon name="phone-rotate-landscape" size={17} color={autoDisplayOnRotate ? appearance.blue : appearance.textMuted} />
+          <Text style={[styles.rotationText, autoDisplayOnRotate && styles.rotationTextActive]}>Rotate</Text>
+        </Pressable>
+        <Pressable style={styles.utilityButton} onPress={nextPage} disabled={pages.length <= 1} {...accessibleButton({ label: "Next board page", disabled: pages.length <= 1 })}>
+          <LocalFlightIcon name="chevron-right" size={19} color={pages.length <= 1 ? appearance.textDim : appearance.text} />
+        </Pressable>
+      </View>
+
       <View style={styles.columnHeader}>
         <Text style={[styles.heading, styles.timeColumn]}>Time</Text>
         <Text style={[styles.heading, styles.flightColumn]}>Flight</Text>
@@ -158,7 +197,11 @@ export function DisplayScreenV2({
         <Text style={[styles.heading, styles.gateColumn]}>Gate</Text>
       </View>
 
-      <View style={styles.board} onTouchStart={() => setPaused(true)}>
+      <View
+        style={styles.board}
+        onLayout={(event) => setBoardHeight(event.nativeEvent.layout.height)}
+        onTouchStart={() => setPaused(true)}
+      >
         {page.length ? page.map((row) => (
           <View
             key={row.id}
@@ -191,24 +234,6 @@ export function DisplayScreenV2({
         )}
       </View>
 
-      <View style={styles.footer}>
-        <Pressable style={styles.footerButton} onPress={previousPage} disabled={pages.length <= 1} {...accessibleButton({ label: "Previous board page", disabled: pages.length <= 1 })}>
-          <LocalFlightIcon name="chevron-left" size={20} color={pages.length <= 1 ? appearance.textDim : appearance.text} />
-        </Pressable>
-        <Text style={styles.pageLabel}>Page {Math.min(pageIndex + 1, pages.length)} of {pages.length}</Text>
-        <Pressable
-          style={styles.pauseButton}
-          onPress={() => setPaused((value) => !value)}
-          disabled={reduceMotion || pages.length <= 1}
-          {...accessibleButton({ label: paused ? "Resume automatic board paging" : "Pause automatic board paging", disabled: reduceMotion || pages.length <= 1 })}
-        >
-          <LocalFlightIcon name={paused ? "play" : "pause"} size={17} color={appearance.blue} />
-          <Text style={styles.pauseText}>{paused ? "Paused" : `Auto page · ${Math.max(3, pageSeconds)} sec`}</Text>
-        </Pressable>
-        <Pressable style={styles.footerButton} onPress={nextPage} disabled={pages.length <= 1} {...accessibleButton({ label: "Next board page", disabled: pages.length <= 1 })}>
-          <LocalFlightIcon name="chevron-right" size={20} color={pages.length <= 1 ? appearance.textDim : appearance.text} />
-        </Pressable>
-      </View>
     </SafeAreaView>
   );
 }
@@ -217,6 +242,7 @@ function makeStyles(a: MobileAppearance) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: a.bg, padding: 12 },
     header: { minHeight: 104, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: a.header, borderRadius: 22, paddingHorizontal: 15, paddingVertical: 12 },
+    headerShort: { minHeight: 86, paddingVertical: 8 },
     brandBlock: { flex: 1.65, minWidth: 0 },
     airport: { color: a.text, fontSize: 15, lineHeight: 18, fontWeight: "700", marginTop: 5 },
     airportIdentity: { color: a.textMuted, fontSize: 11, marginTop: 3 },
@@ -230,7 +256,13 @@ function makeStyles(a: MobileAppearance) {
     weatherTemperature: { color: a.blue, fontSize: 18, fontWeight: "700" },
     weather: { color: a.textMuted, fontSize: 11, lineHeight: 15, marginTop: 3, textAlign: "right" },
     exitButton: { width: 44, height: 44, borderRadius: 15, backgroundColor: a.lineSoft, alignItems: "center", justifyContent: "center" },
-    columnHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10 },
+    utilityStrip: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 3 },
+    utilityButton: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: a.lineSoft },
+    rotationButton: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 11, borderRadius: 14, backgroundColor: a.lineSoft },
+    rotationButtonActive: { backgroundColor: `${a.blue}12` },
+    rotationText: { color: a.textMuted, fontSize: 12, fontWeight: "600" },
+    rotationTextActive: { color: a.blue },
+    columnHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6 },
     heading: { color: a.textMuted, fontSize: 12, fontWeight: "600" },
     board: { flex: 1, gap: 6 },
     row: { flex: 1, minHeight: 54, maxHeight: 88, flexDirection: "row", alignItems: "center", backgroundColor: a.shell, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
@@ -251,10 +283,8 @@ function makeStyles(a: MobileAppearance) {
     empty: { flex: 1, alignItems: "center", justifyContent: "center" },
     emptyTitle: { color: a.text, fontSize: 22, fontWeight: "700", marginTop: 14 },
     emptyBody: { color: a.textMuted, fontSize: 14, marginTop: 6 },
-    footer: { minHeight: 56, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, paddingTop: 8 },
-    footerButton: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: a.lineSoft },
-    pageLabel: { color: a.textMuted, fontSize: 13, minWidth: 100, textAlign: "center" },
-    pauseButton: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 14, borderRadius: 14, backgroundColor: `${a.blue}12` },
-    pauseText: { color: a.blue, fontSize: 13, fontWeight: "600" }
+    pageLabel: { color: a.textMuted, fontSize: 12, minWidth: 76, textAlign: "center" },
+    pauseButton: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 11, borderRadius: 14, backgroundColor: `${a.blue}12` },
+    pauseText: { color: a.blue, fontSize: 12, fontWeight: "600" }
   });
 }

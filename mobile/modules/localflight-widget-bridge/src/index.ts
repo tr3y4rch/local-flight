@@ -23,8 +23,21 @@ export type LocalFlightLiveActivityResult = {
   action: LocalFlightLiveActivityAction;
 };
 
+export type LocalFlightWidgetSnapshotProbe = {
+  appGroupAvailable: boolean;
+  schemaVersion: number;
+  byteCount: number;
+  generatedAt: string;
+  rowCount: number;
+  pinPresent: boolean;
+  decodeResult: string;
+  lastReloadRequest: string;
+};
+
 type LocalFlightWidgetBridgeNativeModule = {
   reload(): Promise<WidgetReloadResult>;
+  probeSnapshot?(): Promise<LocalFlightWidgetSnapshotProbe>;
+  writeSnapshot?(json: string): Promise<LocalFlightWidgetSnapshotProbe>;
   isSupported?(): Promise<LocalFlightLiveActivityResult>;
   startLiveActivity?(): Promise<LocalFlightLiveActivityResult>;
   updateLiveActivity?(): Promise<LocalFlightLiveActivityResult>;
@@ -63,6 +76,28 @@ export async function reloadLocalFlightWidgets(): Promise<WidgetReloadResult> {
     // ActivityKit may be unavailable or disabled; the Home Screen widget still works.
   }
   return reloadResult;
+}
+
+export async function probeLocalFlightWidgetSnapshot(): Promise<LocalFlightWidgetSnapshotProbe | null> {
+  const module = getNativeModule();
+  if (!module?.probeSnapshot) return null;
+  try {
+    return await module.probeSnapshot();
+  } catch {
+    return null;
+  }
+}
+
+export async function writeLocalFlightWidgetSnapshot(
+  json: string
+): Promise<LocalFlightWidgetSnapshotProbe | null> {
+  const module = getNativeModule();
+  if (!module?.writeSnapshot) return null;
+  try {
+    return await module.writeSnapshot(json);
+  } catch {
+    return null;
+  }
 }
 
 const unsupportedLiveActivity = (): LocalFlightLiveActivityResult => ({

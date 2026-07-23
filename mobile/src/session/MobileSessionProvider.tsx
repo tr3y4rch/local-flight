@@ -18,6 +18,7 @@ export type MobileSessionValue = {
   radar: RadarScreenV2Props;
   history: HistoryScreenV2Props;
   notices: ClientNotice[];
+  rotationDisplayBlocked: boolean;
   onNoticeAction: (notice: ClientNotice) => void;
   onSectionFocus: (section: MobileSection) => void;
   onRefreshCurrent: () => void;

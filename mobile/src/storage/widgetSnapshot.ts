@@ -1,5 +1,10 @@
 import { File, Paths } from "expo-file-system";
-import { reloadLocalFlightWidgets } from "localflight-widget-bridge";
+import { Platform } from "react-native";
+import {
+  reloadLocalFlightWidgets,
+  writeLocalFlightWidgetSnapshot,
+  type LocalFlightWidgetSnapshotProbe
+} from "localflight-widget-bridge";
 
 import {
   parseWidgetExchangeSnapshot,
@@ -16,6 +21,7 @@ export type WidgetSnapshotWriteResult = {
   sharedContainer: boolean;
   skipped?: boolean;
   error?: string;
+  probe?: LocalFlightWidgetSnapshotProbe | null;
 };
 
 let lastWidgetSnapshotWriteKey = "";
@@ -91,6 +97,22 @@ export async function writeWidgetSnapshot(
         return { ok: true, uri: file.uri, sharedContainer, skipped: true };
       }
       const json = serializeWidgetExchangeSnapshot(snapshot);
+      if (Platform.OS === "ios") {
+        const probe = await writeLocalFlightWidgetSnapshot(json);
+        sharedContainer = Boolean(probe?.appGroupAvailable);
+        if (!probe || !probe.appGroupAvailable || probe.decodeResult !== "ok") {
+          return {
+            ok: false,
+            uri: file.uri,
+            sharedContainer,
+            probe,
+            error: probe?.decodeResult || "snapshot_write_unavailable"
+          };
+        }
+        lastWidgetSnapshotWriteKey = writeKey;
+        await reloadLocalFlightWidgets();
+        return { ok: true, uri: file.uri, sharedContainer: true, probe };
+      }
       const tempFile = new File(file.parentDirectory, nextTempSnapshotName());
 
       try {
@@ -122,7 +144,7 @@ export async function writeWidgetSnapshot(
       }
       lastWidgetSnapshotWriteKey = writeKey;
       await reloadLocalFlightWidgets();
-      return { ok: true, uri: file.uri, sharedContainer };
+      return { ok: true, uri: file.uri, sharedContainer, probe: null };
     } catch (exc) {
       return {
         ok: false,

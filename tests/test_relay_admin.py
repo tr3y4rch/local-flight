@@ -3978,6 +3978,7 @@ def test_mobile_standalone_board_returns_fifty_each_direction_from_one_metered_s
     assert first.status_code == 200
     payload = first.json()
     assert payload["schema_version"] == "mobile-board-v2"
+    assert payload["source"] == "real"
     assert payload["refresh_after_s"] == 3600
     assert payload["rows_per_direction"] == 50
     assert len(payload["departures"]) == 50
@@ -3998,6 +3999,175 @@ def test_mobile_standalone_board_returns_fifty_each_direction_from_one_metered_s
     ).fetchone()["calls"]
     conn.close()
     assert int(access_count) == 1
+
+
+def test_mobile_standalone_virtual_board_and_radar_are_private_and_source_isolated(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.delenv("RELAY_AIRPORT_SURFACE_ENABLED", raising=False)
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000913"
+    token = _activate_mobile_standalone(client, install_id)
+    reference = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    departure = (reference + timedelta(minutes=20)).strftime("%H%M")
+    arrival_departure = (reference - timedelta(minutes=20)).strftime("%H%M")
+    ttl_calls: list[int] = []
+
+    feed = {
+        "general": {"update_timestamp": reference.isoformat().replace("+00:00", "Z")},
+        "pilots": [
+            {
+                "cid": 1234567,
+                "name": "Private Pilot Name",
+                "server": "PRIVATE_SERVER",
+                "callsign": "SWRV12",
+                "latitude": 47.46,
+                "longitude": 8.56,
+                "altitude": 2400,
+                "groundspeed": 125,
+                "heading": 94,
+                "flight_plan": {
+                    "departure": "LSZH",
+                    "arrival": "EGLL",
+                    "aircraft_icao": "A320",
+                    "deptime": departure,
+                    "enroute_time": "0130",
+                    "flight_rules": "I",
+                    "route": "DEGES Z1 ETAGO",
+                },
+            },
+            {
+                "cid": 7654321,
+                "name": "Another Private Name",
+                "server": "ANOTHER_PRIVATE_SERVER",
+                "callsign": "BAWV34",
+                "latitude": 47.44,
+                "longitude": 8.52,
+                "altitude": 3100,
+                "groundspeed": 145,
+                "heading": 270,
+                "flight_plan": {
+                    "departure": "EGLL",
+                    "arrival": "LSZH",
+                    "aircraft_faa": "B738/G",
+                    "deptime": arrival_departure,
+                    "enroute_time": "0115",
+                    "flight_rules": "I",
+                    "route": "DVR UL9 KONAN",
+                },
+            },
+            {
+                "cid": 9999999,
+                "name": "Outside Airport",
+                "server": "PRIVATE_SERVER",
+                "callsign": "AAL999",
+                "latitude": 47.46,
+                "longitude": 8.56,
+                "altitude": 3500,
+                "groundspeed": 160,
+                "heading": 180,
+                "flight_plan": {
+                    "departure": "KJFK",
+                    "arrival": "KLAX",
+                    "aircraft_icao": "B789",
+                    "deptime": departure,
+                    "enroute_time": "0600",
+                    "flight_rules": "I",
+                },
+            },
+        ],
+    }
+
+    def fake_vatsim_fetch(*, ttl_s: int = 60):
+        ttl_calls.append(ttl_s)
+        return feed
+
+    monkeypatch.setattr(
+        "localflight.sources.web.vatsim_client.fetch_vatsim_data_cached",
+        fake_vatsim_fetch,
+    )
+    base_params = {
+        "install_id": install_id,
+        "activation_token": token,
+        "app_version": "0.5.2",
+        "client_kind": "mobile_standalone",
+        "airport_iata": "ZRH",
+        "airport_icao": "LSZH",
+        "timezone": "Europe/Zurich",
+        "source": "virtual",
+    }
+
+    summary = client.get("/v1/mobile/summary", params=base_params)
+    board = client.get("/v1/mobile/board", params=base_params)
+    board_cached = client.get("/v1/mobile/board", params=base_params)
+    radar = client.get("/v1/mobile/radar", params={**base_params, "radius_nm": 5})
+    radar_cached = client.get("/v1/mobile/radar", params={**base_params, "radius_nm": 5})
+
+    assert summary.status_code == 200
+    summary_payload = summary.json()
+    assert summary_payload["config"]["source"] == "virtual"
+    assert summary_payload["standalone_policy"]["source"] == "virtual"
+    assert summary_payload["standalone_policy"]["board_refresh_seconds"] == 60
+    assert summary_payload["standalone_policy"]["radar_refresh_seconds"] == 60
+
+    assert board.status_code == 200
+    board_payload = board.json()
+    assert board_payload["source"] == "virtual"
+    assert board_payload["refresh_after_s"] == 60
+    assert {row["callsign"] for row in board_payload["departures"]} == {"SWRV12"}
+    assert {row["callsign"] for row in board_payload["arrivals"]} == {"BAWV34"}
+    assert all(row.get("flight_number") in {None, ""} for row in board_payload["departures"] + board_payload["arrivals"])
+    assert board_cached.status_code == 200
+    assert board_cached.headers["x-lf-mobile-standalone-cache"] == "hit"
+
+    assert radar.status_code == 200
+    radar_payload = radar.json()
+    assert radar_payload["source"] == "vatsim"
+    assert radar_payload["refresh_after_s"] == 60
+    assert {row["callsign"] for row in radar_payload["blips"]} == {"SWRV12", "BAWV34"}
+    for row in radar_payload["blips"]:
+        assert row["flight_number"] is None
+        assert row["airline_name"] is None
+        assert row["registration"] is None
+        assert row["codeshares"] == []
+        assert row["sold_as"] == []
+        assert row["source"] == "vatsim"
+        assert row["detail_mode"] == "virtual"
+    assert radar_payload["radar_map"]["runways"]
+    assert radar_cached.status_code == 200
+    assert radar_cached.headers["x-lf-mobile-standalone-cache"] == "hit"
+
+    serialized = json.dumps({"board": board_payload, "radar": radar_payload})
+    for private_value in (
+        "Private Pilot Name",
+        "Another Private Name",
+        "Outside Airport",
+        "PRIVATE_SERVER",
+        "ANOTHER_PRIVATE_SERVER",
+        "1234567",
+        "7654321",
+        "9999999",
+    ):
+        assert private_value not in serialized
+    assert "AAL999" not in serialized
+    assert ttl_calls == [60, 60]
+
+    conn = relay_main._connect()
+    cache_keys = {
+        str(row["cache_key"])
+        for row in conn.execute(
+            "SELECT cache_key FROM mobile_standalone_cache WHERE service IN ('board_v2_candidates', 'radar')"
+        ).fetchall()
+    }
+    profile = conn.execute(
+        "SELECT source_mode FROM install_profiles WHERE install_id=?",
+        (install_id,),
+    ).fetchone()
+    conn.close()
+    assert any(key.startswith("virtual:") for key in cache_keys)
+    assert profile["source_mode"] == "virtual"
 
 
 def test_mobile_board_reprojects_cached_candidates_as_movements_age_out() -> None:

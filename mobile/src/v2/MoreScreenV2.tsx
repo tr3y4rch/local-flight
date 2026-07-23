@@ -19,7 +19,12 @@ import { V2Text as Text } from "../components/V2Text";
 import type { WidgetFlightPreview, WidgetPreviewSnapshot } from "../domain/widgets";
 import { SupportPurchaseContent } from "../iap/SupportPurchaseContent";
 import type { SupportPurchaseController } from "../iap/types";
-import type { MobileDiagnosticsMode, MobileWeatherDisplayMode, MobileWidgetPreferences } from "../storage/settings";
+import type {
+  MobileDiagnosticsMode,
+  MobileWeatherDisplayMode,
+  MobileWidgetAppearance,
+  MobileWidgetPreferences
+} from "../storage/settings";
 import { LocalFlightIcon, type LocalFlightIconName } from "../theme/icons";
 import { useMobileTheme } from "../theme/runtime";
 import type { MobileAppearance, MobileThemePreference } from "../theme/tokens";
@@ -45,6 +50,7 @@ export type MoreScreenV2Props = {
   widgetSnapshotLabel: string;
   liveActivitySupported: boolean;
   weatherDisplayMode: MobileWeatherDisplayMode;
+  autoDisplayOnRotate: boolean;
   diagnosticsMode: MobileDiagnosticsMode;
   requestedPanel?: Exclude<MorePanel, null>;
   panelRequestKey?: number;
@@ -53,6 +59,7 @@ export type MoreScreenV2Props = {
   onRefreshWidget: () => void;
   onWidgetPreferencesChange: (next: MobileWidgetPreferences) => void;
   onWeatherDisplayModeChange: (next: MobileWeatherDisplayMode) => void;
+  onAutoDisplayOnRotateChange: (next: boolean) => void;
   onDiagnosticsModeChange: (next: MobileDiagnosticsMode) => void;
   onOpenAirport: () => void;
   onRerunSetup: () => void;
@@ -186,13 +193,17 @@ function BoardDisplayPanel({
   styles,
   standalone,
   weatherDisplayMode,
-  onWeatherDisplayModeChange
+  autoDisplayOnRotate,
+  onWeatherDisplayModeChange,
+  onAutoDisplayOnRotateChange
 }: {
   appearance: MobileAppearance;
   styles: ReturnType<typeof makeStyles>;
   standalone: boolean;
   weatherDisplayMode: MobileWeatherDisplayMode;
+  autoDisplayOnRotate: boolean;
   onWeatherDisplayModeChange: (next: MobileWeatherDisplayMode) => void;
+  onAutoDisplayOnRotateChange: (next: boolean) => void;
 }) {
   const weatherChoices: Array<{ value: MobileWeatherDisplayMode; title: string; detail: string; icon: LocalFlightIconName }> = [
     { value: "passenger", title: englishCopy.weather.plainLanguage.label, detail: englishCopy.weather.plainLanguage.description, icon: "weather-partly-cloudy" },
@@ -225,6 +236,17 @@ function BoardDisplayPanel({
             </MotionPressable>
           );
         })}
+      </View>
+      <Text style={styles.panelSectionTitle}>Fullscreen Display</Text>
+      <View style={styles.widgetSection}>
+        <WidgetPreferenceRow
+          title="Enter Display when this device rotates"
+          detail="While Board is open, rotating this device to landscape enters Display. Rotating back exits only an automatically opened Display."
+          value={autoDisplayOnRotate}
+          onValueChange={onAutoDisplayOnRotateChange}
+          appearance={appearance}
+          styles={styles}
+        />
       </View>
       <View style={styles.informationCard}>
         <Text style={styles.informationTitle}>{standalone ? "Standalone availability" : "Connected host availability"}</Text>
@@ -273,11 +295,13 @@ function HostPanel({
 
 function AdvancedPanel({
   diagnosticsMode,
+  widgetSnapshotLabel,
   onDiagnosticsModeChange,
   styles,
   appearance
 }: {
   diagnosticsMode: MobileDiagnosticsMode;
+  widgetSnapshotLabel: string;
   onDiagnosticsModeChange: (next: MobileDiagnosticsMode) => void;
   styles: ReturnType<typeof makeStyles>;
   appearance: MobileAppearance;
@@ -310,27 +334,89 @@ function AdvancedPanel({
           );
         })}
       </View>
+      <View style={styles.informationCard}>
+        <Text style={styles.informationTitle}>Widget delivery</Text>
+        <Text style={styles.informationBody}>{widgetSnapshotLabel}</Text>
+      </View>
       <Text style={styles.disclaimer}>Technical identifiers shown here are sanitized. Local paths, activation tokens, provider payloads, and raw private logs are never displayed.</Text>
     </View>
   );
 }
 
+type WidgetPreviewPalette = {
+  background: string;
+  surface: string;
+  text: string;
+  muted: string;
+  dim: string;
+  line: string;
+  sky: string;
+  sea: string;
+  amber: string;
+  status: MobileAppearance["status"];
+};
+
+function resolveWidgetPreviewPalette(
+  preference: MobileWidgetAppearance,
+  appearance: MobileAppearance
+): WidgetPreviewPalette {
+  const dark = preference === "dark" || (preference === "system" && appearance.themeMode === "dark");
+  if (dark) {
+    return {
+      background: "#08141D",
+      surface: "#102330",
+      text: "#F5F0E8",
+      muted: "#A4B3BE",
+      dim: "#738896",
+      line: "#284352",
+      sky: "#74B5DE",
+      sea: "#59C1A5",
+      amber: "#E4B454",
+      status: {
+        scheduled: "#74B5DE",
+        boarding: "#59C1A5",
+        delayed: "#E4B454",
+        departed: "#59C1A5",
+        cancelled: "#F07C62"
+      }
+    };
+  }
+  return {
+    background: "#F5F1E8",
+    surface: "#FFFDF8",
+    text: "#132638",
+    muted: "#536575",
+    dim: "#70808C",
+    line: "#D7D1C6",
+    sky: "#2F6F9F",
+    sea: "#1F6F61",
+    amber: "#925D10",
+    status: {
+      scheduled: "#2F6F9F",
+      boarding: "#1F6F61",
+      delayed: "#925D10",
+      departed: "#1F6F61",
+      cancelled: "#A74732"
+    }
+  };
+}
+
 function WidgetFlightCard({
   flight,
   emptyLabel,
-  appearance,
+  palette,
   styles
 }: {
   flight: WidgetFlightPreview | null;
   emptyLabel: string;
-  appearance: MobileAppearance;
+  palette: WidgetPreviewPalette;
   styles: ReturnType<typeof makeStyles>;
 }) {
   if (!flight) {
     return (
-      <View style={styles.widgetEmpty}>
-        <LocalFlightIcon name="pin-outline" size={22} color={appearance.textDim} />
-        <Text style={styles.widgetEmptyText}>{emptyLabel}</Text>
+      <View style={[styles.widgetEmpty, { backgroundColor: palette.surface }]}>
+        <LocalFlightIcon name="pin-outline" size={22} color={palette.dim} />
+        <Text style={[styles.widgetEmptyText, { color: palette.muted }]}>{emptyLabel}</Text>
       </View>
     );
   }
@@ -338,16 +424,116 @@ function WidgetFlightCard({
     .filter(Boolean)
     .join(" · ");
   return (
-    <View style={styles.widgetFlight}>
+    <View style={[styles.widgetFlight, { backgroundColor: palette.surface }]}>
+      <View style={[styles.widgetPinnedAccent, { backgroundColor: palette.amber }]} />
+      <Text style={[styles.widgetPinnedLabel, { color: palette.amber }]}>Pinned flight</Text>
       <View style={styles.widgetFlightLead}>
-        <Text style={styles.widgetTime}>{flight.displayTime}</Text>
-        <Text style={styles.widgetFlightCode}>{flight.flightDisplay}</Text>
+        <Text style={[styles.widgetFlightCode, { color: palette.text }]}>{flight.flightDisplay}</Text>
+        <Text style={[styles.widgetTime, { color: palette.text }]}>{flight.displayTime}</Text>
       </View>
-      <Text style={styles.widgetRoute} numberOfLines={1}>{flight.routeName || flight.routeCode || "Route pending"}</Text>
+      <Text style={[styles.widgetRoute, { color: palette.text }]} numberOfLines={1}>{flight.routeName || flight.routeCode || "Route pending"}</Text>
       <View style={styles.widgetFlightFooter}>
-        <Text style={[styles.widgetStatus, { color: appearance.status[flight.statusTone] }]}>{flight.statusDisplay}</Text>
-        {gate ? <Text style={styles.widgetGate}>{gate}</Text> : null}
+        <Text style={[styles.widgetStatus, { color: palette.status[flight.statusTone] }]}>{flight.statusDisplay}</Text>
+        {gate ? <Text style={[styles.widgetGate, { color: palette.muted }]}>{gate}</Text> : null}
       </View>
+    </View>
+  );
+}
+
+function WidgetAppearanceChoice({
+  title,
+  value,
+  onChange,
+  styles
+}: {
+  title: string;
+  value: MobileWidgetAppearance;
+  onChange: (next: MobileWidgetAppearance) => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={styles.widgetAppearanceBlock}>
+      <Text style={styles.widgetAppearanceTitle}>{title}</Text>
+      <View style={styles.widgetAppearanceGroup}>
+        {(["system", "light", "dark"] as const).map((choice) => {
+          const selected = value === choice;
+          const label = choice === "system" ? "Device" : choice === "light" ? "Light" : "Dark";
+          return (
+            <Pressable
+              key={choice}
+              style={[styles.widgetAppearanceButton, selected && styles.widgetAppearanceButtonSelected]}
+              onPress={() => {
+                hapticSelection();
+                onChange(choice);
+              }}
+              {...accessibleButton({ label: `${title}: ${label}`, selected })}
+            >
+              <LocalFlightIcon
+                name={choice === "system" ? "theme-light-dark" : choice === "light" ? "white-balance-sunny" : "weather-night"}
+                size={16}
+                color={selected ? styles.widgetAppearanceTextSelected.color as string : styles.widgetAppearanceText.color as string}
+              />
+              <Text style={[styles.widgetAppearanceText, selected && styles.widgetAppearanceTextSelected]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function WidgetWidePreview({
+  preview,
+  preferences,
+  palette,
+  styles
+}: {
+  preview: WidgetPreviewSnapshot;
+  preferences: MobileWidgetPreferences;
+  palette: WidgetPreviewPalette;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const pinned = preview.pinnedFlight && (
+    (preview.view === "arrivals" && preview.pinnedFlight.direction === "arr") ||
+    (preview.view === "departures" && preview.pinnedFlight.direction === "dep")
+  ) ? preview.pinnedFlight : null;
+  const flights = [
+    ...(pinned ? [{ flight: pinned, pinned: true }] : []),
+    ...preview.liveFlights
+      .filter((flight) => !pinned || flight.id !== pinned.id)
+      .map((flight) => ({ flight, pinned: false }))
+  ].slice(0, preferences.mediumRowCount);
+  return (
+    <View style={[styles.widgetWidePreview, { backgroundColor: palette.background, borderColor: palette.line }]}>
+      <View style={styles.widgetWideHeader}>
+        <View style={styles.widgetWideAirportCopy}>
+          <Text style={[styles.widgetWideAirport, { color: palette.text }]} numberOfLines={1}>{preview.airportName}</Text>
+          <Text style={[styles.widgetWideDirection, { color: palette.sea }]}>{preview.airportCode} · {preview.view === "arrivals" ? "Arrivals" : "Departures"}</Text>
+        </View>
+        <Text style={[styles.widgetWideFreshness, { color: palette.dim }]} numberOfLines={1}>{preview.updatedLabel}</Text>
+      </View>
+      <View style={[styles.widgetWideHorizon, { backgroundColor: palette.sky }]} />
+      {flights.length ? flights.map(({ flight, pinned: isPinned }) => {
+        const info = preferences.showGateTerminal ? flight.gate || flight.terminal || "" : "";
+        return (
+          <View key={flight.id} style={[styles.widgetWideRow, { backgroundColor: palette.surface }]}>
+            {isPinned ? <View style={[styles.widgetWidePinnedAccent, { backgroundColor: palette.amber }]} /> : null}
+            <Text style={[styles.widgetWideTime, { color: palette.text }]}>{flight.displayTime}</Text>
+            <View style={styles.widgetWideFlightCopy}>
+              <Text style={[styles.widgetWideFlight, { color: palette.sky }]} numberOfLines={1}>{flight.flightDisplay}</Text>
+              <Text style={[styles.widgetWideRoute, { color: palette.muted }]} numberOfLines={1}>{flight.routeName} · {flight.routeCode}</Text>
+            </View>
+            <View style={styles.widgetWideStatusCopy}>
+              <Text style={[styles.widgetWideStatus, { color: palette.status[flight.statusTone] }]} numberOfLines={1}>{flight.statusDisplay}</Text>
+              {info ? <Text style={[styles.widgetWideInfo, { color: palette.muted }]} numberOfLines={1}>{flight.gate ? `Gate ${info}` : `Terminal ${info}`}</Text> : null}
+            </View>
+          </View>
+        );
+      }) : (
+        <View style={[styles.widgetWideEmpty, { backgroundColor: palette.surface }]}>
+          <Text style={[styles.widgetEmptyText, { color: palette.muted }]}>Open Local Flight to prepare the latest Board.</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -409,32 +595,41 @@ function WidgetsPanel({
   styles: ReturnType<typeof makeStyles>;
 }) {
   const update = (patch: Partial<MobileWidgetPreferences>) => onPreferencesChange({ ...preferences, ...patch });
+  const previewPalette = resolveWidgetPreviewPalette(preferences.widgetAppearance, appearance);
   return (
     <View style={styles.panelContent}>
       <Text style={styles.panelIntro}>
         Widgets and Live Activity only read the bounded snapshot written by this app. They never contact a Local Flight host, relay, or aviation provider.
       </Text>
 
-      <View style={styles.widgetPreviewCard}>
+      <View style={[styles.widgetPreviewCard, { backgroundColor: previewPalette.background, borderColor: previewPalette.line }] }>
         <View style={styles.widgetPreviewHeader}>
           <View>
-            <Text style={styles.widgetEyebrow}>Small widget · pinned flight</Text>
-            <Text style={styles.widgetAirport}>{preview.airportCode} · {preview.airportName}</Text>
+            <Text style={[styles.widgetEyebrow, { color: previewPalette.muted }]}>Small widget</Text>
+            <Text style={[styles.widgetAirport, { color: previewPalette.text }]}>{preview.airportCode} · {preview.airportName}</Text>
           </View>
-          <LocalFlightIcon name="widgets-outline" size={22} color={appearance.blue} />
+          <LocalFlightIcon name="widgets-outline" size={22} color={previewPalette.sky} />
         </View>
         <WidgetFlightCard
           flight={preview.pinnedFlight}
           emptyLabel="Pin a flight from Board to show it here."
-          appearance={appearance}
+          palette={previewPalette}
           styles={styles}
         />
-        <Text style={styles.widgetFreshness}>{preview.updatedLabel}</Text>
+        <Text style={[styles.widgetFreshness, { color: previewPalette.dim }]}>{preview.updatedLabel}</Text>
       </View>
+
+      <WidgetWidePreview preview={preview} preferences={preferences} palette={previewPalette} styles={styles} />
 
       <View style={styles.widgetSection}>
         <Text style={styles.widgetSectionTitle}>Board widget</Text>
         <Text style={styles.widgetSectionBody}>Choose how many stable rows the medium or wide widget can show.</Text>
+        <WidgetAppearanceChoice
+          title="Home Screen widgets"
+          value={preferences.widgetAppearance}
+          onChange={(widgetAppearance) => update({ widgetAppearance })}
+          styles={styles}
+        />
         <View style={styles.rowCountGroup}>
           {([2, 3] as const).map((count) => {
             const selected = preferences.mediumRowCount === count;
@@ -483,6 +678,15 @@ function WidgetsPanel({
               : "From Board, choose “Pin & show on Lock Screen” for a flight. Starting it always requires that explicit action."
             : "Live Activity is unavailable on this device. Normal flight pinning and widgets still work."}
         </Text>
+        <WidgetAppearanceChoice
+          title="Lock Screen Live Activity"
+          value={preferences.liveActivityAppearance}
+          onChange={(liveActivityAppearance) => update({ liveActivityAppearance })}
+          styles={styles}
+        />
+        <Text style={styles.widgetAppearanceNote}>
+          On iPhones with Dynamic Island, touch and hold the flight to expand it. A tap opens its details in Local Flight. Dynamic Island keeps Apple’s system-dark treatment for legibility.
+        </Text>
         {liveActivitySupported && preferences.liveActivityEnabled ? (
           <Pressable
             style={styles.secondaryButton}
@@ -527,11 +731,13 @@ function PanelSheet({
   widgetSnapshotLabel,
   liveActivitySupported,
   weatherDisplayMode,
+  autoDisplayOnRotate,
   diagnosticsMode,
   refreshing,
   onRefreshWidget,
   onWidgetPreferencesChange,
   onWeatherDisplayModeChange,
+  onAutoDisplayOnRotateChange,
   onDiagnosticsModeChange,
   onOpenAirport,
   onRerunSetup,
@@ -549,11 +755,13 @@ function PanelSheet({
   widgetSnapshotLabel: string;
   liveActivitySupported: boolean;
   weatherDisplayMode: MobileWeatherDisplayMode;
+  autoDisplayOnRotate: boolean;
   diagnosticsMode: MobileDiagnosticsMode;
   refreshing: boolean;
   onRefreshWidget: () => void;
   onWidgetPreferencesChange: (next: MobileWidgetPreferences) => void;
   onWeatherDisplayModeChange: (next: MobileWeatherDisplayMode) => void;
+  onAutoDisplayOnRotateChange: (next: boolean) => void;
   onDiagnosticsModeChange: (next: MobileDiagnosticsMode) => void;
   onOpenAirport: () => void;
   onRerunSetup: () => void;
@@ -595,7 +803,9 @@ function PanelSheet({
               styles={styles}
               standalone={standalone}
               weatherDisplayMode={weatherDisplayMode}
+              autoDisplayOnRotate={autoDisplayOnRotate}
               onWeatherDisplayModeChange={onWeatherDisplayModeChange}
+              onAutoDisplayOnRotateChange={onAutoDisplayOnRotateChange}
             />
           </ScrollView>
         ) : panel === "widgets" ? (
@@ -633,6 +843,7 @@ function PanelSheet({
           <ScrollView showsVerticalScrollIndicator={false}>
             <AdvancedPanel
               diagnosticsMode={diagnosticsMode}
+              widgetSnapshotLabel={widgetSnapshotLabel}
               onDiagnosticsModeChange={onDiagnosticsModeChange}
               styles={styles}
               appearance={appearance}
@@ -762,11 +973,13 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
           widgetSnapshotLabel={props.widgetSnapshotLabel}
           liveActivitySupported={props.liveActivitySupported}
           weatherDisplayMode={props.weatherDisplayMode}
+          autoDisplayOnRotate={props.autoDisplayOnRotate}
           diagnosticsMode={props.diagnosticsMode}
           refreshing={props.widgetRefreshing}
           onRefreshWidget={props.onRefreshWidget}
           onWidgetPreferencesChange={props.onWidgetPreferencesChange}
           onWeatherDisplayModeChange={props.onWeatherDisplayModeChange}
+          onAutoDisplayOnRotateChange={props.onAutoDisplayOnRotateChange}
           onDiagnosticsModeChange={props.onDiagnosticsModeChange}
           onOpenAirport={props.onOpenAirport}
           onRerunSetup={props.onRerunSetup}
@@ -827,13 +1040,15 @@ function makeStyles(a: MobileAppearance, layoutClass: LayoutWidthClass) {
     informationCard: { borderRadius: 19, backgroundColor: a.shell, padding: 17, marginTop: 18 },
     informationTitle: { color: a.text, fontSize: 16, fontWeight: "700" },
     informationBody: { color: a.textMuted, fontSize: 14, lineHeight: 21, marginTop: 5 },
-    widgetPreviewCard: { borderRadius: 24, backgroundColor: a.shell, padding: 17, marginTop: 18 },
+    widgetPreviewCard: { borderRadius: 24, backgroundColor: a.shell, borderWidth: 1, padding: 17, marginTop: 18, overflow: "hidden" },
     widgetPreviewHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
     widgetEyebrow: { color: a.textMuted, fontSize: 12, fontWeight: "600" },
     widgetAirport: { color: a.text, fontSize: 14, fontWeight: "700", marginTop: 4, maxWidth: 560 },
     widgetEmpty: { minHeight: 100, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, borderRadius: 18, backgroundColor: a.row, marginTop: 14, paddingHorizontal: 18 },
     widgetEmptyText: { color: a.textMuted, fontSize: 14, lineHeight: 20, flexShrink: 1 },
-    widgetFlight: { borderRadius: 18, backgroundColor: a.row, padding: 15, marginTop: 14 },
+    widgetFlight: { borderRadius: 18, backgroundColor: a.row, padding: 15, marginTop: 14, overflow: "hidden" },
+    widgetPinnedAccent: { position: "absolute", top: 0, bottom: 0, left: 0, width: 4 },
+    widgetPinnedLabel: { fontSize: 11, fontWeight: "700", marginBottom: 7 },
     widgetFlightLead: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 14 },
     widgetTime: { color: a.text, fontFamily: a.mono, fontSize: 22, fontWeight: "700" },
     widgetFlightCode: { color: a.text, fontFamily: a.mono, fontSize: 16, fontWeight: "700" },
@@ -842,6 +1057,23 @@ function makeStyles(a: MobileAppearance, layoutClass: LayoutWidthClass) {
     widgetStatus: { fontSize: 12, fontWeight: "800" },
     widgetGate: { color: a.textMuted, fontSize: 12, fontWeight: "600", textAlign: "right", flexShrink: 1 },
     widgetFreshness: { color: a.textDim, fontSize: 12, marginTop: 10 },
+    widgetWidePreview: { borderRadius: 24, borderWidth: 1, padding: 14, marginTop: 14, gap: 7, overflow: "hidden" },
+    widgetWideHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+    widgetWideAirportCopy: { flex: 1, minWidth: 0 },
+    widgetWideAirport: { fontSize: 15, lineHeight: 19, fontWeight: "700" },
+    widgetWideDirection: { fontSize: 11, lineHeight: 15, fontWeight: "700", marginTop: 2 },
+    widgetWideFreshness: { fontSize: 11, maxWidth: 150, textAlign: "right" },
+    widgetWideHorizon: { height: 3, width: 52, borderRadius: 999, opacity: 0.7 },
+    widgetWideRow: { minHeight: 54, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 11, paddingVertical: 8, overflow: "hidden" },
+    widgetWidePinnedAccent: { position: "absolute", top: 0, bottom: 0, left: 0, width: 4 },
+    widgetWideTime: { width: 50, fontFamily: a.mono, fontSize: 14, fontWeight: "700" },
+    widgetWideFlightCopy: { flex: 1, minWidth: 0 },
+    widgetWideFlight: { fontFamily: a.mono, fontSize: 13, fontWeight: "700" },
+    widgetWideRoute: { fontSize: 11, lineHeight: 15, marginTop: 1 },
+    widgetWideStatusCopy: { width: 104, alignItems: "flex-end" },
+    widgetWideStatus: { fontSize: 11, lineHeight: 15, fontWeight: "800", textAlign: "right" },
+    widgetWideInfo: { fontSize: 10, lineHeight: 14, marginTop: 2, textAlign: "right" },
+    widgetWideEmpty: { minHeight: 70, borderRadius: 16, justifyContent: "center", paddingHorizontal: 16 },
     widgetSection: { borderRadius: 21, backgroundColor: a.shell, padding: 17, marginTop: 14 },
     widgetSectionHeading: { flexDirection: "row", alignItems: "center", gap: 9 },
     widgetSectionTitle: { color: a.text, fontSize: 17, fontWeight: "700" },
@@ -851,6 +1083,14 @@ function makeStyles(a: MobileAppearance, layoutClass: LayoutWidthClass) {
     rowCountButtonSelected: { backgroundColor: `${a.blue}18` },
     rowCountText: { color: a.textMuted, fontSize: 14, fontWeight: "700" },
     rowCountTextSelected: { color: a.blue },
+    widgetAppearanceBlock: { marginTop: 16 },
+    widgetAppearanceTitle: { color: a.text, fontSize: 14, lineHeight: 19, fontWeight: "700", marginBottom: 8 },
+    widgetAppearanceGroup: { flexDirection: "row", gap: 7 },
+    widgetAppearanceButton: { flex: 1, minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 14, backgroundColor: a.lineSoft, paddingHorizontal: 8 },
+    widgetAppearanceButtonSelected: { backgroundColor: `${a.blue}18`, borderWidth: 1, borderColor: `${a.blue}55` },
+    widgetAppearanceText: { color: a.textMuted, fontSize: 12, fontWeight: "700" },
+    widgetAppearanceTextSelected: { color: a.blue },
+    widgetAppearanceNote: { color: a.textDim, fontSize: 11, lineHeight: 16, marginTop: 8 },
     widgetPreferenceRow: { minHeight: 75, flexDirection: "row", alignItems: "center", gap: 15, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: a.lineSoft, marginTop: 10, paddingTop: 10 },
     secondaryButton: { minHeight: 46, alignItems: "center", justifyContent: "center", alignSelf: "flex-start", borderRadius: 15, backgroundColor: a.lineSoft, paddingHorizontal: 16, marginTop: 14 },
     secondaryButtonText: { color: a.text, fontSize: 14, fontWeight: "700" },

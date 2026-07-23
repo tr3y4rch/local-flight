@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Circle, ClipPath, Defs, G, Line, Path, Polygon, Polyline, Text as SvgText } from "react-native-svg";
 
-import { accessibleButton, tapTargetHitSlop, useReducedMotionPreference } from "../accessibility/mobileA11y";
+import { accessibleButton, tapTargetHitSlop } from "../accessibility/mobileA11y";
 import type { RadarBlip, RadarMapFeature, RadarMapResponse, RadarResponse } from "../api/types";
 import { V2Text as Text } from "../components/V2Text";
 import {
@@ -219,17 +219,12 @@ function sweepSectorPath(size: number, startDeg: number, endDeg: number): string
 export function RadarScopeV2(props: RadarScopeV2Props) {
   const { appearance } = useMobileTheme();
   const styles = useMemo(() => makeStyles(appearance), [appearance]);
-  const reduceMotion = useReducedMotionPreference();
   const [scopeSize, setScopeSize] = useState(320);
   const [sweepDeg, setSweepDeg] = useState(0);
   const [selectedKey, setSelectedKey] = useState("");
   const pinchRef = useRef<{ distance: number; index: number } | null>(null);
 
   useEffect(() => {
-    if (reduceMotion) {
-      setSweepDeg(0);
-      return;
-    }
     let active = AppState.currentState === "active";
     let previous = Date.now();
     const timer = setInterval(() => {
@@ -245,7 +240,7 @@ export function RadarScopeV2(props: RadarScopeV2Props) {
       clearInterval(timer);
       subscription.remove();
     };
-  }, [reduceMotion]);
+  }, []);
 
   const groundCenter = props.groundData?.center || null;
   const runways = groundCenter && props.drawingLayers.runways
@@ -268,7 +263,7 @@ export function RadarScopeV2(props: RadarScopeV2Props) {
       if (!item) return null;
       const key = `${blip.icao24 || blip.callsign}-${index}`;
       const focused = key === selectedKey;
-      const opacity = reduceMotion ? 1 : radarSweepOpacity(item.angleDeg, sweepDeg, focused);
+      const opacity = radarSweepOpacity(item.angleDeg, sweepDeg, focused);
       return { item, key, focused, opacity };
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -360,12 +355,10 @@ export function RadarScopeV2(props: RadarScopeV2Props) {
             {surface.map((item, index) => <GroundFeature key={`surface-${index}`} item={item} layer="surface" appearance={appearance} radiusNm={props.radiusNm} />)}
             {runways.map((item, index) => <GroundFeature key={`runway-${index}`} item={item} layer="runway" appearance={appearance} radiusNm={props.radiusNm} />)}
             {runways.map((item, index) => <RunwayIndicators key={`runway-indicators-${index}`} item={item} appearance={appearance} radiusNm={props.radiusNm} />)}
-            {!reduceMotion ? (
-              <G transform={`rotate(${sweepDeg} ${scopeSize / 2} ${scopeSize / 2})`}>
-                <Path d={sweepSectorPath(scopeSize, -RADAR_TRAIL_DEGREES, 0)} fill={`${appearance.blue2}24`} />
-                <Line x1={scopeSize / 2} y1={scopeSize / 2} x2={scopeSize / 2} y2={scopeSize * 0.06} stroke={`${appearance.blue2}E0`} strokeWidth={1.8} />
-              </G>
-            ) : null}
+            <G transform={`rotate(${sweepDeg} ${scopeSize / 2} ${scopeSize / 2})`}>
+              <Path d={sweepSectorPath(scopeSize, -RADAR_TRAIL_DEGREES, 0)} fill={`${appearance.blue2}24`} />
+              <Line x1={scopeSize / 2} y1={scopeSize / 2} x2={scopeSize / 2} y2={scopeSize * 0.06} stroke={`${appearance.blue2}E0`} strokeWidth={1.8} />
+            </G>
           </G>
           <Circle cx={scopeSize / 2} cy={scopeSize / 2} r={scopeSize * 0.44} fill="none" stroke={appearance.line} strokeWidth={1.5} />
           <Circle cx={scopeSize / 2} cy={scopeSize / 2} r={scopeSize * 0.29} fill="none" stroke={appearance.lineSoft} strokeWidth={1} />

@@ -76,6 +76,14 @@ function cleanWidgetValue(value?: string | null): string {
   return cleaned && cleaned !== "-" ? cleaned : "";
 }
 
+function cleanWidgetTime(value?: string | null): string {
+  const cleaned = cleanWidgetValue(value);
+  // Board rows can carry a delay annotation such as `06:00 (+190)`. Widgets
+  // already present delay as operational status, so their time column keeps
+  // the stable HH:MM identity and never truncates the annotation.
+  return cleaned.match(/\b(?:[01]?\d|2[0-3]):[0-5]\d\b/)?.[0] || cleaned;
+}
+
 function clampWidgetText(value: string, max = 80): string {
   const cleaned = cleanWidgetValue(value);
   return cleaned.length > max ? cleaned.slice(0, max).trim() : cleaned;
@@ -103,13 +111,23 @@ function normalizeView(value: unknown): FlightView {
 
 function normalizeWidgetPreferences(value: unknown): MobileWidgetPreferences {
   if (!value || typeof value !== "object") {
-    return { mediumRowCount: 3, showGateTerminal: true, automaticRefresh: true, liveActivityEnabled: false };
+    return {
+      mediumRowCount: 3,
+      showGateTerminal: true,
+      automaticRefresh: true,
+      widgetAppearance: "system",
+      liveActivityAppearance: "system",
+      liveActivityEnabled: false
+    };
   }
   const raw = value as Partial<MobileWidgetPreferences>;
+  const appearance = (candidate: unknown) => candidate === "light" || candidate === "dark" ? candidate : "system";
   return {
     mediumRowCount: raw.mediumRowCount === 2 ? 2 : 3,
     showGateTerminal: raw.showGateTerminal !== false,
     automaticRefresh: raw.automaticRefresh !== false,
+    widgetAppearance: appearance(raw.widgetAppearance),
+    liveActivityAppearance: appearance(raw.liveActivityAppearance),
     liveActivityEnabled: raw.liveActivityEnabled === true
   };
 }
@@ -148,7 +166,7 @@ function rowToWidgetFlight(row: FidsRow): WidgetFlightPreview {
     direction: rowDirection(row),
     routeName: routeName(row.route_display),
     routeCode: cleanWidgetValue(row.route_code) || fallbackRouteCode,
-    displayTime: cleanWidgetValue(row.display_time) || "--:--",
+    displayTime: cleanWidgetTime(row.time_primary) || cleanWidgetTime(row.display_time) || "--:--",
     statusDisplay: statusShort(row.status_display),
     statusTone: statusTone(row.status_display),
     gate: cleanWidgetValue(row.terminal_gate_display) || cleanWidgetValue(row.gate_display),
@@ -203,7 +221,7 @@ export function normalizeWidgetFlight(value: unknown): WidgetFlightPreview | nul
     direction: normalizeDirection(raw.direction),
     routeName: clampWidgetText(String(raw.routeName || ""), 64) || "-",
     routeCode: clampWidgetText(String(raw.routeCode || ""), 8),
-    displayTime: clampWidgetText(String(raw.displayTime || ""), 12) || "--:--",
+    displayTime: clampWidgetText(cleanWidgetTime(String(raw.displayTime || "")), 12) || "--:--",
     statusDisplay: clampWidgetText(String(raw.statusDisplay || ""), 20) || "SCHEDULE",
     statusTone: normalizeStatusTone(raw.statusTone),
     gate: clampWidgetText(String(raw.gate || ""), 16) || undefined,
@@ -236,11 +254,13 @@ export function buildWidgetExchangeSnapshot({
     (preview.view === "arrivals" && pinned.direction === "arr") ||
     (preview.view === "departures" && pinned.direction === "dep")
   ) ? pinned : null;
+  const normalizedLiveFlights = preview.liveFlights
+    .map((flight) => normalizeWidgetFlight(flight))
+    .filter((flight): flight is WidgetFlightPreview => Boolean(flight))
+    .filter((flight) => !pinnedForMedium || flight.id !== pinnedForMedium.id);
   const mediumRows = [
     ...(pinnedForMedium ? [{ ...pinnedForMedium, pinned: true }] : []),
-    ...preview.liveFlights
-      .map((flight) => normalizeWidgetFlight(flight))
-      .filter((flight): flight is WidgetFlightPreview => Boolean(flight))
+    ...normalizedLiveFlights
       .slice(0, normalizedPreferences.mediumRowCount - (pinnedForMedium ? 1 : 0))
       .map((flight) => ({ ...flight, pinned: false }))
   ].slice(0, normalizedPreferences.mediumRowCount);
@@ -300,6 +320,7 @@ export function normalizeWidgetExchangeSnapshot(value: unknown): LocalFlightWidg
         return normalized ? { ...normalized, pinned: Boolean((flight as { pinned?: unknown }).pinned) } : null;
       })
       .filter((flight): flight is WidgetFlightPreview & { pinned: boolean } => Boolean(flight))
+      .filter((flight, index, flights) => flights.findIndex((candidate) => candidate.id === flight.id) === index)
       .slice(0, Math.min(WIDGET_MAX_MEDIUM_ROWS_WITH_PIN, preferences.mediumRowCount))
     : [];
   const expired = expiresAt <= Date.now();

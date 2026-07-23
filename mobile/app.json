@@ -50,7 +50,7 @@
     ],
     "ios": {
       "bundleIdentifier": "cc.beacontools.localflight",
-      "buildNumber": "11",
+      "buildNumber": "12",
       "icon": {
         "light": "./assets/localflight-ios-light.png",
         "dark": "./assets/localflight-ios-dark.png",

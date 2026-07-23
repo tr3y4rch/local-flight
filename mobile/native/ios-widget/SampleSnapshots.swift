@@ -51,7 +51,9 @@ enum LocalFlightWidgetSamples {
       preferences: LocalFlightWidgetPreferences(
         mediumRowCount: 3,
         showGateTerminal: true,
-        automaticRefresh: true
+        automaticRefresh: true,
+        widgetAppearance: "system",
+        liveActivityAppearance: "system"
       ),
       small: LocalFlightSmallWidgetSnapshot(source: pinned ? "pinned" : "empty", flight: pinned ? pinnedFlight : nil),
       medium: LocalFlightMediumWidgetSnapshot(rowCount: 3, rows: rows),

@@ -42,6 +42,8 @@ export type BoardScreenV2Props = {
   /** True only while UIKit owns the compact iPhone tab bar. */
   nativeNavigation?: boolean;
   displayPageSeconds?: number;
+  autoDisplayOnRotate: boolean;
+  onAutoDisplayOnRotateChange: (next: boolean) => void;
   onRefresh: () => void;
   onViewChange: (view: FlightView) => void;
   onOpenDetail: (callsign: string, row?: FidsRow) => void;
@@ -195,6 +197,10 @@ export function BoardScreenV2(props: BoardScreenV2Props) {
     [props.pinnedCallsign, props.rows, props.view]
   );
   const pinned = rows.find((row) => row.pinned) || null;
+  // The dedicated pinned-flight card is the single Board presentation for the
+  // selected movement. Keeping the same movement in the scrolling rows made
+  // the pin, status, and route appear twice on compact screens.
+  const listRows = pinned ? rows.filter((row) => !row.pinned) : rows;
   const wide = props.layoutClass !== "compact";
   const directionLabel = props.view === "arrivals" ? "Arrivals" : "Departures";
   const airportHero = airportHeroViewModel({
@@ -339,7 +345,7 @@ export function BoardScreenV2(props: BoardScreenV2Props) {
 
   return (
     <FlatList
-      data={rows}
+      data={listRows}
       keyExtractor={(item) => item.id}
       renderItem={({ item }) => wide ? (
         <BoardRowWide
@@ -360,13 +366,13 @@ export function BoardScreenV2(props: BoardScreenV2Props) {
         />
       )}
       ListHeaderComponent={header}
-      ListEmptyComponent={
+      ListEmptyComponent={pinned ? null : (
         <View style={styles.emptyState}>
           <LocalFlightIcon name="airplane-clock" size={30} color={appearance.textMuted} />
           <Text style={styles.emptyTitle}>No {directionLabel.toLowerCase()} on the board</Text>
           <Text style={styles.emptyBody}>Pull to refresh. A cached board remains visible whenever Local Flight has one.</Text>
         </View>
-      }
+      )}
       ItemSeparatorComponent={() => <View style={styles.rowGap} />}
       contentContainerStyle={[styles.content, { paddingBottom: props.contentPaddingBottom }]}
       contentInsetAdjustmentBehavior={props.nativeNavigation ? "automatic" : "never"}

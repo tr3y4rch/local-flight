@@ -9,6 +9,24 @@ private enum LocalFlightLiveActivityConstants {
   static let statusTones: Set<String> = ["scheduled", "departed", "boarding", "delayed", "cancelled"]
 }
 
+private enum LocalFlightBridgeISO8601 {
+  private static let fractional: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+  }()
+
+  private static let standard: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter
+  }()
+
+  static func date(from value: String) -> Date? {
+    fractional.date(from: value) ?? standard.date(from: value)
+  }
+}
+
 @available(iOS 16.1, *)
 public struct LocalFlightActivityAttributesV2: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
@@ -18,6 +36,7 @@ public struct LocalFlightActivityAttributesV2: ActivityAttributes {
     public var gateLabel: String?
     public var stale: Bool
     public var lastUpdatedLabel: String
+    public var appearance: String?
   }
 
   public let flightID: String
@@ -54,6 +73,7 @@ private struct BridgeSource: Decodable {
 private struct BridgePreferences: Decodable {
   let showGateTerminal: Bool?
   let liveActivityEnabled: Bool?
+  let liveActivityAppearance: String?
 }
 
 private struct BridgeSmallSnapshot: Decodable {
@@ -140,7 +160,7 @@ private enum LocalFlightLiveActivitySnapshotStore {
     let statusTone = LocalFlightLiveActivityConstants.statusTones.contains(flight.statusTone)
       ? flight.statusTone
       : "scheduled"
-    let expiry = ISO8601DateFormatter().date(from: snapshot.expiresAt)
+    let expiry = LocalFlightBridgeISO8601.date(from: snapshot.expiresAt)
     let isStale = snapshot.stale
       || snapshot.liveActivity.stale
       || (expiry ?? .distantPast) <= Date()
@@ -149,7 +169,7 @@ private enum LocalFlightLiveActivitySnapshotStore {
       || terminalStatus.contains("departed")
       || terminalStatus.contains("cancel")
     if terminal,
-       let updatedAt = snapshot.source.updatedAt.flatMap({ ISO8601DateFormatter().date(from: $0) }),
+       let updatedAt = snapshot.source.updatedAt.flatMap({ LocalFlightBridgeISO8601.date(from: $0) }),
        updatedAt.addingTimeInterval(2 * 60 * 60) <= Date() {
       return nil
     }
@@ -162,6 +182,9 @@ private enum LocalFlightLiveActivitySnapshotStore {
     let gateLabel = showGateTerminal
       ? (visibleGate != nil ? "GATE" : (visibleTerminal != nil ? "TERM" : nil))
       : nil
+    let appearance = ["light", "dark"].contains(snapshot.preferences.liveActivityAppearance ?? "")
+      ? snapshot.preferences.liveActivityAppearance
+      : "system"
 
     return LocalFlightLiveActivityInput(
       attributes: LocalFlightActivityAttributesV2(
@@ -179,7 +202,8 @@ private enum LocalFlightLiveActivitySnapshotStore {
         gate: gateValue,
         gateLabel: gateLabel,
         stale: isStale,
-        lastUpdatedLabel: snapshot.source.lastUpdatedLabel.localFlightClean(max: 32, fallback: "Updated")
+        lastUpdatedLabel: snapshot.source.lastUpdatedLabel.localFlightClean(max: 32, fallback: "Updated"),
+        appearance: appearance
       )
     )
   }
@@ -345,7 +369,8 @@ private enum LocalFlightLiveActivityManager {
       gate: nil,
       gateLabel: nil,
       stale: true,
-      lastUpdatedLabel: "Ended"
+      lastUpdatedLabel: "Ended",
+      appearance: nil
     )
     await activity.end(using: finalState, dismissalPolicy: .immediate)
   }

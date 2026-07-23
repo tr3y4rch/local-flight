@@ -2,8 +2,12 @@ import SwiftUI
 import WidgetKit
 
 struct LFSmallWidgetViewV2: View {
-  @Environment(\.colorScheme) private var scheme
+  @Environment(\.colorScheme) private var systemScheme
   let snapshot: LocalFlightWidgetSnapshot
+
+  private var scheme: ColorScheme {
+    snapshot.preferences.widgetScheme(system: systemScheme)
+  }
 
   var body: some View {
     ZStack(alignment: .leading) {
@@ -78,8 +82,6 @@ struct LFSmallWidgetViewV2: View {
   private var flightBody: some View {
     if let flight = snapshot.small.flight {
       HStack(spacing: 5) {
-        Image(systemName: "pin.fill")
-          .font(.system(size: 7, weight: .bold))
         Text("Pinned flight")
           .font(LocalFlightWidgetFont.uiBold(size: 9))
         Spacer(minLength: 4)

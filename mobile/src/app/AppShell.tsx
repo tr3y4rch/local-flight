@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  AppState as NativeAppState,
   Linking,
   Modal,
   Platform,
@@ -129,6 +130,7 @@ import {
   saveCachedLanConfig,
   DEFAULT_WIDGET_PREFERENCES,
   loadRadarDrawingLayers,
+  loadAutoDisplayOnRotate,
   migrateStandaloneGroundLayers,
   loadWeatherDisplayMode,
   loadWidgetPreferences,
@@ -138,11 +140,13 @@ import {
   type RemoteCompanionGrant,
   type MobileWidgetPreferences,
   type MobileWeatherDisplayMode,
+  type StandaloneFlightSource,
   saveMobileDiagnosticsMode,
   saveMobileRelayActivationToken,
   saveMobileSetupState,
   savePinnedFlight,
   saveRadarDrawingLayers,
+  saveAutoDisplayOnRotate,
   saveServerUrl,
   saveStandaloneAirport,
   saveWeatherDisplayMode,
@@ -377,6 +381,7 @@ export function AppShell() {
   const [companionIdentity, setCompanionIdentity] = useState<CompanionIdentity | null>(null);
   const [mobileDiagnosticsMode, setMobileDiagnosticsMode] = useState<MobileDiagnosticsMode>("unset");
   const [weatherDisplayMode, setWeatherDisplayMode] = useState<MobileWeatherDisplayMode>("passenger");
+  const [autoDisplayOnRotate, setAutoDisplayOnRotate] = useState(true);
   const [widgetPreferences, setWidgetPreferences] = useState<MobileWidgetPreferences>(DEFAULT_WIDGET_PREFERENCES);
   const [widgetSnapshotStatus, setWidgetSnapshotStatus] = useState<WidgetSnapshotStatus>({
     state: "waiting",
@@ -536,7 +541,8 @@ export function AppShell() {
           installId: mobileSetupState.relayInstallId,
           activationToken: mobileSetupState.relayActivationToken,
           airport: mobileSetupState.standaloneAirport,
-          diagnosticsMode: mobileDiagnosticsMode
+          diagnosticsMode: mobileDiagnosticsMode,
+          source: mobileSetupState.standaloneSource === "virtual" ? "virtual" : "real"
         }
       : null,
     [
@@ -544,7 +550,8 @@ export function AppShell() {
       mobileDiagnosticsMode,
       mobileSetupState.relayActivationToken,
       mobileSetupState.relayInstallId,
-      mobileSetupState.standaloneAirport
+      mobileSetupState.standaloneAirport,
+      mobileSetupState.standaloneSource
     ]
   );
   const dataReady = isStandalone ? Boolean(standaloneCredentials) : Boolean(serverUrl);
@@ -685,7 +692,8 @@ export function AppShell() {
         relayInstallId: mobileSetupState.relayInstallId,
         relayActivationToken: mobileSetupState.relayActivationToken,
         airport: mobileSetupState.standaloneAirport,
-        diagnosticsMode: mode
+        diagnosticsMode: mode,
+        standaloneSource: mobileSetupState.standaloneSource
       });
       await saveMobileSetupState(nextSetupState);
       setMobileSetupState(nextSetupState);
@@ -708,13 +716,15 @@ export function AppShell() {
       loadWeatherDisplayMode(),
       loadRadarDrawingLayers(),
       loadWidgetPreferences(),
-      readWidgetSnapshot()
+      readWidgetSnapshot(),
+      loadAutoDisplayOnRotate()
     ])
-      .then(([mode, layers, widgets, existingWidgetSnapshot]) => {
+      .then(([mode, layers, widgets, existingWidgetSnapshot, rotateDisplay]) => {
         if (!alive) return;
         setWeatherDisplayMode(mode);
         setRadarDrawingLayers(layers);
         setWidgetPreferences(widgets);
+        setAutoDisplayOnRotate(rotateDisplay);
         if (existingWidgetSnapshot?.small.flight) {
           lastPinnedWidgetFlightRef.current = existingWidgetSnapshot.small.flight;
         }
@@ -736,6 +746,7 @@ export function AppShell() {
   const chooseWidgetPreferences = useCallback(async (next: MobileWidgetPreferences) => {
     const normalized = await saveWidgetPreferences(next);
     setWidgetPreferences(normalized);
+    setWidgetForceWriteNonce((value) => value + 1);
     if (!normalized.liveActivityEnabled) {
       liveActivityStartFlightRef.current = "";
       await endLocalFlightLiveActivity().catch(() => undefined);
@@ -753,6 +764,15 @@ export function AppShell() {
       alive = false;
     };
   }, [launchHydrated, mobileSetupComplete, widgetPreferences.automaticRefresh]);
+
+  useEffect(() => {
+    const subscription = NativeAppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        setWidgetForceWriteNonce((value) => value + 1);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   const fetchDashboard = useCallback(async (normalized: string, requestGeneration: number) => {
     if (standaloneCredentials) {
@@ -814,12 +834,16 @@ export function AppShell() {
     if (standaloneCredentials) {
       const existing = standaloneBoardRef.current;
       const existingAgeMs = Date.now() - standaloneBoardReadAtRef.current;
-      if (existing && existingAgeMs < STANDALONE_BOARD_PROJECTION_MS) {
+      const projectionIntervalMs = standaloneCredentials.source === "virtual"
+        ? 60 * 1000
+        : STANDALONE_BOARD_PROJECTION_MS;
+      if (existing && existingAgeMs < projectionIntervalMs) {
         const projected = projectStandaloneBoardLocally(existing);
         standaloneBoardRef.current = projected;
         if (requestGeneration === fidsRequestGenerationRef.current) {
           setRows(nextView === "arrivals" ? projected.arrivals : projected.departures);
           setLaunchDataOutcome((current) => current === "pending" ? "cached" : current);
+          setWidgetForceWriteNonce((value) => value + 1);
         }
         return;
       }
@@ -827,8 +851,8 @@ export function AppShell() {
       standaloneBoardRef.current = board;
       standaloneBoardReadAtRef.current = Date.now();
       await Promise.all([
-        storeStandaloneFidsRows(standaloneCredentials.airport, board.departures),
-        storeStandaloneFidsRows(standaloneCredentials.airport, board.arrivals)
+        storeStandaloneFidsRows(standaloneCredentials.airport, board.departures, undefined, standaloneCredentials.source),
+        storeStandaloneFidsRows(standaloneCredentials.airport, board.arrivals, undefined, standaloneCredentials.source)
       ]);
       lastFidsRefreshAtRef.current = Date.now();
       if (requestGeneration === fidsRequestGenerationRef.current) {
@@ -842,10 +866,11 @@ export function AppShell() {
             // receipt timestamp. Preserve the relay summary's source freshness
             // until the combined Board route supplies generated_at itself.
             last_success_utc: board.generated_at || current.state?.last_success_utc || "",
-            source_name: current.state?.source_name || "relay_standalone"
+            source_name: current.state?.source_name || (standaloneCredentials.source === "virtual" ? "vatsim" : "relay_standalone")
           }
         }));
         setLaunchDataOutcome((current) => current === "pending" ? "live" : current);
+        setWidgetForceWriteNonce((value) => value + 1);
       }
       return;
     }
@@ -855,6 +880,7 @@ export function AppShell() {
     if (requestGeneration === fidsRequestGenerationRef.current) {
       setRows(fids);
       setLaunchDataOutcome((current) => current === "pending" ? "live" : current);
+      setWidgetForceWriteNonce((value) => value + 1);
     }
   }, [standaloneCredentials]);
 
@@ -875,13 +901,13 @@ export function AppShell() {
             limit: 120,
             callsign: nextCallsign,
             airline_iata: nextAirline
-          }),
+          }, standaloneCredentials.source),
           getStandaloneHistorySummary(standaloneCredentials.airport, {
             hours: nextHours,
             direction: nextDirection,
             callsign: nextCallsign,
             airline_iata: nextAirline
-          }).catch(() => null)
+          }, standaloneCredentials.source).catch(() => null)
         ]);
         if (requestGeneration === historyRequestGenerationRef.current) {
           setHistoryData(data);
@@ -932,6 +958,7 @@ export function AppShell() {
       setRadarData(data);
       const cacheKey = [
         "standalone",
+        standaloneCredentials.source,
         standaloneCredentials.airport.iata || standaloneCredentials.airport.icao,
         nextRadius,
         Number(data.center?.lat || standaloneCredentials.airport.lat || 0).toFixed(5),
@@ -1284,7 +1311,8 @@ export function AppShell() {
     config,
     relayInstallId,
     relayActivationToken,
-    airport
+    airport,
+    standaloneSource = "real"
   }: {
     mode: "lan_companion" | "standalone";
     serverUrl?: string;
@@ -1293,6 +1321,7 @@ export function AppShell() {
     relayInstallId?: string;
     relayActivationToken?: string;
     airport?: NonNullable<MobileSetupState["standaloneAirport"]>;
+    standaloneSource?: StandaloneFlightSource;
   }) => {
     if (mode === "standalone") {
       if (!relayInstallId || !relayActivationToken || !airport) {
@@ -1302,7 +1331,8 @@ export function AppShell() {
         relayInstallId,
         relayActivationToken,
         airport,
-        diagnosticsMode
+        diagnosticsMode,
+        standaloneSource
       });
       await Promise.all([
         saveServerUrl(""),
@@ -1562,6 +1592,7 @@ export function AppShell() {
       setPinnedFlightReference(next);
       setActionRow(null);
       await savePinnedFlight(next);
+      setWidgetForceWriteNonce((value) => value + 1);
     },
     [pinnedFlightReference, widgetPreferences.liveActivityEnabled]
   );
@@ -1578,6 +1609,7 @@ export function AppShell() {
     setPinnedFlightReference(nextReference);
     setActionRow(null);
     await savePinnedFlight(nextReference);
+    setWidgetForceWriteNonce((value) => value + 1);
     hapticSuccess();
     // The snapshot writer starts ActivityKit only after the pinned snapshot is
     // safely in the shared app-group container. No extension performs a fetch.
@@ -1691,10 +1723,10 @@ export function AppShell() {
     ? {
         airport_iata: standaloneCredentials.airport.iata,
         airport_icao: standaloneCredentials.airport.icao,
-        refresh_seconds: 3 * 60 * 60,
+        refresh_seconds: standaloneCredentials.source === "virtual" ? 60 : 3600,
         display_name: standaloneCredentials.airport.name,
         theme: "standard",
-        source: "real",
+        source: standaloneCredentials.source,
         timezone: standaloneCredentials.airport.timezone || "UTC",
         skin: "standard",
         display_outputs: ["mobile"]
@@ -1722,8 +1754,8 @@ export function AppShell() {
           : "Connect to a Local Flight host";
   const airportName = currentAirportDetail?.name || fallbackDisplayName;
   const airportLocation = [currentAirportDetail?.city, currentAirportDetail?.country].filter(Boolean).join(" · ");
-  const sourceLabel = state?.source_name || cfg?.source || "VATSIM";
-  const widgetAirportKey = `${isStandalone ? "standalone" : "lan"}:${airportCode}:${airportIcao || "---"}`;
+  const sourceLabel = state?.source_name || cfg?.source || "Local Flight";
+  const widgetAirportKey = `${isStandalone ? `standalone:${standaloneCredentials?.source || "real"}` : "lan"}:${airportCode}:${airportIcao || "---"}`;
   const widgetLastSuccess = state?.last_success_utc || "";
   const widgetAirportChangedBeforeEffect = Boolean(
     mobileSetupComplete &&
@@ -1952,7 +1984,7 @@ export function AppShell() {
           }
           setWidgetSnapshotStatus({
             state: payload.stale ? "stale" : "ready",
-            detail: result.sharedContainer ? "app group" : "app sandbox"
+            detail: result.probe?.decodeResult === "ok" ? "widget decoded" : "app group"
           });
           const requestedFlight = liveActivityStartFlightRef.current;
           if (requestedFlight && payload.liveActivity.flight?.id === requestedFlight) {
@@ -1962,7 +1994,11 @@ export function AppShell() {
         } else {
           setWidgetSnapshotStatus({
             state: "waiting",
-            detail: "write deferred"
+            detail: result.error === "app_group_unavailable"
+              ? "App Group unavailable"
+              : result.error === "invalid_timestamp"
+                ? "timestamp decode failed"
+                : "write deferred"
           });
         }
       })
@@ -2227,6 +2263,11 @@ export function AppShell() {
       contentPaddingBottom: screenContentPadding,
       nativeNavigation: nativeNavigation.usesNativeLiquidGlassTabs,
       displayPageSeconds: snapshot.standalone_policy?.display_page_seconds || cfg?.web_rotation_seconds || 8,
+      autoDisplayOnRotate,
+      onAutoDisplayOnRotateChange: (next) => {
+        setAutoDisplayOnRotate(next);
+        void saveAutoDisplayOnRotate(next);
+      },
       onRefresh: () => { hapticLight(); void refreshScreen({ target: "fids" }); },
       onViewChange: setView,
       onOpenDetail: openFidsDetail,
@@ -2285,6 +2326,11 @@ export function AppShell() {
       onOpenDetail: openHistoryDetail
     },
     notices: visibleNotices,
+    rotationDisplayBlocked: detailVisible
+      || weatherSheetVisible
+      || Boolean(actionRow)
+      || configSheetVisible
+      || standaloneAirportSheetVisible,
     onNoticeAction: handleNoticeAction,
     onSectionFocus: handleV2SectionFocus,
     onRefreshCurrent: () => void refreshScreen({
@@ -2327,6 +2373,7 @@ export function AppShell() {
             widgetSnapshotLabel,
             liveActivitySupported,
             weatherDisplayMode,
+            autoDisplayOnRotate,
             diagnosticsMode: mobileDiagnosticsMode,
             onRefresh: () => void refreshScreen({
               target: isStandalone ? "settings" : "control",
@@ -2335,6 +2382,10 @@ export function AppShell() {
             onRefreshWidget: () => void refreshWidgetSnapshotNow(),
             onWidgetPreferencesChange: (next) => void chooseWidgetPreferences(next),
             onWeatherDisplayModeChange: (next) => void chooseWeatherDisplayMode(next),
+            onAutoDisplayOnRotateChange: (next) => {
+              setAutoDisplayOnRotate(next);
+              void saveAutoDisplayOnRotate(next);
+            },
             onDiagnosticsModeChange: (next) => void chooseMobileDiagnosticsMode(next),
             onOpenAirport: () => isStandalone ? setStandaloneAirportSheetVisible(true) : setConfigSheetVisible(true),
             onRerunSetup: rerunCompanionSetup
@@ -2397,14 +2448,16 @@ export function AppShell() {
       <StandaloneAirportSheet
         visible={standaloneAirportSheetVisible}
         currentAirport={standaloneCredentials?.airport || null}
+        currentSource={standaloneCredentials?.source || "real"}
         onClose={() => setStandaloneAirportSheetVisible(false)}
-        onApplied={async (airport) => {
+        onApplied={async (airport, standaloneSource) => {
           if (!mobileSetupState.relayInstallId || !mobileSetupState.relayActivationToken) return;
           const nextSetupState = completeStandaloneMobileSetupState({
             relayInstallId: mobileSetupState.relayInstallId,
             relayActivationToken: mobileSetupState.relayActivationToken,
             airport,
-            diagnosticsMode: mobileDiagnosticsMode
+            diagnosticsMode: mobileDiagnosticsMode,
+            standaloneSource
           });
           await Promise.all([saveStandaloneAirport(airport), saveMobileSetupState(nextSetupState)]);
           setMobileSetupState(nextSetupState);
@@ -2418,6 +2471,7 @@ export function AppShell() {
           setRadarGroundData(null);
           setRadarGroundError(null);
           radarGroundCacheRef.current.clear();
+          setWidgetForceWriteNonce((value) => value + 1);
           setStandaloneAirportSheetVisible(false);
           setScreen("fids");
           navigateMobileSection("board");
@@ -2821,34 +2875,12 @@ function createStyles() {
     includeFontPadding: false
   },
   companionSetupCompactMeta: {
-    marginTop: 3,
     fontFamily: UI_FONT_FAMILY,
-    color: palette.blue2,
-    fontSize: 11,
+    color: palette.textMuted,
+    fontSize: 12,
     fontWeight: "700",
-    includeFontPadding: false
-  },
-  companionSetupCompactBeacon: {
-    position: "absolute",
-    top: 18,
-    right: 14,
-    width: 78,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    opacity: lightMode ? 0.42 : 0.62
-  },
-  companionSetupCompactBeaconDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: splashAccent
-  },
-  companionSetupCompactBeaconLine: {
-    flex: 1,
-    height: 1,
-    borderRadius: 999,
-    backgroundColor: splashAccentFaint
+    includeFontPadding: false,
+    textAlign: "right"
   },
   companionSetupCompactProgress: {
     marginTop: 12,
@@ -2883,16 +2915,39 @@ function createStyles() {
     marginTop: 8,
     color: palette.textMuted,
     fontSize: 15,
-    lineHeight: 21,
-    textAlign: "center"
+    lineHeight: 22,
+    textAlign: "left"
+  },
+  companionSetupWelcomeBody: {
+    textAlign: "center",
+    maxWidth: 520,
+    alignSelf: "center"
   },
   companionSetupRoute: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 5,
     marginTop: 16,
     width: "100%"
+  },
+  companionSetupRouteSegment: {
+    flex: 1,
+    maxWidth: 52,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: softPanelStrong
+  },
+  companionSetupRouteSegmentActive: {
+    backgroundColor: splashAccent
+  },
+  companionSetupRouteCaption: {
+    marginTop: 8,
+    fontFamily: UI_FONT_FAMILY,
+    color: palette.textDim,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center"
   },
   companionSetupRouteItem: {
     flex: 1,
@@ -2949,8 +3004,12 @@ function createStyles() {
   companionSetupPanelTitle: {
     fontFamily: UI_FONT_FAMILY,
     color: palette.text,
-    fontSize: 19,
+    fontSize: 21,
+    lineHeight: 27,
     fontWeight: "800",
+    textAlign: "left"
+  },
+  companionSetupWelcomeTitle: {
     textAlign: "center"
   },
   companionSetupChecklist: {
@@ -3206,10 +3265,11 @@ function createStyles() {
   companionSetupOptionTop: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: 10
   },
   companionSetupOptionTitle: {
+    flex: 1,
+    minWidth: 0,
     fontFamily: UI_FONT_FAMILY,
     color: palette.text,
     fontSize: 15,

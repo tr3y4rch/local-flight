@@ -56,6 +56,9 @@ for (const column of ["Time", "Flight", "Route", "Status", "Aircraft", "Gate"]) 
 }
 assert.match(board, /updatedLabel/);
 assert.match(board, /connectionLabel/);
+assert.match(board, /const listRows = pinned \? rows\.filter\(\(row\) => !row\.pinned\) : rows/);
+assert.match(board, /data=\{listRows\}/);
+assert.match(board, /ListEmptyComponent=\{pinned \? null/);
 assert.doesNotMatch(board, /setInterval|setTimeout/);
 assert.match(boardModel, /virtual \? "" :/);
 assert.match(boardModel, /flight_rules/);
@@ -120,6 +123,11 @@ assert.match(app, /using the system fallback/);
 assert.match(featureGate, /MOBILE_V2_ROLLOUT_ENABLED = true/);
 assert.match(featureGate, /MOBILE_V2_PUBLIC_TOGGLE = false/);
 assert.match(settings, /liveActivityEnabled: false/);
+assert.match(settings, /widgetAppearance: "system"/);
+assert.match(settings, /liveActivityAppearance: "system"/);
+assert.match(more, /Home Screen widgets/);
+assert.match(more, /Lock Screen Live Activity/);
+assert.match(more, /touch and hold the flight to expand it/);
 assert.match(nativeActivity, /snapshot\.preferences\.liveActivityEnabled == true/);
 assert.match(nativeActivity, /pushType: nil/);
 assert.match(nativeActivity, /2 \* 60 \* 60/);
@@ -163,8 +171,8 @@ const setupStart = appScreens.indexOf("type CompanionSetupStep");
 const setupEnd = appScreens.indexOf("function SettingsScreen", setupStart);
 assert.ok(setupStart >= 0 && setupEnd > setupStart, "missing mobile onboarding implementation");
 const setup = appScreens.slice(setupStart, setupEnd);
-assert.match(setup, /\["welcome", "mode", "airport", "review"\]/);
-assert.match(setup, /\["welcome", "mode", "pairing", "review"\]/);
+assert.match(setup, /\["welcome", "mode", "airport", "source", "updates", "privacy", "review"\]/);
+assert.match(setup, /\["welcome", "mode", "pairing", "updates", "privacy", "review"\]/);
 assert.doesNotMatch(setup, /step === "(?:server|policy|diagnostics|ready)"/);
 assert.doesNotMatch(setup, /\| "(?:server|policy|diagnostics|ready)"/);
 for (const onboardingTerm of [
@@ -173,7 +181,11 @@ for (const onboardingTerm of [
   "same Wi-Fi",
   "Airline schedules",
   "VATSIM traffic",
-  "Privacy & review"
+  "Airline schedules usually refresh about once an hour.",
+  "VATSIM traffic shows flights shared on the virtual network and can refresh about once a minute.",
+  "Radar uses the same flight-information choice. Airport weather and surface drawings remain available.",
+  "No pilot names or VATSIM account identifiers are stored.",
+  "Privacy and diagnostics"
 ]) {
   assert.ok(setup.includes(onboardingTerm), `onboarding missing ${onboardingTerm}`);
 }
@@ -189,6 +201,18 @@ assert.match(standaloneApi, /RELAY_REQUEST_TIMEOUT_MS/);
 assert.match(standaloneApi, /DEFAULT_RELAY_FALLBACK_URL/);
 assert.match(standaloneApi, /Platform\.OS === "ios"/);
 assert.match(standaloneApi, /preferredStandaloneRelayUrl/);
+assert.match(standaloneApi, /params\.set\("source", credentials\.source\)/);
+assert.match(standaloneApi, /VATSIM traffic is not available from this relay yet/);
+assert.match(settings, /AUTO_DISPLAY_ON_ROTATE_KEY/);
+assert.match(settings, /loadAutoDisplayOnRotate[\s\S]*?!== "false"/);
+assert.match(navigator, /entry\?: "manual" \| "rotation" \| "deep-link"/);
+assert.match(navigator, /rotationReentrySuppressedRef/);
+assert.match(navigator, /currentRouteNameRef\.current === "Board"/);
+assert.match(navigator, /!rotationDisplayBlocked/);
+assert.ok(
+  display.indexOf("styles.utilityStrip") < display.indexOf("styles.columnHeader"),
+  "Display utility controls must occupy reserved layout before the FIDS column header"
+);
 assert.match(companionApi, /AIRPORT_SEARCH_QUERY_LIMIT = 20/);
 assert.match(companionApi, /slice\(0, AIRPORT_SEARCH_QUERY_LIMIT\)/);
 assert.match(appScreens, /Retry host airport search/);

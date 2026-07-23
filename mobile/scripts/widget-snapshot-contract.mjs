@@ -124,12 +124,52 @@ module.exports = { File, Paths };
   const fakeWidgetBridgeDir = path.join(outDir, "node_modules/localflight-widget-bridge");
   mkdirSync(fakeWidgetBridgeDir, { recursive: true });
   writeFileSync(path.join(fakeWidgetBridgeDir, "index.js"), `
-const state = globalThis.__localFlightWidgetBridgeMock || (globalThis.__localFlightWidgetBridgeMock = { reloadCount: 0 });
+const state = globalThis.__localFlightWidgetBridgeMock || (globalThis.__localFlightWidgetBridgeMock = { reloadCount: 0, nativeWriteCount: 0 });
 async function reloadLocalFlightWidgets() {
   state.reloadCount += 1;
   return { available: true, widgetCount: 1 };
 }
-module.exports = { reloadLocalFlightWidgets };
+async function probeLocalFlightWidgetSnapshot() {
+  return state.probe || {
+    appGroupAvailable: true,
+    schemaVersion: 1,
+    byteCount: 1024,
+    generatedAt: "2026-07-22T18:00:00.123Z",
+    rowCount: 2,
+    pinPresent: true,
+    decodeResult: "ok",
+    lastReloadRequest: ""
+  };
+}
+async function writeLocalFlightWidgetSnapshot(json) {
+  state.nativeWriteCount += 1;
+  state.lastWrittenJson = json;
+  if (state.nativeWriteUnavailable) {
+    return {
+      appGroupAvailable: false,
+      schemaVersion: 0,
+      byteCount: 0,
+      generatedAt: "",
+      rowCount: 0,
+      pinPresent: false,
+      decodeResult: "app_group_unavailable",
+      lastReloadRequest: ""
+    };
+  }
+  return probeLocalFlightWidgetSnapshot();
+}
+module.exports = { reloadLocalFlightWidgets, probeLocalFlightWidgetSnapshot, writeLocalFlightWidgetSnapshot };
+`);
+
+  const fakeReactNativeDir = path.join(outDir, "node_modules/react-native");
+  mkdirSync(fakeReactNativeDir, { recursive: true });
+  writeFileSync(path.join(fakeReactNativeDir, "index.js"), `
+const Platform = {};
+Object.defineProperty(Platform, "OS", {
+  enumerable: true,
+  get() { return globalThis.__localFlightPlatformOS || "android"; }
+});
+module.exports = { Platform };
 `);
 
   const fakeSqliteDir = path.join(outDir, "node_modules/expo-sqlite");
@@ -281,6 +321,7 @@ module.exports = { openDatabaseAsync };
     route_display: `${overrides.route || "Geneva"} (${overrides.routeCode || "GVA"})`,
     route_code: overrides.routeCode || "GVA",
     display_time: overrides.displayTime || "17:10",
+    time_primary: overrides.timePrimary || undefined,
     status_display: overrides.status || "Scheduled",
     view: overrides.view || "departures",
     gate_display: overrides.gate || "A62",
@@ -309,6 +350,21 @@ module.exports = { openDatabaseAsync };
   assert.equal(preview.pinnedFlight.flightDisplay, "LX 2800");
   assert.equal(preview.liveFlights.length, 3);
 
+  const stableTimePreview = widgets.deriveWidgetPreviewSnapshot({
+    rows: [row(20, { displayTime: "06:00 (+190)", timePrimary: "06:00", status: "Delayed +190m" })],
+    pinnedCallsign: null,
+    airportCode: "HKG",
+    airportName: "Hong Kong International Airport",
+    view: "departures",
+    preferences: prefs3
+  });
+  assert.equal(stableTimePreview.liveFlights[0].displayTime, "06:00");
+  assert.equal(widgets.normalizeWidgetFlight({
+    id: "legacy-delay-time",
+    flightDisplay: "CX 820",
+    displayTime: "06:00 (+190)"
+  }).displayTime, "06:00");
+
   const snapshot = widgets.buildWidgetExchangeSnapshot({
     preview,
     preferences: prefs3,
@@ -323,6 +379,21 @@ module.exports = { openDatabaseAsync };
   assert.equal(snapshot.liveActivity.stale, false);
   assert.equal(snapshot.medium.rows.length, 3);
   assert.equal(snapshot.medium.rows[0].pinned, true);
+  assert.equal(snapshot.preferences.widgetAppearance, "system");
+  assert.equal(snapshot.preferences.liveActivityAppearance, "system");
+
+  const duplicatePinnedSnapshot = widgets.buildWidgetExchangeSnapshot({
+    preview: {
+      ...preview,
+      liveFlights: [preview.pinnedFlight, ...preview.liveFlights].filter(Boolean)
+    },
+    preferences: { ...prefs3, widgetAppearance: "dark", liveActivityAppearance: "light" },
+    mode: "lan_companion",
+    generatedAt: future
+  });
+  assert.equal(duplicatePinnedSnapshot.medium.rows.filter((flight) => flight.id === preview.pinnedFlight.id).length, 1);
+  assert.equal(duplicatePinnedSnapshot.preferences.widgetAppearance, "dark");
+  assert.equal(duplicatePinnedSnapshot.preferences.liveActivityAppearance, "light");
 
   const snapshot2Rows = widgets.buildWidgetExchangeSnapshot({
     preview,
@@ -397,6 +468,8 @@ module.exports = { openDatabaseAsync };
   assert.equal(normalized.airport.code.length, 8);
   assert.equal(normalized.preferences.mediumRowCount, 3);
   assert.equal(normalized.preferences.showGateTerminal, false);
+  assert.equal(normalized.preferences.widgetAppearance, "system");
+  assert.equal(normalized.preferences.liveActivityAppearance, "system");
   assert.equal(normalized.small.flight, null);
   assert.equal(normalized.liveActivity.flight, null);
   assert.equal(normalized.liveActivity.stale, true);
@@ -463,7 +536,8 @@ module.exports = { openDatabaseAsync };
   assert.equal(widgets.widgetSnapshotStaleAfterMs("lan_companion", 8 * 60 * 60), 16 * 60 * 60 * 1000);
 
   const fsMock = globalThis.__localFlightExpoFileSystemMock;
-  const resetFsMock = ({ sharedContainer = false } = {}) => {
+  const resetFsMock = ({ sharedContainer = false, platform = "android" } = {}) => {
+    globalThis.__localFlightPlatformOS = platform;
     fsMock.files = new Map();
     fsMock.documentUri = "mock://document";
     fsMock.sharedContainers = sharedContainer
@@ -477,6 +551,8 @@ module.exports = { openDatabaseAsync };
     fsMock.failAllWrites = false;
     fsMock.failTempCreateOnce = false;
     fsMock.failTempWriteOnce = false;
+    globalThis.__localFlightWidgetBridgeMock.nativeWriteCount = 0;
+    globalThis.__localFlightWidgetBridgeMock.nativeWriteUnavailable = false;
     storage.resetWidgetSnapshotWriteMemo();
   };
 
@@ -498,10 +574,19 @@ module.exports = { openDatabaseAsync };
   const readBack = await storage.readWidgetSnapshot();
   assert.equal(readBack.small.flight.flightDisplay, "LX 2800");
 
-  resetFsMock({ sharedContainer: true });
+  resetFsMock({ sharedContainer: true, platform: "ios" });
   const sharedWrite = await storage.writeWidgetSnapshot(snapshot);
   assert.equal(sharedWrite.ok, true);
   assert.equal(sharedWrite.sharedContainer, true);
+  assert.equal(sharedWrite.probe.decodeResult, "ok");
+  assert.equal(globalThis.__localFlightWidgetBridgeMock.nativeWriteCount, 1);
+  assert.equal(fsMock.writeCount, 0);
+
+  resetFsMock({ platform: "ios" });
+  globalThis.__localFlightWidgetBridgeMock.nativeWriteUnavailable = true;
+  const unavailableGroupWrite = await storage.writeWidgetSnapshot(snapshot);
+  assert.equal(unavailableGroupWrite.ok, false);
+  assert.equal(unavailableGroupWrite.error, "app_group_unavailable");
 
   resetFsMock();
   fsMock.failTempCreateOnce = true;
@@ -591,6 +676,19 @@ module.exports = { openDatabaseAsync };
   assert.equal((await standaloneHistory.getStandaloneHistory(airport, { hours: 24, direction: "dep", limit: 10 })).flights.length, 2);
   assert.equal((await standaloneHistory.getStandaloneHistory(airport, { hours: 24, callsign: "LX2800", limit: 10 })).flights.length, 1);
   assert.equal((await standaloneHistory.getStandaloneHistory(airport, { hours: 24, airline_iata: "LX", limit: 10 })).flights.length, 2);
+  await standaloneHistory.storeStandaloneFidsRows(
+    airport,
+    [{ ...historyRows[0], callsign: "SWRV12", flight_number: null, flight_display: "SWRV12" }],
+    recentEventTime,
+    "virtual"
+  );
+  const airlineHistory = await standaloneHistory.getStandaloneHistory(airport, { hours: 24, limit: 10 }, "real");
+  const vatsimHistory = await standaloneHistory.getStandaloneHistory(airport, { hours: 24, limit: 10 }, "virtual");
+  assert.equal(airlineHistory.flights.some((flight) => flight.callsign === "SWRV12"), false);
+  assert.equal(vatsimHistory.flights.length, 1);
+  assert.equal(vatsimHistory.flights[0].callsign, "SWRV12");
+  assert.equal(vatsimHistory.flights[0].source, "vatsim");
+  assert.equal(vatsimHistory.standalone_storage.airport_key, "ZRH:VIRTUAL");
   assert.ok(flightsDomain.fidsRowDetailResponse(historyRows[0], "ZRH").detail.callsign);
   assert.ok(flightsDomain.radarBlipDetailResponse({
     callsign: "LX2800",

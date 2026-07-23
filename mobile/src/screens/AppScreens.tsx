@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -131,6 +131,7 @@ import {
   type MobileWeatherDisplayMode,
   type RemoteCompanionGrant,
   type StandaloneAirport,
+  type StandaloneFlightSource,
   saveProfiles
 } from "../storage/settings";
 import { LOCAL_FLIGHT_BRAND_ASSETS } from "../theme/brandAssets";
@@ -139,6 +140,7 @@ import {
   ACTION_ICONS,
   LocalFlightIcon,
   SETUP_ICONS,
+  SOURCE_ICONS,
   SUPPORT_ICONS,
   TOOL_ICONS,
   type LocalFlightIconName,
@@ -400,6 +402,9 @@ type CompanionSetupStep =
   | "mode"
   | "pairing"
   | "airport"
+  | "source"
+  | "updates"
+  | "privacy"
   | "review";
 type SetupUrlCheckState = "idle" | "checking" | "ok" | "error" | "invalid";
 type AirportSearchState = "idle" | "loading" | "results" | "empty" | "error";
@@ -421,6 +426,7 @@ type StandaloneSetupResult = {
   relayInstallId: string;
   relayActivationToken: string;
   airport: StandaloneAirport;
+  standaloneSource: StandaloneFlightSource;
   diagnosticsMode: MobileDiagnosticsMode;
   activationStatus: string;
 };
@@ -3398,7 +3404,6 @@ export function RadarScope({
   onOpenDetail: (callsign: string, blip?: RadarBlip) => void;
 }) {
   const [scopeSize, setScopeSize] = useState(280);
-  const reduceMotion = useReducedMotionPreference();
   const pinchRef = useRef<{ distance: number; index: number } | null>(null);
   const [selectedTargetKey, setSelectedTargetKey] = useState("");
   const effectiveLayers = drawingLayers;
@@ -3418,8 +3423,8 @@ export function RadarScope({
     .map((item, index) => {
       const key = radarTargetKey(item.blip, index);
       const focused = key === selectedTargetKey;
-      const opacity = reduceMotion ? 1 : radarSweepOpacity(item.angleDeg, sweepDeg, focused);
-      const flash = !reduceMotion && radarAngularAge(sweepDeg, item.angleDeg) <= RADAR_FLASH_DEGREES && opacity > 0;
+      const opacity = radarSweepOpacity(item.angleDeg, sweepDeg, focused);
+      const flash = radarAngularAge(sweepDeg, item.angleDeg) <= RADAR_FLASH_DEGREES && opacity > 0;
       return { item, key, focused, flash, opacity };
     })
     .sort((a, b) => a.item.distanceNm - b.item.distanceNm);
@@ -3433,10 +3438,6 @@ export function RadarScope({
   }, [selectedTargetPresent]);
 
   useEffect(() => {
-    if (reduceMotion) {
-      setSweepDeg(0);
-      return;
-    }
     let active = NativeAppState.currentState === "active";
     let previous = radarPresentationNow();
     const timer = setInterval(() => {
@@ -3454,7 +3455,7 @@ export function RadarScope({
       clearInterval(timer);
       appStateSubscription.remove();
     };
-  }, [reduceMotion]);
+  }, []);
 
   const setMeasuredSize = useCallback((width: number) => {
     const next = Math.max(220, Math.min(width - 28, compact ? 320 : 440));
@@ -3528,7 +3529,7 @@ export function RadarScope({
           scopeSize={scopeSize}
           drawingLayers={effectiveLayers}
         />
-        <RadarSweepLayer scopeSize={scopeSize} sweepDeg={sweepDeg} reducedMotion={reduceMotion} />
+        <RadarSweepLayer scopeSize={scopeSize} sweepDeg={sweepDeg} />
         <View style={styles.scopeRingOuter} />
         <View style={styles.scopeRingMid} />
         <View style={styles.scopeRingInner} />
@@ -3610,8 +3611,7 @@ export function RadarScope({
   );
 }
 
-function RadarSweepLayer({ scopeSize, sweepDeg, reducedMotion }: { scopeSize: number; sweepDeg: number; reducedMotion: boolean }) {
-  if (reducedMotion) return null;
+function RadarSweepLayer({ scopeSize, sweepDeg }: { scopeSize: number; sweepDeg: number }) {
   const center = scopeSize / 2;
   const radius = scopeSize * 0.44;
   const sweepFillOpacity = 0.15;
@@ -4946,6 +4946,7 @@ export function CompanionSetupScreen({
   const [airportInput, setAirportInput] = useState("");
   const [airportResults, setAirportResults] = useState<AirportResult[]>([]);
   const [selectedStandaloneAirport, setSelectedStandaloneAirport] = useState<AirportResolved | null>(null);
+  const [standaloneSource, setStandaloneSource] = useState<StandaloneFlightSource>("real");
   const [airportSearchState, setAirportSearchState] = useState<AirportSearchState>("idle");
   const [airportSearchRetryNonce, setAirportSearchRetryNonce] = useState(0);
   const [resolvingAirport, setResolvingAirport] = useState(false);
@@ -4967,18 +4968,20 @@ export function CompanionSetupScreen({
   const stepDirectionRef = useRef<1 | -1>(1);
   const lastStepRef = useRef<CompanionSetupStep>("welcome");
   const reduceMotion = useReducedMotionPreference();
-  const routeSteps: CompanionSetupStep[] = setupMode === "standalone"
-    ? ["welcome", "mode", "airport", "review"]
-    : ["welcome", "mode", "pairing", "review"];
-  const activeStepIndex = setupStepRank(step);
+  const routeSteps = useMemo<CompanionSetupStep[]>(() => setupMode === "standalone"
+    ? ["welcome", "mode", "airport", "source", "updates", "privacy", "review"]
+    : ["welcome", "mode", "pairing", "updates", "privacy", "review"], [setupMode]);
+  const activeStepIndex = Math.max(0, routeSteps.indexOf(step));
   const setupProgressRatio = Math.min(1, (activeStepIndex + 1) / routeSteps.length);
 
   const goToStep = useCallback((nextStep: CompanionSetupStep) => {
     Keyboard.dismiss();
-    stepDirectionRef.current = setupStepRank(nextStep) >= setupStepRank(lastStepRef.current) ? 1 : -1;
+    const nextIndex = routeSteps.indexOf(nextStep);
+    const previousIndex = routeSteps.indexOf(lastStepRef.current);
+    stepDirectionRef.current = (nextIndex < 0 ? setupStepRank(nextStep) : nextIndex) >= (previousIndex < 0 ? setupStepRank(lastStepRef.current) : previousIndex) ? 1 : -1;
     lastStepRef.current = nextStep;
     setStep(nextStep);
-  }, []);
+  }, [routeSteps]);
 
   useEffect(() => {
     setServerInput(initialUrl);
@@ -5012,9 +5015,14 @@ export function CompanionSetupScreen({
   }, [railAnim, reduceMotion, step]);
 
   useEffect(() => {
+    if (reduceMotion) {
+      progressAnim.stopAnimation();
+      progressAnim.setValue(setupProgressRatio);
+      return;
+    }
     Animated.timing(progressAnim, {
       toValue: setupProgressRatio,
-      duration: reduceMotion ? 170 : 260,
+      duration: 260,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false
     }).start();
@@ -5159,12 +5167,12 @@ export function CompanionSetupScreen({
         config,
         state
       };
-      setSetupProgress("Host answered. Opening privacy and review...");
+      setSetupProgress("Host answered. Reviewing what this device receives...");
       setServerInput(normalizedUrl);
       setUrlCheckState("ok");
       setUrlCheckMessage("This Local Flight host is ready.");
       setServerSummary(summary);
-      goToStep("review");
+      goToStep("updates");
     } catch (exc) {
       const detail = companionSetupErrorMessage(exc);
       const isPairingGuard = /Pairing QR|belongs to server|server fingerprint/i.test(detail);
@@ -5298,6 +5306,7 @@ export function CompanionSetupScreen({
           relayInstallId,
           relayActivationToken: activation.activationToken,
           airport: resolvedAirport,
+          standaloneSource,
           diagnosticsMode,
           activationStatus: activation.status
         });
@@ -5324,7 +5333,7 @@ export function CompanionSetupScreen({
     } finally {
       setFinishing(false);
     }
-  }, [diagnosticsMode, goToStep, onComplete, selectedStandaloneAirport, serverSummary, setupMode]);
+  }, [diagnosticsMode, goToStep, onComplete, selectedStandaloneAirport, serverSummary, setupMode, standaloneSource]);
 
   const panelMotion = {
     opacity: stepAnim,
@@ -5386,28 +5395,21 @@ export function CompanionSetupScreen({
             <Text style={styles.companionSetupEyebrowSuffix}> Mobile</Text>
           </Text>
           <Text style={styles.companionSetupTitle}>Your airport at a glance</Text>
-          <Text style={styles.companionSetupBody}>
+          <Text style={[styles.companionSetupBody, styles.companionSetupWelcomeBody]}>
             Set up the Board, radar, and recent flight history for this device.
           </Text>
-          <View style={styles.companionSetupRoute}>
+          <View style={styles.companionSetupRoute} {...hideFromAccessibility()}>
             {routeSteps.map((item, index) => (
-              <View key={item} style={styles.companionSetupRouteItem}>
-                <View
-                  style={[
-                    styles.companionSetupStepDot,
-                    index <= activeStepIndex && styles.companionSetupStepDotActive
-                  ]}
-                >
-                  <Text style={[styles.companionSetupStepNumber, index <= activeStepIndex && styles.companionSetupStepNumberActive]}>
-                    {index + 1}
-                  </Text>
-                </View>
-                <Text style={[styles.companionSetupStepLabel, { textTransform: "none" }, index <= activeStepIndex && styles.companionSetupStepLabelActive]}>
-                  {setupStepTitle(item)}
-                </Text>
-              </View>
+              <View
+                key={item}
+                style={[
+                  styles.companionSetupRouteSegment,
+                  index <= activeStepIndex && styles.companionSetupRouteSegmentActive
+                ]}
+              />
             ))}
           </View>
+          <Text style={styles.companionSetupRouteCaption}>{routeSteps.length} short steps · choices can be changed later</Text>
         </Animated.View>
         ) : (
           <Animated.View style={[styles.companionSetupCompactRail, compactRailMotion]}>
@@ -5428,14 +5430,10 @@ export function CompanionSetupScreen({
                 >
                   Local Flight
                 </BrandWordmark>
-                <Text style={styles.companionSetupCompactMeta}>
-                  {setupStepTitle(step)} · {activeStepIndex + 1}/{routeSteps.length}
-                </Text>
               </View>
-            </View>
-            <View style={styles.companionSetupCompactBeacon} {...hideFromAccessibility()}>
-              <View style={styles.companionSetupCompactBeaconDot} />
-              <View style={styles.companionSetupCompactBeaconLine} />
+              <Text style={styles.companionSetupCompactMeta}>
+                Step {activeStepIndex + 1} of {routeSteps.length}
+              </Text>
             </View>
             <View
               style={styles.companionSetupCompactProgress}
@@ -5454,8 +5452,8 @@ export function CompanionSetupScreen({
 
         {step === "welcome" ? (
           <Animated.View style={[styles.companionSetupPanel, styles.companionSetupWelcomePanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Welcome to Local Flight Mobile</Text>
-            <Text style={styles.companionSetupBody}>
+            <Text style={[styles.companionSetupPanelTitle, styles.companionSetupWelcomeTitle]}>Welcome to Local Flight Mobile</Text>
+            <Text style={[styles.companionSetupBody, styles.companionSetupWelcomeBody]}>
               Choose how this device gets flight information, then review privacy before opening the Board.
             </Text>
             <View style={styles.companionSetupChecklist}>
@@ -5511,10 +5509,6 @@ export function CompanionSetupScreen({
                   <Text style={styles.companionSetupOptionBody}>{body}</Text>
                 </Pressable>
               ))}
-            </View>
-            <View style={styles.companionSetupInfoGrid}>
-              <SetupInfoTile label="Choice" value={setupMode === "standalone" ? "Without a host" : "Local Flight host"} />
-              <SetupInfoTile label="Next" value={setupMode === "standalone" ? "Choose airport" : "Pair host"} />
             </View>
             <Pressable
               style={styles.companionSetupPrimary}
@@ -5752,7 +5746,7 @@ export function CompanionSetupScreen({
               style={[styles.companionSetupPrimary, (!canContinueWithAirport || resolvingAirport) && styles.connectButtonDisabled]}
               onPress={() => {
                 if (selectedStandaloneAirport) {
-                  goToStep("review");
+                  goToStep("source");
                 } else {
                   void resolveEnteredAirportCode();
                 }
@@ -5789,48 +5783,105 @@ export function CompanionSetupScreen({
           </Animated.View>
         ) : null}
 
-        {step === "review" ? (
+        {step === "source" ? (
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
-            <Text style={styles.companionSetupPanelTitle}>Privacy & review</Text>
+            <Text style={styles.companionSetupPanelTitle}>Choose flight information</Text>
             <Text style={styles.companionSetupBody}>
-              {setupMode === "standalone"
-                ? "Review how Standalone works on this device, choose your report preference, and save the airport."
-                : "Choose your report preference, review the Local Flight host, and save the connection on this device."}
+              The Board and Radar use the same choice. You can switch later in Airport & Connection without rerunning setup.
             </Text>
-            {setupMode === "standalone" ? (
-              <View style={styles.companionSetupChecklist}>
-                <SetupChecklistItem icon={SETUP_ICONS.server} title="Board updates" body="Airline schedules usually refresh about once an hour." />
-                <SetupChecklistItem icon={SETUP_ICONS.lan} title="Radar updates" body="Nearby traffic can refresh about every 3 minutes while Radar is open." />
-              </View>
-            ) : null}
+            <View style={styles.companionSetupOptionStack}>
+              {([
+                ["real", "Airline schedules", "Current departures and arrivals supplied by airline schedule sources."],
+                ["virtual", "VATSIM traffic", "Flights shared on the virtual network, focused on callsigns and flight plans."]
+              ] as Array<[StandaloneFlightSource, string, string]>).map(([value, title, body]) => {
+                const active = standaloneSource === value;
+                return (
+                  <Pressable
+                    key={value}
+                    style={[styles.companionSetupOption, active && styles.companionSetupOptionActive]}
+                    onPress={() => setStandaloneSource(value)}
+                    {...accessibleButton({ label: title, hint: body, selected: active })}
+                  >
+                    <View style={styles.companionSetupOptionTop}>
+                      <LocalFlightIcon name={SOURCE_ICONS[value]} size={18} color={active ? palette.blue2 : palette.textMuted} />
+                      <Text style={styles.companionSetupOptionTitle}>{title}</Text>
+                      {active ? <LocalFlightIcon name={ACTION_ICONS.configured} size={16} color={palette.green} /> : null}
+                    </View>
+                    <Text style={styles.companionSetupOptionBody}>{body}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              style={styles.companionSetupPrimary}
+              onPress={() => goToStep("updates")}
+              {...accessibleButton({ label: "Continue to updates and data explanation" })}
+            >
+              <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
+              <Text style={styles.companionSetupPrimaryText}>Continue</Text>
+            </Pressable>
+            <Pressable style={styles.companionSetupSecondary} onPress={() => goToStep("airport")} {...accessibleButton({ label: "Back to airport choice" })}>
+              <Text style={styles.companionSetupSecondaryText}>Back</Text>
+            </Pressable>
+          </Animated.View>
+        ) : null}
+
+        {step === "updates" ? (
+          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
+            <Text style={styles.companionSetupPanelTitle}>{setupMode === "standalone" ? "Updates and airport data" : "What this device receives"}</Text>
+            <Text style={styles.companionSetupBody}>
+              Local Flight keeps connection state and information freshness separate, so cached information is clearly identified.
+            </Text>
+            <View style={styles.companionSetupChecklist}>
+              {setupMode === "standalone" ? (
+                <>
+                  <SetupChecklistItem
+                    icon={standaloneSource === "virtual" ? SOURCE_ICONS.virtual : SOURCE_ICONS.real}
+                    title={standaloneSource === "virtual" ? "VATSIM traffic" : "Airline schedules"}
+                    body={standaloneSource === "virtual"
+                      ? "VATSIM traffic shows flights shared on the virtual network and can refresh about once a minute."
+                      : "Airline schedules usually refresh about once an hour."}
+                  />
+                  <SetupChecklistItem icon={SETUP_ICONS.lan} title="Board and Radar" body="Radar uses the same flight-information choice. Airport weather and surface drawings remain available." />
+                </>
+              ) : (
+                <>
+                  <SetupChecklistItem icon={SETUP_ICONS.server} title="Local Flight host" body="This device reads the Board, Radar, weather, and history supplied by the paired host." />
+                  <SetupChecklistItem icon={SETUP_ICONS.lan} title="Same Wi-Fi first" body="The app uses the nearby host connection first and keeps existing secure remote fallback behavior when paired." />
+                </>
+              )}
+            </View>
+            <Pressable style={styles.companionSetupPrimary} onPress={() => goToStep("privacy")} {...accessibleButton({ label: "Continue to privacy choices" })}>
+              <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
+              <Text style={styles.companionSetupPrimaryText}>Continue</Text>
+            </Pressable>
+            <Pressable style={styles.companionSetupSecondary} onPress={() => goToStep(setupMode === "standalone" ? "source" : "pairing")} {...accessibleButton({ label: "Back" })}>
+              <Text style={styles.companionSetupSecondaryText}>Back</Text>
+            </Pressable>
+          </Animated.View>
+        ) : null}
+
+        {step === "privacy" ? (
+          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
+            <Text style={styles.companionSetupPanelTitle}>Privacy and diagnostics</Text>
+            <Text style={styles.companionSetupBody}>
+              No pilot names or VATSIM account identifiers are stored. Automatic crash reports are optional and can be changed later in More.
+            </Text>
             <View style={styles.companionSetupChecklist}>
               <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Informational use only" body="Do not use Local Flight for navigation, dispatch, safety, or operational decisions." />
             </View>
-            <Text style={styles.companionSetupBody}>
-              Manual feedback is always available from Help & Privacy. Automatic crash reports are optional and can be changed later in More.
-            </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
                 ["manual", "Ask me first", "This device sends no automatic reports. You can still send feedback yourself."],
                 ["auto", "Send crash reports", "This device can send serious app crashes with limited app context."],
                 ["auto_logs", "Include more context", "Crash reports can include additional sanitized app context. Device system logs are not included."]
               ] as Array<[MobileDiagnosticsMode, string, string]>).map(([mode, title, body]) => (
-                  <Pressable
-                    key={mode}
-                    style={[
-                      styles.companionSetupOption,
-                      diagnosticsMode === mode && styles.companionSetupOptionActive
-                    ]}
-                    {...accessibleButton({
-                      label: title,
-                      hint: body,
-                      selected: diagnosticsMode === mode
-                    })}
-                    onPress={() => {
-                      Keyboard.dismiss();
-                      setDiagnosticsMode(mode);
-                    }}
-                  >
+                <Pressable
+                  key={mode}
+                  style={[styles.companionSetupOption, diagnosticsMode === mode && styles.companionSetupOptionActive]}
+                  onPress={() => setDiagnosticsMode(mode)}
+                  {...accessibleButton({ label: title, hint: body, selected: diagnosticsMode === mode })}
+                >
                   <View style={styles.companionSetupOptionTop}>
                     <Text style={styles.companionSetupOptionTitle}>{title}</Text>
                     {mode === "manual" ? <Text style={styles.companionSetupRecommended}>Recommended</Text> : null}
@@ -5839,10 +5890,28 @@ export function CompanionSetupScreen({
                 </Pressable>
               ))}
             </View>
+            <Pressable style={styles.companionSetupPrimary} onPress={() => goToStep("review")} {...accessibleButton({ label: "Continue to setup review" })}>
+              <LocalFlightIcon name={ACTION_ICONS.next} size={16} color={solidButtonInk()} />
+              <Text style={styles.companionSetupPrimaryText}>Review setup</Text>
+            </Pressable>
+            <Pressable style={styles.companionSetupSecondary} onPress={() => goToStep("updates")} {...accessibleButton({ label: "Back to update explanation" })}>
+              <Text style={styles.companionSetupSecondaryText}>Back</Text>
+            </Pressable>
+          </Animated.View>
+        ) : null}
+
+        {step === "review" ? (
+          <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
+            <Text style={styles.companionSetupPanelTitle}>Review this device</Text>
+            <Text style={styles.companionSetupBody}>
+              {setupMode === "standalone"
+                ? "Confirm the airport and flight-information choice, then activate Standalone on this device."
+                : "Confirm the Local Flight host and privacy choice, then save the connection on this device."}
+            </Text>
             <View style={styles.companionSetupSummary}>
               <InfoLine label="Mode" value={setupMode === "standalone" ? "Standalone" : "Companion"} />
               <InfoLine label={setupMode === "standalone" ? "Airport" : "Local Flight host"} value={setupMode === "standalone" ? (selectedStandaloneAirport?.iata || "Not selected") : (serverSummary?.serverUrl || normalizeServerUrl(serverInput) || "Not tested")} />
-              <InfoLine label={setupMode === "standalone" ? "Flight information" : "Airport"} value={setupMode === "standalone" ? "Airline schedules or VATSIM traffic" : (serverSummary?.config.airport_iata || "Not set")} />
+              <InfoLine label={setupMode === "standalone" ? "Flight information" : "Airport"} value={setupMode === "standalone" ? (standaloneSource === "virtual" ? "VATSIM traffic" : "Airline schedules") : (serverSummary?.config.airport_iata || "Not set")} />
               <InfoLine label="Status" value={setupMode === "standalone" ? "Activate when saved" : (serverSummary?.state.ok === false ? "Needs attention" : "Ready")} />
               <InfoLine label="Reports" value={diagnosticsMode === "manual" ? "Ask me first" : diagnosticsMode === "auto" ? "Crash reports" : "Crash reports + context"} />
             </View>
@@ -5869,8 +5938,8 @@ export function CompanionSetupScreen({
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
-              onPress={() => goToStep(setupMode === "standalone" ? "airport" : "pairing")}
-              {...accessibleButton({ label: setupMode === "standalone" ? "Back to airport choice" : "Back to host pairing" })}
+              onPress={() => goToStep("privacy")}
+              {...accessibleButton({ label: "Back to privacy choices" })}
             >
               <Text style={styles.companionSetupSecondaryText}>Back</Text>
             </Pressable>
@@ -5965,7 +6034,10 @@ function setupStepRank(step: CompanionSetupStep): number {
     mode: 1,
     pairing: 2,
     airport: 2,
-    review: 3
+    source: 3,
+    updates: 4,
+    privacy: 5,
+    review: 6
   }[step];
 }
 
@@ -5975,7 +6047,10 @@ function setupStepTitle(step: CompanionSetupStep): string {
     mode: "Connection",
     pairing: "Pair host",
     airport: "Choose airport",
-    review: "Privacy & review"
+    source: "Flight information",
+    updates: "Updates & data",
+    privacy: "Privacy",
+    review: "Review"
   }[step];
 }
 
@@ -9129,13 +9204,15 @@ function InfoLine({ label, value }: { label: string; value: string }) {
 export function StandaloneAirportSheet({
   visible,
   currentAirport,
+  currentSource,
   onClose,
   onApplied
 }: {
   visible: boolean;
   currentAirport: StandaloneAirport | null;
+  currentSource: StandaloneFlightSource;
   onClose: () => void;
-  onApplied: (airport: StandaloneAirport) => Promise<void> | void;
+  onApplied: (airport: StandaloneAirport, source: StandaloneFlightSource) => Promise<void> | void;
 }) {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<AirportResult[]>([]);
@@ -9143,6 +9220,7 @@ export function StandaloneAirportSheet({
   const [selectedAirport, setSelectedAirport] = useState<AirportResult | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [source, setSource] = useState<StandaloneFlightSource>(currentSource);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRequest = useRef(0);
 
@@ -9157,6 +9235,7 @@ export function StandaloneAirportSheet({
     setSearchResults([]);
     setSearchState("idle");
     setSelectedAirport(null);
+    setSource(currentSource);
     setApplyError(null);
     return () => {
       searchRequest.current += 1;
@@ -9165,7 +9244,7 @@ export function StandaloneAirportSheet({
         searchTimer.current = null;
       }
     };
-  }, [visible]);
+  }, [currentSource, visible]);
 
   const doSearch = useCallback((text: string) => {
     const cleanQuery = text.trim();
@@ -9212,7 +9291,7 @@ export function StandaloneAirportSheet({
   const apply = useCallback(async () => {
     const directCode = airportCodeFromQuery(query);
     const lookup = selectedAirport?.iata || selectedAirport?.icao || directCode;
-    if (!lookup) {
+    if (!lookup && !currentAirport) {
       setApplyError("Choose an airport from the results, or enter a 3-letter IATA or 4-letter ICAO code.");
       return;
     }
@@ -9220,7 +9299,7 @@ export function StandaloneAirportSheet({
     setApplying(true);
     setApplyError(null);
     try {
-      const resolved = await resolveStandaloneAirport(lookup);
+      const resolved = lookup ? await resolveStandaloneAirport(lookup) : currentAirport!;
       await onApplied({
         iata: resolved.iata,
         icao: resolved.icao,
@@ -9230,13 +9309,13 @@ export function StandaloneAirportSheet({
         timezone: resolved.timezone,
         lat: resolved.lat,
         lon: resolved.lon
-      });
+      }, source);
     } catch (exc) {
       setApplyError(standaloneAirportLookupErrorMessage(exc));
     } finally {
       setApplying(false);
     }
-  }, [onApplied, query, selectedAirport]);
+  }, [currentAirport, onApplied, query, selectedAirport, source]);
 
   return (
     <Modal
@@ -9257,7 +9336,7 @@ export function StandaloneAirportSheet({
           <View style={styles.configSheet}>
             <View style={styles.configSheetHandle} />
             <View style={styles.configSheetHeader}>
-              <Text style={styles.configSheetTitle}>CHANGE STANDALONE AIRPORT</Text>
+              <Text style={styles.configSheetTitle}>Airport & Flight Information</Text>
               <Pressable
                 onPress={() => {
                   Keyboard.dismiss();
@@ -9278,7 +9357,7 @@ export function StandaloneAirportSheet({
               keyboardDismissMode="interactive"
             >
               <Text style={styles.moduleIntro}>
-                Change the airport without resetting this device. Relay token, diagnostics, appearance, and install identity stay untouched.
+                Change what this device follows without resetting setup. Weather and airport surface drawings remain available with either flight-information choice.
               </Text>
               {currentAirport ? (
                 <View style={styles.configSelectedAirport}>
@@ -9289,6 +9368,45 @@ export function StandaloneAirportSheet({
                   </Text>
                 </View>
               ) : null}
+
+              <Text style={styles.configSectionLabel}>FLIGHT INFORMATION</Text>
+              <View style={styles.companionSetupOptionStack}>
+                {([
+                  {
+                    value: "real" as const,
+                    title: "Airline schedules",
+                    body: "Current departures and arrivals supplied by airline schedule sources. Usually refreshes about once an hour.",
+                    icon: SOURCE_ICONS.real
+                  },
+                  {
+                    value: "virtual" as const,
+                    title: "VATSIM traffic",
+                    body: "Flights shared on the virtual network. Callsign and flight-plan focused, with no pilot names or account identifiers stored.",
+                    icon: SOURCE_ICONS.virtual
+                  }
+                ]).map((option) => {
+                  const active = source === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      style={[styles.companionSetupOption, active && styles.companionSetupOptionActive]}
+                      onPress={() => setSource(option.value)}
+                      {...accessibleButton({
+                        label: option.title,
+                        hint: option.body,
+                        selected: active
+                      })}
+                    >
+                      <View style={styles.companionSetupOptionTop}>
+                        <LocalFlightIcon name={option.icon} size={18} color={active ? palette.blue2 : palette.textMuted} />
+                        <Text style={styles.companionSetupOptionTitle}>{option.title}</Text>
+                        {active ? <LocalFlightIcon name={ACTION_ICONS.configured} size={16} color={palette.green} /> : null}
+                      </View>
+                      <Text style={styles.companionSetupOptionBody}>{option.body}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
               <Text style={styles.configSectionLabel}>AIRPORT</Text>
               <TextInput
@@ -9376,12 +9494,12 @@ export function StandaloneAirportSheet({
                 onPress={() => void apply()}
                 disabled={applying}
                 {...accessibleButton({
-                  label: applying ? "Saving standalone airport" : "Save standalone airport",
+                  label: applying ? "Saving airport and flight information" : "Save airport and flight information",
                   disabled: applying,
                   busy: applying
                 })}
               >
-                {applying ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SAVE AIRPORT</Text>}
+                {applying ? <ActivityIndicator color={solidButtonInk()} /> : <Text style={styles.connectButtonText}>SAVE CHANGES</Text>}
               </Pressable>
               {applyError ? <Text style={styles.errorText}>{applyError}</Text> : null}
             </ScrollView>

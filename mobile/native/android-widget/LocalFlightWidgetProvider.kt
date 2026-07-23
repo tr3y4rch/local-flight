@@ -5,9 +5,10 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import __PACKAGE_NAME__.R
@@ -40,8 +41,30 @@ private data class WidgetData(
   val source: String,
   val stale: Boolean,
   val showGateTerminal: Boolean,
+  val appearance: String,
   val pinnedFlight: WidgetRow?,
   val rows: List<WidgetRow>
+)
+
+private data class WidgetPalette(
+  val text: Int,
+  val muted: Int,
+  val sky: Int,
+  val sea: Int,
+  val amber: Int,
+  val red: Int,
+  val backgroundDrawable: Int,
+  val rowDrawable: Int
+)
+
+private data class BoardRowViews(
+  val container: Int,
+  val accent: Int,
+  val time: Int,
+  val flight: Int,
+  val route: Int,
+  val status: Int,
+  val info: Int
 )
 
 class LocalFlightWidgetProvider : AppWidgetProvider() {
@@ -69,11 +92,13 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
     val minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 180)
     val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 110)
     val compact = minWidth < 240 || minHeight < 135
+    val palette = resolvePalette(context, data?.appearance ?: "system")
 
+    views.setInt(R.id.widget_root, "setBackgroundResource", palette.backgroundDrawable)
     views.setViewVisibility(R.id.widget_compact, if (compact) View.VISIBLE else View.GONE)
     views.setViewVisibility(R.id.widget_board, if (compact) View.GONE else View.VISIBLE)
-    renderCompact(context, views, data, minHeight)
-    renderBoard(context, views, data, minWidth, minHeight)
+    renderCompact(context, views, data, minHeight, palette)
+    renderBoard(context, views, data, minHeight, palette)
 
     views.setContentDescription(
       R.id.widget_root,
@@ -87,7 +112,8 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
     context: Context,
     views: RemoteViews,
     data: WidgetData?,
-    minHeight: Int
+    minHeight: Int,
+    palette: WidgetPalette
   ) {
     val flight = data?.pinnedFlight ?: data?.rows?.firstOrNull()
     val short = minHeight < 150
@@ -109,7 +135,7 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
     )
     views.setTextColor(
       R.id.widget_compact_freshness,
-      context.getColor(if (data?.stale == true) R.color.localflight_widget_amber else R.color.localflight_widget_green)
+      if (data?.stale == true) palette.amber else palette.sea
     )
     views.setTextViewText(
       R.id.widget_compact_label,
@@ -137,19 +163,25 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
     )
     views.setTextColor(
       R.id.widget_compact_status,
-      context.getColor(statusColor(false, flight?.statusTone))
+      statusColor(palette, flight?.statusTone)
     )
+    for (viewId in listOf(R.id.widget_compact_airport, R.id.widget_compact_label, R.id.widget_compact_meta)) {
+      views.setTextColor(viewId, palette.muted)
+    }
+    views.setTextColor(R.id.widget_compact_flight, palette.text)
+    views.setTextColor(R.id.widget_compact_route, palette.text)
     val info = if (data?.showGateTerminal == true) flight?.gate.orEmpty().ifEmpty { flight?.terminal.orEmpty() } else ""
     views.setViewVisibility(R.id.widget_compact_info, if (info.isEmpty()) View.GONE else View.VISIBLE)
     views.setTextViewText(R.id.widget_compact_info, info.uppercase())
+    views.setTextColor(R.id.widget_compact_info, palette.text)
   }
 
   private fun renderBoard(
     context: Context,
     views: RemoteViews,
     data: WidgetData?,
-    minWidth: Int,
-    minHeight: Int
+    minHeight: Int,
+    palette: WidgetPalette
   ) {
     views.setTextViewText(R.id.widget_board_airport, data?.airportName ?: context.getString(R.string.localflight_widget_name))
     views.setTextViewText(
@@ -166,8 +198,11 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
     )
     views.setTextColor(
       R.id.widget_board_freshness,
-      context.getColor(if (data?.stale == true) R.color.localflight_widget_amber else R.color.localflight_widget_green)
+      if (data?.stale == true) palette.amber else palette.sea
     )
+    views.setTextColor(R.id.widget_board_airport, palette.text)
+    views.setTextColor(R.id.widget_board_direction, palette.sea)
+    views.setTextColor(R.id.widget_empty, palette.muted)
 
     val rowLimit = when {
       minHeight < 170 -> 1
@@ -175,29 +210,30 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
       else -> 3
     }
     val rows = data?.rows.orEmpty().take(rowLimit)
-    val rowIds = intArrayOf(
-      R.id.widget_row_1,
-      R.id.widget_row_2,
-      R.id.widget_row_3
+    val rowViews = listOf(
+      BoardRowViews(R.id.widget_row_1, R.id.widget_row_1_accent, R.id.widget_row_1_time, R.id.widget_row_1_flight, R.id.widget_row_1_route, R.id.widget_row_1_status, R.id.widget_row_1_info),
+      BoardRowViews(R.id.widget_row_2, R.id.widget_row_2_accent, R.id.widget_row_2_time, R.id.widget_row_2_flight, R.id.widget_row_2_route, R.id.widget_row_2_status, R.id.widget_row_2_info),
+      BoardRowViews(R.id.widget_row_3, R.id.widget_row_3_accent, R.id.widget_row_3_time, R.id.widget_row_3_flight, R.id.widget_row_3_route, R.id.widget_row_3_status, R.id.widget_row_3_info)
     )
-    val rowTextSize = if (minWidth >= 320) 11f else 10f
-    rowIds.forEachIndexed { index, viewId ->
+    rowViews.forEachIndexed { index, ids ->
       val row = rows.getOrNull(index)
-      views.setViewVisibility(viewId, if (row == null) View.GONE else View.VISIBLE)
+      views.setViewVisibility(ids.container, if (row == null) View.GONE else View.VISIBLE)
       if (row != null) {
-        val pin = if (row.pinned) "◆  " else ""
         val info = if (data?.showGateTerminal == true) row.gate.ifEmpty { row.terminal } else ""
-        val route = row.routeName.ifEmpty { row.routeCode }
-        val detail = listOf(row.status, info).filter(String::isNotEmpty).joinToString("  ·  ")
-        views.setTextViewText(
-          viewId,
-          "$pin${row.time}  ·  ${row.flight}   $route\n$detail"
-        )
-        views.setTextViewTextSize(viewId, TypedValue.COMPLEX_UNIT_SP, rowTextSize)
-        views.setTextColor(
-          viewId,
-          context.getColor(if (row.pinned) R.color.localflight_widget_pin else R.color.localflight_widget_text)
-        )
+        views.setInt(ids.container, "setBackgroundResource", palette.rowDrawable)
+        views.setViewVisibility(ids.accent, if (row.pinned) View.VISIBLE else View.INVISIBLE)
+        views.setTextViewText(ids.time, row.time)
+        views.setTextViewText(ids.flight, row.flight)
+        views.setTextViewText(ids.route, listOf(row.routeName, row.routeCode).filter(String::isNotEmpty).joinToString("  ·  "))
+        views.setTextViewText(ids.status, row.status)
+        views.setTextViewText(ids.info, if (info.isEmpty()) "" else if (row.gate.isNotEmpty()) "Gate $info" else "Terminal $info")
+        views.setViewVisibility(ids.info, if (info.isEmpty()) View.GONE else View.VISIBLE)
+        views.setTextColor(ids.time, palette.text)
+        views.setTextColor(ids.flight, palette.sky)
+        views.setTextColor(ids.route, palette.muted)
+        views.setTextColor(ids.status, statusColor(palette, row.statusTone))
+        views.setTextColor(ids.info, palette.muted)
+        views.setInt(ids.accent, "setBackgroundColor", palette.amber)
       }
     }
     views.setViewVisibility(R.id.widget_empty, if (rows.isEmpty()) View.VISIBLE else View.GONE)
@@ -291,6 +327,7 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
         source = clean(source?.optString("lastUpdatedLabel"), 32, "Waiting").uppercase(),
         stale = root.optBoolean("stale", false) || isExpired(root.optString("expiresAt")),
         showGateTerminal = preferences?.optBoolean("showGateTerminal", true) != false,
+        appearance = preferences?.optString("widgetAppearance")?.takeIf { it == "light" || it == "dark" } ?: "system",
         pinnedFlight = pinnedFlight,
         rows = rows
       )
@@ -308,7 +345,7 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
     } ?: "scheduled"
     return WidgetRow(
       flight = flight,
-      time = clean(value.optString("displayTime"), 12, "--:--"),
+      time = clean(value.optString("displayTime"), 12, "--:--").substringBefore(" "),
       routeName = clean(value.optString("routeName"), 64, "-"),
       routeCode = clean(value.optString("routeCode"), 8),
       status = clean(value.optString("statusDisplay"), 20, "SCHEDULE"),
@@ -319,12 +356,34 @@ class LocalFlightWidgetProvider : AppWidgetProvider() {
     )
   }
 
-  private fun statusColor(stale: Boolean, tone: String?): Int {
-    if (stale || tone == "delayed") return R.color.localflight_widget_amber
+  private fun statusColor(palette: WidgetPalette, tone: String?): Int {
+    if (tone == "delayed") return palette.amber
     return when (tone) {
-      "boarding", "departed" -> R.color.localflight_widget_green
-      "cancelled" -> R.color.localflight_widget_red
-      else -> R.color.localflight_widget_teal
+      "boarding", "departed" -> palette.sea
+      "cancelled" -> palette.red
+      else -> palette.sky
+    }
+  }
+
+  private fun resolvePalette(context: Context, preference: String): WidgetPalette {
+    val systemDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    val dark = preference == "dark" || (preference == "system" && systemDark)
+    return if (dark) {
+      WidgetPalette(
+        text = Color.parseColor("#F5F0E8"), muted = Color.parseColor("#A4B3BE"),
+        sky = Color.parseColor("#74B5DE"), sea = Color.parseColor("#59C1A5"),
+        amber = Color.parseColor("#E4B454"), red = Color.parseColor("#F07C62"),
+        backgroundDrawable = R.drawable.localflight_widget_background_dark,
+        rowDrawable = R.drawable.localflight_widget_row_dark
+      )
+    } else {
+      WidgetPalette(
+        text = Color.parseColor("#132638"), muted = Color.parseColor("#536575"),
+        sky = Color.parseColor("#2F6F9F"), sea = Color.parseColor("#1F6F61"),
+        amber = Color.parseColor("#925D10"), red = Color.parseColor("#A74732"),
+        backgroundDrawable = R.drawable.localflight_widget_background_light,
+        rowDrawable = R.drawable.localflight_widget_row_light
+      )
     }
   }
 

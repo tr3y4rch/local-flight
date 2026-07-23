@@ -34,6 +34,7 @@ const MOBILE_RELAY_ACTIVATION_TOKEN_KEY = "localflight.mobileRelayActivationToke
 const STANDALONE_AIRPORT_KEY = "localflight.standaloneAirport";
 const CACHED_LAN_CONFIG_KEY = "localflight.cachedLanConfig";
 const CACHED_LAN_AIRPORT_KEY = "localflight.cachedLanAirport";
+const AUTO_DISPLAY_ON_ROTATE_KEY = "localflight.autoDisplayOnRotate";
 
 const DEFAULT_THEME_MODE: MobileThemeMode = "dark";
 const DEFAULT_SKIN: MobileSkin = "standard";
@@ -54,6 +55,8 @@ export type ConfigProfile = {
 export type MobileDiagnosticsMode = "unset" | "manual" | "auto" | "auto_logs";
 export type MobileWeatherDisplayMode = "passenger" | "pilot" | "vatsim";
 export type MobileSetupMode = "lan_companion" | "standalone";
+export type StandaloneFlightSource = "real" | "virtual";
+export type MobileWidgetAppearance = "system" | "light" | "dark";
 export type MobileRadarDrawingLayers = {
   runways: boolean;
   surface: boolean;
@@ -63,6 +66,10 @@ export type MobileWidgetPreferences = {
   mediumRowCount: 2 | 3;
   showGateTerminal: boolean;
   automaticRefresh: boolean;
+  /** Appearance used by both Home Screen widget sizes. */
+  widgetAppearance: MobileWidgetAppearance;
+  /** Appearance used by the Lock Screen Live Activity. */
+  liveActivityAppearance: MobileWidgetAppearance;
   /** User explicitly enabled pinned-flight presentation on the Lock Screen. */
   liveActivityEnabled: boolean;
 };
@@ -92,6 +99,8 @@ export const DEFAULT_WIDGET_PREFERENCES: MobileWidgetPreferences = {
   mediumRowCount: 3,
   showGateTerminal: true,
   automaticRefresh: true,
+  widgetAppearance: "system",
+  liveActivityAppearance: "system",
   liveActivityEnabled: false
 };
 
@@ -114,6 +123,7 @@ export type MobileSetupState = {
   relayActivationToken?: string;
   remoteCompanion?: RemoteCompanionGrant | null;
   standaloneAirport?: StandaloneAirport | null;
+  standaloneSource?: StandaloneFlightSource;
   diagnosticsMode: MobileDiagnosticsMode;
   completedAt: string | null;
 };
@@ -425,10 +435,14 @@ function normalizeWidgetPreferences(value: unknown): MobileWidgetPreferences {
     return { ...DEFAULT_WIDGET_PREFERENCES };
   }
   const raw = value as Partial<MobileWidgetPreferences>;
+  const appearance = (candidate: unknown): MobileWidgetAppearance =>
+    candidate === "light" || candidate === "dark" ? candidate : "system";
   return {
     mediumRowCount: raw.mediumRowCount === 2 ? 2 : 3,
     showGateTerminal: raw.showGateTerminal !== false,
     automaticRefresh: raw.automaticRefresh !== false,
+    widgetAppearance: appearance(raw.widgetAppearance),
+    liveActivityAppearance: appearance(raw.liveActivityAppearance),
     liveActivityEnabled: raw.liveActivityEnabled === true
   };
 }
@@ -464,6 +478,7 @@ export function incompleteMobileSetupState(
     relayActivationToken: "",
     remoteCompanion: null,
     standaloneAirport: null,
+    standaloneSource: "real",
     diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
     completedAt: null
   };
@@ -482,6 +497,7 @@ export function completeMobileSetupState(
     relayActivationToken: "",
     remoteCompanion: normalizeRemoteCompanionGrant(remoteCompanion),
     standaloneAirport: null,
+    standaloneSource: "real",
     diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
     completedAt: new Date().toISOString()
   };
@@ -491,12 +507,14 @@ export function completeStandaloneMobileSetupState({
   relayInstallId,
   relayActivationToken,
   airport,
-  diagnosticsMode
+  diagnosticsMode,
+  standaloneSource = "real"
 }: {
   relayInstallId: string;
   relayActivationToken: string;
   airport: StandaloneAirport;
   diagnosticsMode: MobileDiagnosticsMode;
+  standaloneSource?: StandaloneFlightSource;
 }): MobileSetupState {
   return {
     complete: true,
@@ -506,6 +524,7 @@ export function completeStandaloneMobileSetupState({
     relayActivationToken: relayActivationToken.trim(),
     remoteCompanion: null,
     standaloneAirport: normalizeStandaloneAirport(airport),
+    standaloneSource: standaloneSource === "virtual" ? "virtual" : "real",
     diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
     completedAt: new Date().toISOString()
   };
@@ -523,6 +542,7 @@ function normalizeMobileSetupState(raw: unknown): MobileSetupState {
   const relayInstallId = typeof state.relayInstallId === "string" ? state.relayInstallId : "";
   const relayActivationToken = typeof state.relayActivationToken === "string" ? state.relayActivationToken : "";
   const remoteCompanion = normalizeRemoteCompanionGrant(state.remoteCompanion);
+  const standaloneSource: StandaloneFlightSource = state.standaloneSource === "virtual" ? "virtual" : "real";
   const complete = mode === "standalone"
     ? Boolean(state.complete && relayInstallId && relayActivationToken && standaloneAirport && diagnosticsMode !== "unset")
     : Boolean(state.complete && serverUrl && diagnosticsMode !== "unset");
@@ -534,6 +554,7 @@ function normalizeMobileSetupState(raw: unknown): MobileSetupState {
     relayActivationToken: mode === "standalone" ? relayActivationToken : "",
     remoteCompanion: mode === "lan_companion" ? remoteCompanion : null,
     standaloneAirport: mode === "standalone" ? standaloneAirport : null,
+    standaloneSource,
     diagnosticsMode,
     completedAt: complete && typeof state.completedAt === "string" ? state.completedAt : null
   };
@@ -650,6 +671,14 @@ export async function loadWeatherDisplayMode(): Promise<MobileWeatherDisplayMode
 
 export async function saveWeatherDisplayMode(value: MobileWeatherDisplayMode): Promise<void> {
   await SecureStore.setItemAsync(WEATHER_DISPLAY_KEY, normalizeWeatherDisplayMode(value));
+}
+
+export async function loadAutoDisplayOnRotate(): Promise<boolean> {
+  return (await SecureStore.getItemAsync(AUTO_DISPLAY_ON_ROTATE_KEY)) !== "false";
+}
+
+export async function saveAutoDisplayOnRotate(value: boolean): Promise<void> {
+  await SecureStore.setItemAsync(AUTO_DISPLAY_ON_ROTATE_KEY, value ? "true" : "false");
 }
 
 export async function loadRadarDrawingLayers(): Promise<MobileRadarDrawingLayers> {

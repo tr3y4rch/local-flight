@@ -64,7 +64,8 @@ export async function refreshWidgetSnapshotInBackground(): Promise<boolean> {
       installId: setup.relayInstallId,
       activationToken: setup.relayActivationToken,
       airport: setup.standaloneAirport,
-      diagnosticsMode: setup.diagnosticsMode
+      diagnosticsMode: setup.diagnosticsMode,
+      source: setup.standaloneSource === "virtual" ? "virtual" : "real"
     };
     const [summary, board] = await Promise.all([
       getStandaloneSummary(credentials),

@@ -1,5 +1,27 @@
 import Foundation
 
+enum LocalFlightISO8601 {
+  private static let fractional: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+  }()
+
+  private static let standard: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter
+  }()
+
+  static func date(from value: String) -> Date? {
+    fractional.date(from: value) ?? standard.date(from: value)
+  }
+
+  static func string(from date: Date) -> String {
+    fractional.string(from: date)
+  }
+}
+
 enum LocalFlightWidgetConstants {
   static let appGroupID = "group.cc.beacontools.localflight"
   static let snapshotFilename = "localflight-widget-snapshot.json"
@@ -39,6 +61,8 @@ struct LocalFlightWidgetPreferences: Codable {
   let mediumRowCount: Int
   let showGateTerminal: Bool
   let automaticRefresh: Bool?
+  let widgetAppearance: String?
+  let liveActivityAppearance: String?
 }
 
 struct LocalFlightSmallWidgetSnapshot: Codable {
@@ -105,17 +129,19 @@ enum LocalFlightWidgetSnapshotStore {
     let source = LocalFlightWidgetSource(
       label: "mobile",
       lastUpdatedLabel: "Waiting",
-      updatedAt: ISO8601DateFormatter().string(from: Date())
+      updatedAt: LocalFlightISO8601.string(from: Date())
     )
     let preferences = LocalFlightWidgetPreferences(
       mediumRowCount: 3,
       showGateTerminal: true,
-      automaticRefresh: true
+      automaticRefresh: true,
+      widgetAppearance: "system",
+      liveActivityAppearance: "system"
     )
     return LocalFlightWidgetSnapshot(
       schemaVersion: 1,
-      generatedAt: ISO8601DateFormatter().string(from: Date()),
-      expiresAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(15 * 60)),
+      generatedAt: LocalFlightISO8601.string(from: Date()),
+      expiresAt: LocalFlightISO8601.string(from: Date().addingTimeInterval(15 * 60)),
       mode: "lan_companion",
       stale: true,
       airport: airport,
@@ -145,13 +171,15 @@ private extension LocalFlightWidgetFlight {
       return nil
     }
     let cleanTone = LocalFlightWidgetConstants.statusTones.contains(statusTone) ? statusTone : "scheduled"
+    let rawTime = displayTime.lfClean(max: 12, fallback: "--:--")
+    let cleanTime = rawTime.split(separator: " ", maxSplits: 1).first.map(String.init) ?? rawTime
     return LocalFlightWidgetFlight(
       id: cleanID.isEmpty ? cleanFlight : cleanID,
       flightDisplay: cleanFlight,
       direction: direction == "arr" ? "arr" : "dep",
       routeName: routeName.lfClean(max: 64, fallback: "-"),
       routeCode: routeCode.lfClean(max: 8),
-      displayTime: displayTime.lfClean(max: 12, fallback: "--:--"),
+      displayTime: cleanTime,
       statusDisplay: statusDisplay.lfClean(max: 20, fallback: "SCHEDULE"),
       statusTone: cleanTone,
       gate: gate?.lfClean(max: 16),
@@ -163,7 +191,7 @@ private extension LocalFlightWidgetFlight {
 
 private extension LocalFlightWidgetSnapshot {
   var isExpired: Bool {
-    guard let expires = ISO8601DateFormatter().date(from: expiresAt) else {
+    guard let expires = LocalFlightISO8601.date(from: expiresAt) else {
       return true
     }
     return expires <= Date()
@@ -171,25 +199,33 @@ private extension LocalFlightWidgetSnapshot {
 
   func sanitized() -> LocalFlightWidgetSnapshot? {
     guard schemaVersion == LocalFlightWidgetConstants.schemaVersion,
-          ISO8601DateFormatter().date(from: generatedAt) != nil else {
+          LocalFlightISO8601.date(from: generatedAt) != nil else {
       return nil
     }
     let rowCount = preferences.mediumRowCount == 2 ? 2 : 3
     let pinnedFlight = small.source == "pinned" ? small.flight?.sanitized(pinned: true) : nil
+    var seenRowIDs = Set<String>()
     let rows = medium.rows
       .compactMap { flight in flight.sanitized(pinned: flight.pinned == true) }
+      .filter { seenRowIDs.insert($0.id).inserted }
       .prefix(min(LocalFlightWidgetConstants.maxMediumRowsWithPinned, rowCount))
     let staleSnapshot = stale || isExpired
     let sanitizedPreferences = LocalFlightWidgetPreferences(
       mediumRowCount: rowCount,
       showGateTerminal: preferences.showGateTerminal,
-      automaticRefresh: preferences.automaticRefresh ?? true
+      automaticRefresh: preferences.automaticRefresh ?? true,
+      widgetAppearance: ["light", "dark"].contains(preferences.widgetAppearance ?? "")
+        ? preferences.widgetAppearance
+        : "system",
+      liveActivityAppearance: ["light", "dark"].contains(preferences.liveActivityAppearance ?? "")
+        ? preferences.liveActivityAppearance
+        : "system"
     )
     return LocalFlightWidgetSnapshot(
       schemaVersion: LocalFlightWidgetConstants.schemaVersion,
       generatedAt: generatedAt,
-      expiresAt: ISO8601DateFormatter().date(from: expiresAt) == nil
-        ? ISO8601DateFormatter().string(from: Date())
+      expiresAt: LocalFlightISO8601.date(from: expiresAt) == nil
+        ? LocalFlightISO8601.string(from: Date())
         : expiresAt,
       mode: mode == "standalone" ? "standalone" : "lan_companion",
       stale: staleSnapshot,

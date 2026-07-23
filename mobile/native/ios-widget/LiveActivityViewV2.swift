@@ -11,6 +11,7 @@ struct LocalFlightActivityAttributesV2: ActivityAttributes {
     var gateLabel: String?
     var stale: Bool
     var lastUpdatedLabel: String
+    var appearance: String?
   }
 
   let flightID: String
@@ -221,16 +222,23 @@ struct LFDIExpandedV2: View {
 
 @available(iOS 16.1, *)
 struct LFLockScreenBannerV2: View {
+  @Environment(\.colorScheme) private var systemScheme
   let attributes: LocalFlightActivityAttributesV2
   let state: LocalFlightActivityAttributesV2.ContentState
+
+  private var scheme: ColorScheme {
+    if state.appearance == "light" { return .light }
+    if state.appearance == "dark" { return .dark }
+    return systemScheme
+  }
 
   var body: some View {
     ZStack {
       RoundedRectangle(cornerRadius: 34, style: .continuous)
-        .fill(LFWidgetDesignV2.darkWidgetBg)
+        .fill(scheme == .dark ? LFWidgetDesignV2.darkWidgetBg : LFWidgetDesignV2.lightWidgetBg)
 
       VStack(alignment: .leading, spacing: 0) {
-        sectionLabel("Pinned flight")
+        sectionLabel("Pinned flight", scheme: scheme)
           .padding(.top, 16)
           .padding(.horizontal, 20)
 
@@ -239,32 +247,32 @@ struct LFLockScreenBannerV2: View {
             .font(LocalFlightWidgetFont.boardBold(size: 34))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
-            .foregroundStyle(LFWidgetDesignV2.textPrimary(diScheme))
+            .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
 
           VStack(alignment: .leading, spacing: 2) {
             routeRow
             Text(attributes.routeName)
               .font(LocalFlightWidgetFont.uiBold(size: 15))
-              .foregroundStyle(LFWidgetDesignV2.textSecondary(diScheme))
+              .foregroundStyle(LFWidgetDesignV2.textSecondary(scheme))
               .lineLimit(1)
               .minimumScaleFactor(0.7)
             Text(attributes.displayTime)
               .font(LocalFlightWidgetFont.board(size: 12))
-              .foregroundStyle(LFWidgetDesignV2.textMuted(diScheme))
+              .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
           }
 
           Spacer()
           LFStatusCapsuleV2(
             label: state.statusDisplay,
             tone: state.statusTone,
-            scheme: diScheme
+            scheme: scheme
           )
         }
         .padding(.horizontal, 20)
         .padding(.top, 6)
 
         Rectangle()
-          .fill(LFWidgetDesignV2.separator(diScheme))
+          .fill(LFWidgetDesignV2.separator(scheme))
           .frame(height: 1)
           .padding(.horizontal, 20)
           .padding(.vertical, 8)
@@ -272,14 +280,14 @@ struct LFLockScreenBannerV2: View {
         HStack {
           if let gate = state.gate, !gate.isEmpty {
             HStack(spacing: 4) {
-              sectionLabel(state.gateLabel == "TERM" ? "Terminal" : "Gate")
+              sectionLabel(state.gateLabel == "TERM" ? "Terminal" : "Gate", scheme: scheme)
               Text(gate)
                 .font(LocalFlightWidgetFont.boardBold(size: 14))
-                .foregroundStyle(LFWidgetDesignV2.textPrimary(diScheme))
+                .foregroundStyle(LFWidgetDesignV2.textPrimary(scheme))
             }
           }
           Spacer()
-          sectionLabel(state.stale ? "Cached · \(state.lastUpdatedLabel)" : state.lastUpdatedLabel)
+          sectionLabel(state.stale ? "Cached · \(state.lastUpdatedLabel)" : state.lastUpdatedLabel, scheme: scheme)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
@@ -291,13 +299,13 @@ struct LFLockScreenBannerV2: View {
     HStack(spacing: 4) {
       Text(attributes.direction == "arr" ? attributes.routeCode : attributes.airportCode)
         .font(LocalFlightWidgetFont.boardBold(size: 10))
-        .foregroundStyle(LFWidgetDesignV2.textMuted(diScheme))
+        .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
       Image(systemName: "arrow.right")
         .font(.system(size: 9, weight: .bold))
-        .foregroundStyle(LFWidgetDesignV2.textDim(diScheme))
+        .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
       Text(attributes.direction == "arr" ? attributes.airportCode : attributes.routeCode)
         .font(LocalFlightWidgetFont.boardBold(size: 10))
-        .foregroundStyle(LFWidgetDesignV2.textMuted(diScheme))
+        .foregroundStyle(LFWidgetDesignV2.textMuted(scheme))
     }
   }
 }
@@ -366,8 +374,8 @@ private struct DottedRoutePointerV2: View {
   }
 }
 
-private func sectionLabel(_ text: String) -> some View {
+private func sectionLabel(_ text: String, scheme: ColorScheme = diScheme) -> some View {
   Text(text)
     .font(LocalFlightWidgetFont.uiBold(size: 11))
-    .foregroundStyle(LFWidgetDesignV2.textDim(diScheme))
+    .foregroundStyle(LFWidgetDesignV2.textDim(scheme))
 }
