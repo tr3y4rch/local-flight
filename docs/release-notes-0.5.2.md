@@ -136,7 +136,7 @@ this release.
 
 ## Mobile App
 
-Version 0.5.2 uses iOS build 11 and Android versionCode 15 for TestFlight and
+Version 0.5.2 uses iOS build 12 and Android versionCode 15 for TestFlight and
 Google Play internal testing.
 
 ### Companion

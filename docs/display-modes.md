@@ -180,7 +180,7 @@ This is useful when the browser UI fits your display setup better or native Qt k
 
 ## Mobile App
 
-The mobile app runs on iPhone, iPad, and Android and has two modes. Testing source for iOS build 11 and Android versionCode 15 uses the same `0.5.2` data and privacy contract as desktop, Linux server, and Pi hosts.
+The mobile app runs on iPhone, iPad, and Android and has two modes. Testing source for iOS build 12 and Android versionCode 15 uses the same `0.5.2` data and privacy contract as desktop, Linux server, and Pi hosts.
 
 ### Companion
 

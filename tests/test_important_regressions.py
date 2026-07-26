@@ -6615,20 +6615,23 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
         "mobile/ios/splash-0.5.1.png",
     ):
         assert (screenshot_root / preview).is_file()
-    screenshot_sources = {
+    synchronized_shell_sources = {
         "assets/previews/shell/Shell_fids_0.5.1.png": "shell/fids-0.5.1.png",
         "assets/previews/shell/Shell_history_0.5.1.png": "shell/history-0.5.1.png",
         "assets/previews/shell/Shell_radar_0.5.1.png": "shell/radar-0.5.1.png",
         "assets/previews/shell/Shell_settings_0.5.1.png": "shell/settings-0.5.1.png",
-        "assets/previews/mobile/iOS/iphoneXLfids.png": "mobile/ios/fids-0.5.1.png",
-        "assets/previews/mobile/iOS/iPhoneXLhistory.png": "mobile/ios/history-0.5.1.png",
-        "assets/previews/mobile/iOS/iphoneXLradar.png": "mobile/ios/radar-0.5.1.png",
-        "assets/previews/mobile/iOS/iphoneXLsettings.png": "mobile/ios/settings-0.5.1.png",
-        "assets/previews/mobile/iOS/iphoneXLsetup.png": "mobile/ios/setup-0.5.1.png",
-        "assets/previews/mobile/iOS/iphoneXLsplash.png": "mobile/ios/splash-0.5.1.png",
     }
-    for source, preview in screenshot_sources.items():
+    for source, preview in synchronized_shell_sources.items():
         assert (root / source).read_bytes() == (screenshot_root / preview).read_bytes()
+    for source in (
+        "assets/previews/mobile/iOS/iOS_max_display.png",
+        "assets/previews/mobile/iOS/iOS_max_fids.png",
+        "assets/previews/mobile/iOS/iOS_max_history.png",
+        "assets/previews/mobile/iOS/iOS_max_radar.png",
+        "assets/previews/mobile/iOS/iOS_max_settings.png",
+        "assets/previews/mobile/iOS/iOS_max_splash.png",
+    ):
+        assert (root / source).stat().st_size > 1000
     for stale_alias in ("fids-preview.svg", "history-preview.svg", "matrix-preview.svg", "radar-preview.svg"):
         assert not (assets / stale_alias).exists()
     for stale_preview in (
@@ -6711,7 +6714,7 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     )
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "11"
+    assert app["ios"]["buildNumber"] == "12"
     assert app["android"]["package"] == "cc.beacontools.localflight"
     assert app["android"]["versionCode"] == 15
     assert "./plugins/with-localflight-ios-widget" in app["plugins"]

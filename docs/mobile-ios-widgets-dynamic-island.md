@@ -1,6 +1,6 @@
 # Mobile Home-Screen Widgets and Live Activity
 
-This is the implementation and data-contract handoff for Local Flight home-screen widgets. The hardened `0.5.2` testing source targets iOS build `11` and Android versionCode `15`. Expo config plugins generate the iOS WidgetKit extension/App Group and Android `AppWidgetProvider` from the tracked templates under `mobile/native/ios-widget/` and `mobile/native/android-widget/`. Dynamic Island and Live Activities are capability-gated and remain local snapshot consumers without extension-side networking.
+This is the implementation and data-contract handoff for Local Flight home-screen widgets. The hardened `0.5.2` testing source targets iOS build `12` and Android versionCode `15`. Expo config plugins generate the iOS WidgetKit extension/App Group and Android `AppWidgetProvider` from the tracked templates under `mobile/native/ios-widget/` and `mobile/native/android-widget/`. Dynamic Island and Live Activities are capability-gated and remain local snapshot consumers without extension-side networking.
 
 ## Product Intent
 
