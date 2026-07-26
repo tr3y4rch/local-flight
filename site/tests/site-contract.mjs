@@ -106,7 +106,8 @@ assert.match(pageText["local-flight/mobile/index.html"], /Take your flight board
 assert.match(pageText["local-flight/mobile/index.html"], /The mobile apps are currently in testing\./);
 assert.match(pageText["local-flight/mobile/index.html"], /Ask about joining mobile testing/);
 assert.match(pageText["local-flight/mobile/index.html"], /About 1 h Real-world schedules/);
-assert.match(pageText["local-flight/mobile/index.html"], /Every 5 min Saved board view/);
+assert.match(pageText["local-flight/mobile/index.html"], /Between checks Saved board view/);
+assert.doesNotMatch(pageText["local-flight/mobile/index.html"], /saved board is re-evaluated every five minutes/i);
 assert.match(pageText["local-flight/mobile/index.html"], /About 3 min Real-world Radar/);
 assert.match(pageText["local-flight/mobile/index.html"], /About 1 min VATSIM mode/);
 assert.doesNotMatch(pageText["local-flight/mobile/index.html"], /Three-hour boards and five-minute visible radar updates/);
