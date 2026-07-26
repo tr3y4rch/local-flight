@@ -7,6 +7,11 @@ on:
         description: Exact main-branch commit to package
         required: true
         type: string
+      release_suffix:
+        description: Optional maintenance-release suffix, for example r1
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -18,6 +23,7 @@ concurrency:
 env:
   PYTHON_VERSION: "3.11"
   SOURCE_SHA: ${{ inputs.source_sha }}
+  RELEASE_SUFFIX: ${{ inputs.release_suffix }}
 
 jobs:
   source:
@@ -501,7 +507,21 @@ jobs:
         run: |
           set -euo pipefail
           tag="v${VERSION}"
+          title="Local Flight ${VERSION}"
           notes="docs/release-notes-${VERSION}.md"
+          if [ -n "$RELEASE_SUFFIX" ]; then
+            if ! [[ "$RELEASE_SUFFIX" =~ ^[a-z0-9][a-z0-9.-]*$ ]]; then
+              echo "Invalid maintenance release suffix: $RELEASE_SUFFIX"
+              exit 1
+            fi
+            tag="${tag}-${RELEASE_SUFFIX}"
+            title="${title} maintenance rebuild ${RELEASE_SUFFIX}"
+            maintenance_notes="$RUNNER_TEMP/release-notes-${VERSION}-${RELEASE_SUFFIX}.md"
+            cp "$notes" "$maintenance_notes"
+            printf '\n## Maintenance artifact rebuild\n\nThese packages were rebuilt from source commit [`%s`](https://github.com/%s/commit/%s) without changing the Local Flight app version.\n' \
+              "$SOURCE_SHA" "$GITHUB_REPOSITORY" "$SOURCE_SHA" >> "$maintenance_notes"
+            notes="$maintenance_notes"
+          fi
           mapfile -t files < <(find release-files -maxdepth 1 -type f -print | sort)
           test "${#files[@]}" -eq 20
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -510,14 +530,14 @@ jobs:
             target_commitish="$(gh release view "$tag" --json targetCommitish --jq .targetCommitish --repo "$GITHUB_REPOSITORY")"
             test "$target_commitish" = "$SOURCE_SHA"
             gh release upload "$tag" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$tag" --title "Local Flight ${VERSION}" --notes-file "$notes" --draft --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --title "$title" --notes-file "$notes" --draft --repo "$GITHUB_REPOSITORY"
           else
             if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
               echo "Tag ${tag} already exists without a GitHub release. Refusing to retag."
               exit 1
             fi
             gh release create "$tag" "${files[@]}" --target "$SOURCE_SHA" \
-              --title "Local Flight ${VERSION}" --notes-file "$notes" --draft --repo "$GITHUB_REPOSITORY"
+              --title "$title" --notes-file "$notes" --draft --repo "$GITHUB_REPOSITORY"
           fi
 
           release_id="$(gh release view "$tag" --json databaseId --jq .databaseId --repo "$GITHUB_REPOSITORY")"

@@ -19,9 +19,9 @@ import sys
 from pathlib import Path
 
 try:
-    from scripts.release_safety import validate_public_bundle
+    from scripts.release_safety import validate_frozen_runtime_resources, validate_public_bundle
 except ModuleNotFoundError:  # direct ``python scripts/...`` execution
-    from release_safety import validate_public_bundle
+    from release_safety import validate_frozen_runtime_resources, validate_public_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
@@ -287,6 +287,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(str(exc)) from exc
     try:
         validate_public_bundle(app)
+        validate_frozen_runtime_resources(app)
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
 

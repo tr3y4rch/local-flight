@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from packaging.requirements import Requirement
+from scripts.release_safety import validate_frozen_runtime_resources
 
 
 ROOT = Path(__file__).resolve().parent
@@ -192,8 +193,16 @@ def build_bundle(target: BuildTarget, *, clean: bool) -> Path:
     bundle_root = DIST / "bundles" / target.build_key
     work_root = BUILD / "pyinstaller" / target.build_key
     if clean:
-        shutil.rmtree(bundle_root, ignore_errors=True)
-        shutil.rmtree(work_root, ignore_errors=True)
+        for stale_root in (bundle_root, work_root):
+            try:
+                shutil.rmtree(stale_root)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                raise SystemExit(
+                    f"Could not clean stale build output {stale_root}. "
+                    "Check its ownership and permissions before rebuilding."
+                ) from exc
     bundle_root.mkdir(parents=True, exist_ok=True)
     work_root.mkdir(parents=True, exist_ok=True)
 
@@ -222,6 +231,7 @@ def build_bundle(target: BuildTarget, *, clean: bool) -> Path:
     bundle = bundle_root / ("LocalFlight.app" if target.platform == "macos" else target.bundle_name)
     if not bundle.exists():
         raise SystemExit(f"PyInstaller did not create expected bundle: {bundle}")
+    validate_frozen_runtime_resources(bundle)
     return bundle
 
 

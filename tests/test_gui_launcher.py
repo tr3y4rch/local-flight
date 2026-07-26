@@ -5,6 +5,7 @@ import importlib
 import time
 import types
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -1045,8 +1046,9 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert matrix.animation_mode.currentData() == "split_flap"
     matrix_buttons = matrix.widget.findChildren(QtWidgets.QPushButton)
     assert any(button.text() == "Preview animation" for button in matrix_buttons)
-    generate_buttons = [button for button in matrix_buttons if button.text() == "Generate main.py"]
+    generate_buttons = [button for button in matrix_buttons if button.text() == "Preview main.py"]
     assert len(generate_buttons) == 1
+    assert any(button.text() == "Generate & save main.py..." for button in matrix_buttons)
     parent = generate_buttons[0].parent()
     tab_index = -1
     while parent is not None:
@@ -1113,7 +1115,10 @@ def test_native_setup_welcome_layout_is_scroll_safe(monkeypatch: pytest.MonkeyPa
     setup.widget.hide()
 
 
-def test_native_matrix_controls_drive_preview_and_script(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_native_matrix_controls_drive_preview_and_script(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
     from PySide6 import QtWidgets
@@ -1190,6 +1195,17 @@ def test_native_matrix_controls_drive_preview_and_script(monkeypatch: pytest.Mon
     assert client.script_payload["animation_enabled"] is True
     assert client.script_payload["animation_mode"] == "split_flap"
     assert "ANIMATION_ENABLED" in screen.script_preview.toPlainText()
+
+    output = tmp_path / "main.py"
+    screen.wifi_ssid.setText("UpdatedBoardNet")
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        lambda *_args, **_kwargs: (str(output), "Python files (*.py)"),
+    )
+    screen.save_script_file()
+    assert client.script_payload["wifi_ssid"] == "UpdatedBoardNet"
+    assert output.read_text(encoding="utf-8").startswith("WIFI_SSID")
 
 
 def test_native_matrix_generator_validation_blocks_unsafe_hosts(monkeypatch: pytest.MonkeyPatch) -> None:

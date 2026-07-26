@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from scripts.release_safety import validate_public_bundle
+    from scripts.release_safety import validate_frozen_runtime_resources, validate_public_bundle
 except ModuleNotFoundError:  # direct ``python scripts/...`` execution
-    from release_safety import validate_public_bundle
+    from release_safety import validate_frozen_runtime_resources, validate_public_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST_DIR = ROOT / "dist"
@@ -244,6 +244,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(f"Missing installer definition: {ISS_PATH}")
     try:
         validate_public_bundle(app_dir)
+        validate_frozen_runtime_resources(app_dir)
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
 

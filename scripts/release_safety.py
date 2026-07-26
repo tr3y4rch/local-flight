@@ -47,6 +47,19 @@ CERTIFI_CA_BUNDLES = {
     "_internal/certifi/cacert.pem",
     "Contents/Resources/certifi/cacert.pem",
 }
+REQUIRED_FROZEN_RUNTIME_RESOURCES = (
+    Path("localflight/sources/matrix/client.py"),
+    Path("localflight/ui/templates/base.html"),
+    Path("localflight/ui/static/app.css"),
+    Path("localflight/decode/mappings/airports_index.json.gz"),
+    Path("localflight/ui/docs/README.md"),
+    Path("localflight/assets/localflight-logo.svg"),
+)
+FROZEN_RESOURCE_PREFIXES = (
+    Path(),
+    Path("_internal"),
+    Path("Contents/Resources"),
+)
 
 
 def is_private_install_metadata_path(relative: Path) -> bool:
@@ -176,6 +189,35 @@ def validate_public_bundle(bundle: Path) -> None:
     if unsafe:
         raise RuntimeError(
             "Refusing to package unsafe public-release paths:\n  - " + "\n  - ".join(sorted(set(unsafe)))
+        )
+
+
+def frozen_runtime_resource_path(bundle: Path, relative: Path) -> Path | None:
+    """Locate a runtime data file in Windows/Linux or macOS bundle layouts."""
+    for prefix in FROZEN_RESOURCE_PREFIXES:
+        candidate = bundle / prefix / relative
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def validate_frozen_runtime_resources(bundle: Path) -> None:
+    """Fail packaging when a filesystem-backed runtime resource is missing."""
+    if not bundle.is_dir():
+        raise RuntimeError(f"Missing frozen bundle directory: {bundle}")
+    missing: list[str] = []
+    empty: list[str] = []
+    for relative in REQUIRED_FROZEN_RUNTIME_RESOURCES:
+        path = frozen_runtime_resource_path(bundle, relative)
+        if path is None:
+            missing.append(relative.as_posix())
+        elif path.stat().st_size <= 0:
+            empty.append(relative.as_posix())
+    if missing or empty:
+        details = [*(f"missing: {item}" for item in missing), *(f"empty: {item}" for item in empty)]
+        raise RuntimeError(
+            "Frozen bundle is missing required runtime resources:\n  - "
+            + "\n  - ".join(details)
         )
 
 

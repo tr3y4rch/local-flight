@@ -158,6 +158,7 @@ datas = [
     ("THIRD_PARTY_NOTICES.md", "localflight/ui/docs"),
     ("src/localflight/decode/mappings", "localflight/decode/mappings"),
     ("src/localflight/storage/samples", "localflight/storage/samples"),
+    ("src/localflight/sources/matrix/client.py", "localflight/sources/matrix"),
 ] + uvi_d + fapi_d + anyio_d + starlette_d + collect_data_files("tzdata")
 
 excludes = ["pytest", "httpx", "IPython", "matplotlib", "numpy", "tkinter"]

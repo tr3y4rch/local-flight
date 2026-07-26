@@ -48,6 +48,8 @@ The native Windows, macOS, and Linux desktop apps include:
   polling.
 - Local settings, snapshots, movement history, logs, and provider-usage
   counters under the user's Local Flight data folder.
+- A packaged HUB75 `main.py` creator that previews the current board settings
+  and regenerates them immediately before the file is saved.
 
 The LAN browser remains a fully supported interface for another computer,
 tablet, phone, kiosk screen, or recovery session. It offers the same essential

@@ -22,6 +22,9 @@ in `docs/engineering-changelog.md`; the current release overview is
 
 - Ordinary Linux desktop sessions now open in a normal resizable window, while
   fullscreen stays limited to Raspberry Pi and explicit kiosk use.
+- HUB75 `main.py` generation now works in every packaged desktop/server build,
+  and the native Matrix page saves a freshly generated configuration instead
+  of reusing an older preview.
 - Fresh headless installs serve setup immediately but defer scheduled provider
   work until setup is complete.
 - The public download page explains every operating-system and CPU choice and
@@ -39,6 +42,8 @@ in `docs/engineering-changelog.md`; the current release overview is
   retaining file, deduplication, and network-rate limits.
 - Added relay health monitoring and gated production deployment behind full
   Python, mobile, dependency-audit, package-safety, and container smoke checks.
+- Binary packaging now fails closed when a required runtime template, web
+  asset, airport index, bundled help file, or app identity asset is missing.
 - Preserved the local-first storage model, public Support ID boundary, optional
   diagnostics, encrypted Remote Companion envelopes, and minimal purchase
   verification records.

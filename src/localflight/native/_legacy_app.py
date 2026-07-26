@@ -3797,9 +3797,9 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         flash_form.addRow("Server port", self.api_port)
         layout.addLayout(flash_form)
         flash_actions = self.QtWidgets.QHBoxLayout()
-        generate = self.QtWidgets.QPushButton("Generate main.py")
+        generate = self.QtWidgets.QPushButton("Preview main.py")
         generate.clicked.connect(self.generate_script)
-        save = self.QtWidgets.QPushButton("Save main.py...")
+        save = self.QtWidgets.QPushButton("Generate & save main.py...")
         save.clicked.connect(self.save_script_file)
         self._busy_buttons.extend([generate, save])
         flash_actions.addWidget(generate)
@@ -4057,9 +4057,9 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         setup_layout.addLayout(flash_form)
         setup_layout.addWidget(label(self.QtWidgets, "The generated client auto-registers the board, then pulls its assigned V2 config and compact feed.", "Muted", wrap=True))
         flash_actions = self.QtWidgets.QHBoxLayout()
-        generate = self.QtWidgets.QPushButton("Generate code")
+        generate = self.QtWidgets.QPushButton("Preview main.py")
         generate.clicked.connect(self.generate_script)
-        save = self.QtWidgets.QPushButton("Save main.py...")
+        save = self.QtWidgets.QPushButton("Generate & save main.py...")
         save.clicked.connect(self.save_script_file)
         flash_actions.addWidget(generate)
         flash_actions.addWidget(save)
@@ -4636,8 +4636,9 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         self._set_busy(False)
 
     def save_script_file(self) -> None:
-        if not self._last_script:
-            self.generate_script()
+        # Always regenerate so the saved file reflects the fields currently shown.
+        self._last_script = ""
+        self.generate_script()
         if not self._last_script:
             return
         path, _filter = self.QtWidgets.QFileDialog.getSaveFileName(self.widget, "Save Matrix main.py", "main.py", "Python files (*.py);;All files (*)")
@@ -4649,6 +4650,7 @@ class MatrixScreen:  # pragma: no cover - optional Qt runtime
         except OSError as exc:
             _set_native_feedback(self, f"Could not save main.py: {exc}", "StatusBad")
             return
+        self.action_status.setText("main.py generated and saved.")
         _set_native_feedback(self, f"Saved matrix client to {path}", "StatusGood")
 
     def trigger_demo(self) -> None:

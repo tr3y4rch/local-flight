@@ -38,6 +38,7 @@ from localflight.core.notices import (
     registry as notice_registry,
     sanitize_client_payload,
 )
+from localflight.core.resources import require_package_resource
 from localflight.core.timezones import resolve_config_timezone
 from localflight.decode.identity import resolve_flight_identity
 from localflight.decode.dedupe import dedupe_codeshares
@@ -5037,7 +5038,7 @@ class MatrixScriptIn(BaseModel):
 
 
 def _matrix_client_template_path() -> Path:
-    return Path(__file__).resolve().parents[1] / "sources" / "matrix" / "client.py"
+    return require_package_resource("sources", "matrix", "client.py")
 
 
 def _normalize_matrix_api_host(value: str) -> str:
@@ -5069,7 +5070,14 @@ def _render_matrix_client_script(body: MatrixScriptIn) -> str:
     renderer = str(_MATRIX_PRESETS.get(preset, _MATRIX_PRESETS["real_fids"]).get("renderer") or "modern_fids")
     show_gate_info = bool(body.show_gate_info) and not _matrix_is_vatsim_preset(preset)
     host = _normalize_matrix_api_host(body.api_host)
-    text = _matrix_client_template_path().read_text(encoding="utf-8")
+    try:
+        text = _matrix_client_template_path().read_text(encoding="utf-8")
+    except OSError as exc:
+        log.error("Matrix client template is unavailable in this installation: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="The Matrix board generator is unavailable in this installation. Update or reinstall Local Flight, then try again.",
+        ) from exc
     replacements = {
         "WIFI_SSID": json.dumps(body.wifi_ssid),
         "WIFI_PASSWORD": json.dumps(body.wifi_password),

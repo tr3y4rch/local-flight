@@ -70,5 +70,6 @@ localflight = [
   "ui/static/fonts/*",
   "decode/mappings/*.json",
   "decode/mappings/*.gz",
+  "sources/matrix/client.py",
   "storage/samples/*.json",
 ]

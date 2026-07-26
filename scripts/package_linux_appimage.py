@@ -15,6 +15,7 @@ try:
     from scripts.release_safety import (
         require_native_architecture,
         validate_elf_architecture,
+        validate_frozen_runtime_resources,
         validate_public_bundle,
         write_sha256,
     )
@@ -22,6 +23,7 @@ except ModuleNotFoundError:  # direct ``python scripts/...`` execution
     from release_safety import (
         require_native_architecture,
         validate_elf_architecture,
+        validate_frozen_runtime_resources,
         validate_public_bundle,
         write_sha256,
     )
@@ -148,6 +150,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         architecture = require_native_architecture(args.target_arch)
         validate_public_bundle(bundle)
+        validate_frozen_runtime_resources(bundle)
         validate_elf_architecture(bundle / "LocalFlight", architecture)
         tool = appimagetool_path(args.appimagetool)
         version = project_version()

@@ -34,6 +34,7 @@ import localflight.storage.install as storage_install
 import localflight.storage.provider_keys as provider_keys
 import localflight.ui.api as ui_api
 import localflight.ui.server as ui_server
+import localflight.core.resources as core_resources
 import relay.main as relay_main
 from localflight.core.models import AirlineRef, AirportRef, Flight, FlightDirection, FlightPosition, FlightTime
 from localflight.companion_pairing import build_pairing_deep_link, pairing_gateway_payload
@@ -5706,6 +5707,41 @@ def test_matrix_script_endpoint_uses_current_i75w_client_template() -> None:
     assert '"cascade"' in script
     for legacy in ('"standard"', '"white"', '"classic_split_flap"', '"vatsim_ops"', '"radar_strip"'):
         assert legacy not in script
+
+
+def test_matrix_script_endpoint_reports_missing_packaged_template_safely(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    missing = tmp_path / "private-build-location" / "client.py"
+    monkeypatch.setattr(ui_api, "_matrix_client_template_path", lambda: missing)
+
+    response = TestClient(ui_api.app).post(
+        "/api/matrix/script",
+        json={
+            "wifi_ssid": "BoardNet",
+            "api_host": "localflight.local",
+            "panel_w": 256,
+            "panel_h": 64,
+        },
+    )
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "Update or reinstall Local Flight" in detail
+    assert str(tmp_path) not in detail
+
+
+def test_package_resource_resolver_supports_pyinstaller_layout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resource = tmp_path / "localflight" / "test-resources" / "probe.txt"
+    resource.parent.mkdir(parents=True)
+    resource.write_text("ready", encoding="utf-8")
+    monkeypatch.setattr(core_resources.sys, "_MEIPASS", str(tmp_path), raising=False)
+
+    assert core_resources.resolve_package_resource("test-resources", "probe.txt") == resource
 
 
 def test_matrix_payloads_use_city_label_and_decoded_weather_display() -> None:

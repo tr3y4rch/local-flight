@@ -22,9 +22,12 @@ from scripts import (
 )
 from scripts.attest_release_artifact import _version_matches, create_attestation
 from scripts.release_safety import (
+    REQUIRED_FROZEN_RUNTIME_RESOURCES,
+    frozen_runtime_resource_path,
     is_excluded_frozen_data_path,
     is_private_install_metadata_path,
     is_sensitive_release_path,
+    validate_frozen_runtime_resources,
     validate_public_bundle,
 )
 from scripts.verify_release_artifacts import (
@@ -93,15 +96,40 @@ def test_macos_bundle_architecture_is_passed_through_spec_environment(
         (dist / "LocalFlight.app").mkdir(parents=True)
 
     monkeypatch.setattr(release_build.subprocess, "run", fake_run)
+    validated: list[Path] = []
+    monkeypatch.setattr(
+        release_build,
+        "validate_frozen_runtime_resources",
+        lambda bundle: validated.append(bundle),
+    )
     target = release_build.BuildTarget("macos", "aarch64", "desktop", "bundle")
 
     bundle = release_build.build_bundle(target, clean=True)
 
     assert bundle == tmp_path / "dist" / "bundles" / target.build_key / "LocalFlight.app"
     assert len(calls) == 1
+    assert validated == [bundle]
     command, env = calls[0]
     assert "--target-architecture" not in command
     assert env["LOCALFLIGHT_TARGET_ARCH"] == "arm64"
+
+
+def test_clean_bundle_build_reports_stale_output_permission_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release_build = _load_build_module()
+    monkeypatch.setattr(release_build, "DIST", tmp_path / "dist")
+    monkeypatch.setattr(release_build, "BUILD", tmp_path / "build")
+    monkeypatch.setattr(
+        release_build.shutil,
+        "rmtree",
+        lambda _path: (_ for _ in ()).throw(PermissionError("owned by another user")),
+    )
+    target = release_build.BuildTarget("macos", "aarch64", "desktop", "bundle")
+
+    with pytest.raises(SystemExit, match="ownership and permissions"):
+        release_build.build_bundle(target, clean=True)
 
 
 def test_public_artifact_names_match_release_matrix() -> None:
@@ -351,6 +379,47 @@ def test_pyinstaller_spec_excludes_unsafe_frozen_data_before_collect() -> None:
     collect = spec.index("coll = COLLECT(", exclusion)
 
     assert analysis < exclusion < collect
+
+
+def test_pyinstaller_and_wheel_metadata_include_matrix_generator_template() -> None:
+    spec = (ROOT / "LocalFlight.spec").read_text(encoding="utf-8")
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert '("src/localflight/sources/matrix/client.py", "localflight/sources/matrix")' in spec
+    assert '"sources/matrix/client.py"' in pyproject
+    assert package_pi_source._is_release_file(Path("src/localflight/sources/matrix/client.py"))
+
+
+def _write_frozen_runtime_resources(bundle: Path, prefix: Path) -> None:
+    for relative in REQUIRED_FROZEN_RUNTIME_RESOURCES:
+        target = bundle / prefix / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"runtime resource: {relative.as_posix()}\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("prefix", (Path("_internal"), Path("Contents/Resources")))
+def test_frozen_runtime_resource_contract_supports_binary_bundle_layouts(
+    tmp_path: Path,
+    prefix: Path,
+) -> None:
+    bundle = tmp_path / "bundle"
+    _write_frozen_runtime_resources(bundle, prefix)
+
+    validate_frozen_runtime_resources(bundle)
+    for relative in REQUIRED_FROZEN_RUNTIME_RESOURCES:
+        assert frozen_runtime_resource_path(bundle, relative) == bundle / prefix / relative
+
+
+def test_frozen_runtime_resource_contract_rejects_missing_matrix_generator(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "bundle"
+    prefix = Path("_internal")
+    _write_frozen_runtime_resources(bundle, prefix)
+    (bundle / prefix / "localflight/sources/matrix/client.py").unlink()
+
+    with pytest.raises(RuntimeError, match="localflight/sources/matrix/client.py"):
+        validate_frozen_runtime_resources(bundle)
 
 
 @pytest.mark.parametrize(
@@ -781,6 +850,8 @@ def test_release_locks_are_hash_pinned_from_python_311() -> None:
 def test_release_workflow_limits_write_permission_to_draft_job() -> None:
     workflow = (ROOT / ".github" / "workflows" / "release-artifacts.yml").read_text(encoding="utf-8")
     assert "permissions:\n  contents: read" in workflow
+    assert "release_suffix:" in workflow
+    assert "RELEASE_SUFFIX: ${{ inputs.release_suffix }}" in workflow
     draft = workflow.split("  draft-release:", 1)[1]
     assert "permissions:\n      contents: write" in draft
     assert "LocalFlight-*-linux-${{ matrix.public_arch }}.AppImage" in workflow
@@ -795,6 +866,8 @@ def test_release_workflow_limits_write_permission_to_draft_job() -> None:
     assert '--json isDraft --jq .isDraft' in workflow
     assert '--json targetCommitish --jq .targetCommitish' in workflow
     assert 'test "$target_commitish" = "$SOURCE_SHA"' in workflow
+    assert 'tag="${tag}-${RELEASE_SUFFIX}"' in workflow
+    assert "Maintenance artifact rebuild" in workflow
     assert 'gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}"' in workflow
     assert workflow.count("keychain=\"$RUNNER_TEMP/localflight-release.keychain-db\"") == 1
     assert workflow.count("deb=\"$(find dist -maxdepth 1 -name 'localflight-desktop_*.deb'") == 1

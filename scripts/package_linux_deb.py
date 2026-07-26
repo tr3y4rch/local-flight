@@ -14,6 +14,7 @@ try:
     from scripts.release_safety import (
         require_native_architecture,
         validate_elf_architecture,
+        validate_frozen_runtime_resources,
         validate_public_bundle,
         write_sha256,
     )
@@ -21,6 +22,7 @@ except ModuleNotFoundError:  # direct ``python scripts/...`` execution
     from release_safety import (
         require_native_architecture,
         validate_elf_architecture,
+        validate_frozen_runtime_resources,
         validate_public_bundle,
         write_sha256,
     )
@@ -174,6 +176,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         require_native_architecture(DEBIAN_ARCH_TO_NATIVE[args.target_arch])
         validate_public_bundle(bundle)
+        validate_frozen_runtime_resources(bundle)
         executable_name = "localflight-server" if args.flavor == "server" else "LocalFlight"
         validate_elf_architecture(
             bundle / executable_name,

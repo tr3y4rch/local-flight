@@ -130,6 +130,12 @@ store build at this stage.
    choices, and support pages; all ten manifest entries; all checksum links;
    support forms; relay health; and cache refresh behavior.
 
+If a published release needs package-only maintenance without changing the app
+version, do not move or overwrite its tag. Dispatch the same workflow with a
+validated suffix such as `r1`; it creates a separate `v0.5.2-r1` draft tied to
+the new source commit while retaining the `0.5.2` package filenames. Publish it
+as the latest release only after the normal package inspection and smoke gates.
+
 If a hosted gate fails, keep the release draft unpublished and fix the cause
 before continuing. Do not bypass Gatekeeper, weaken package checks, publish a
 partial matrix, or describe a checksum as a replacement for code signing.
