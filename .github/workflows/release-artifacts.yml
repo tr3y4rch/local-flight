@@ -527,10 +527,9 @@ jobs:
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             is_draft="$(gh release view "$tag" --json isDraft --jq .isDraft --repo "$GITHUB_REPOSITORY")"
             test "$is_draft" = "true"
-            target_commitish="$(gh release view "$tag" --json targetCommitish --jq .targetCommitish --repo "$GITHUB_REPOSITORY")"
-            test "$target_commitish" = "$SOURCE_SHA"
             gh release upload "$tag" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$tag" --title "$title" --notes-file "$notes" --draft --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --target "$SOURCE_SHA" \
+              --title "$title" --notes-file "$notes" --draft --repo "$GITHUB_REPOSITORY"
           else
             if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
               echo "Tag ${tag} already exists without a GitHub release. Refusing to retag."
