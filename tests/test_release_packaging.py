@@ -864,8 +864,7 @@ def test_release_workflow_limits_write_permission_to_draft_job() -> None:
     assert 'test "${#files[@]}" -eq 20' in workflow
     assert "Draft release asset inventory does not match the verified 20-file matrix." in workflow
     assert '--json isDraft --jq .isDraft' in workflow
-    assert '--json targetCommitish --jq .targetCommitish' in workflow
-    assert 'test "$target_commitish" = "$SOURCE_SHA"' in workflow
+    assert 'gh release edit "$tag" --target "$SOURCE_SHA"' in workflow
     assert 'tag="${tag}-${RELEASE_SUFFIX}"' in workflow
     assert "Maintenance artifact rebuild" in workflow
     assert 'gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}"' in workflow
