@@ -10,8 +10,7 @@
       "environment": "development",
       "env": {
         "EXPO_PUBLIC_LOCALFLIGHT_DEPLOYMENT": "staging",
-        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_ORIGIN": "https://relay-staging.beacontools.cc",
-        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_FAILOVER_ORIGINS": ""
+        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_ORIGIN": "https://relay-staging.beacontools.cc"
       },
       "ios": {
         "simulator": false
@@ -26,8 +25,7 @@
       "channel": "staging",
       "env": {
         "EXPO_PUBLIC_LOCALFLIGHT_DEPLOYMENT": "staging",
-        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_ORIGIN": "https://relay-staging.beacontools.cc",
-        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_FAILOVER_ORIGINS": ""
+        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_ORIGIN": "https://relay-staging.beacontools.cc"
       },
       "android": {
         "buildType": "app-bundle"
@@ -39,8 +37,7 @@
       "channel": "staging",
       "env": {
         "EXPO_PUBLIC_LOCALFLIGHT_DEPLOYMENT": "staging",
-        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_ORIGIN": "https://relay-staging.beacontools.cc",
-        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_FAILOVER_ORIGINS": ""
+        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_ORIGIN": "https://relay-staging.beacontools.cc"
       },
       "ios": {
         "simulator": false
@@ -55,8 +52,7 @@
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_LOCALFLIGHT_DEPLOYMENT": "production",
-        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_ORIGIN": "https://relay.beacontools.cc",
-        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_FAILOVER_ORIGINS": ""
+        "EXPO_PUBLIC_LOCALFLIGHT_RELAY_ORIGIN": "https://relay.beacontools.cc"
       },
       "android": {
         "buildType": "app-bundle"
