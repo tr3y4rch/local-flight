@@ -13,7 +13,7 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
 
 <SiteLayout
   title="Local Flight"
-  description="Download free, open-source Local Flight software for airport-style arrivals and departures, nearby-aircraft radar, history, kiosks, phones, and LED displays."
+  description="Download free, open-source Local Flight desktop and server software, then choose Beacon Relay, Bring Your Own Keys, or VATSIM for flight data."
   active="product"
   image="/assets/localflight-lockup.png"
 >
@@ -22,12 +22,12 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
       <div class="hero-copy hero-copy--narrow">
         <div class="eyebrow">Local Flight / Release {currentRelease}</div>
         <h1 class="hero-title">Build your own <span class="accent-word">airport-style flight board.</span></h1>
-        <p class="hero-lede">Local Flight is free, open-source software for arrivals, departures, nearby aircraft, movement history, kiosks, phones, and LED displays. Run it on a computer or Raspberry Pi you control.</p>
+        <p class="hero-lede">Local Flight desktop and server software is free and open source. Build arrivals and departures boards, radar, movement history, kiosks, Companion screens, and LED displays on a computer or Raspberry Pi you control.</p>
         <div class="hero-actions">
           <a class="action-button action-button--primary" href="#downloads">Choose a download <span aria-hidden="true">↓</span></a>
           <a class="action-link" href="#capabilities">See what it can display</a>
         </div>
-        <p class="hero-footnote">Free to download · No subscription · No account required · Windows · macOS · Linux · Raspberry Pi</p>
+        <p class="hero-footnote">Desktop free to download · No subscription · No account required · Windows · macOS · Linux · Raspberry Pi</p>
       </div>
       <div class="hero-visual hero-visual--wide">
         <MediaStage src={fidsImage} alt="Local Flight departures board in the desktop application" label="FIDS / DEPARTURES" meta={`0.5.1 capture · interface unchanged in ${currentRelease}`} loading="eager" widths={[720, 1100, 1500]} sizes="(max-width: 920px) 90vw, 55vw" />
@@ -78,7 +78,7 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
           <p>The computer running Local Flight can power its own desktop window, browsers on your home or local network (LAN), Raspberry Pi kiosks, paired phones, and supported HUB75 LED matrix panels.</p>
           <ul class="data-list">
             <li><b>Desktop</b><span>Use the native Windows, macOS, or Linux app as your first display.</span></li>
-            <li><b>Browsers and phones</b><span>Open the board, radar, history, settings, and controls on other devices you own.</span></li>
+            <li><b>Browsers and Companion</b><span>Open the board, radar, history, settings, and controls on browsers or Local Flight Mobile.</span></li>
             <li><b>LED matrix</b><span>Preview the layout and generate MicroPython files for supported Interstate 75 W panels.</span></li>
           </ul>
         </div>
@@ -94,14 +94,15 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
       <div class="split-story-copy" data-reveal>
         <span class="section-index">04 / FLIGHT DATA</span>
         <h2>Choose where your flight data comes from.</h2>
-        <p>Pick the route that suits your setup: Beacon Tools’ shared online service (Community Relay), your own aviation-data API keys, or public VATSIM virtual traffic. Local Flight shows the choice during setup.</p>
+        <p>Desktop setup has exactly three routes. Only Beacon Relay needs a Relay Access license; the other two paths bypass Beacon licensing.</p>
         <ul class="data-list">
-          <li><b>Shared Service</b><span>Get shared airport boards through Community Relay without managing aviation-data keys yourself.</span></li>
-          <li><b>Own Provider Account</b><span>Your keys stay on the computer running Local Flight and go only to the provider you select.</span></li>
-          <li><b>VATSIM Virtual Traffic</b><span>Use public VATSIM callsigns and flight plans while excluding pilot and controller identities.</span></li>
+          <li><b>Beacon Relay</b><span>Use the hosted shared service with one portable Relay Access license. Buy it on the web or Android, use the license included with iOS, or move an existing license here.</span></li>
+          <li><b>Bring Your Own Keys</b><span>Your keys stay on the computer running Local Flight and go only to the provider you select.</span></li>
+          <li><b>VATSIM</b><span>Use public virtual-network callsigns and flight plans while excluding pilot and controller identities.</span></li>
         </ul>
         <div class="inline-actions" style="margin-top: 30px">
           <a class="action-link" href="/network/">See how every connection works</a>
+          <a class="action-link" href="/local-flight/relay-access/">Compare Relay Access purchase routes</a>
           <a class="action-link" href="/privacy/">Read the privacy model</a>
         </div>
       </div>

@@ -14,7 +14,9 @@ import {
   loadCachedLanAirport,
   loadCachedLanConfig,
   loadMobileSetupState,
+  loadMobileRelayAccessSummary,
   loadPinnedFlightReference,
+  loadRelayDeviceCredential,
   loadWidgetPreferences
 } from "../storage/settings";
 import { readWidgetSnapshot, writeWidgetSnapshot } from "../storage/widgetSnapshot";
@@ -59,10 +61,16 @@ export async function refreshWidgetSnapshotInBackground(): Promise<boolean> {
     ) {
       return true;
     }
-    if (!setup.relayInstallId || !setup.relayActivationToken || !setup.standaloneAirport) return false;
+    const [relayDeviceCredential, relayAccess] = await Promise.all([
+      loadRelayDeviceCredential(),
+      loadMobileRelayAccessSummary()
+    ]);
+    const virtual = setup.standaloneSource === "virtual";
+    const terminalAccess = relayAccess && ["suspended", "refunded", "revoked", "release_pending"].includes(relayAccess.state);
+    if (!setup.relayInstallId || !setup.standaloneAirport || (!virtual && (!relayDeviceCredential || terminalAccess))) return false;
     const credentials: StandaloneCredentials = {
       installId: setup.relayInstallId,
-      activationToken: setup.relayActivationToken,
+      deviceCredential: relayDeviceCredential,
       airport: setup.standaloneAirport,
       diagnosticsMode: setup.diagnosticsMode,
       source: setup.standaloneSource === "virtual" ? "virtual" : "real"

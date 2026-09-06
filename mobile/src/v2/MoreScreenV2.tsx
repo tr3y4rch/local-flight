@@ -2,16 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Linking,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
+  TextInput,
   View
 } from "react-native";
 
 import { accessibleButton } from "../accessibility/mobileA11y";
+import { paidAppStoreLabel, type MobileRelayAccessSnapshot } from "../access/paidAppAccess";
 import { englishCopy } from "../content/en";
 import { BrandWordmark } from "../components/Brand";
 import { MotionPressable } from "../components/MotionPressable";
@@ -31,7 +34,7 @@ import type { MobileAppearance, MobileThemePreference } from "../theme/tokens";
 import { hapticLight, hapticSelection } from "../utils/haptics";
 import type { LayoutWidthClass } from "../utils/layout";
 
-export type MorePanel = "appearance" | "board" | "widgets" | "host" | "help" | "advanced" | "support" | null;
+export type MorePanel = "appearance" | "board" | "widgets" | "host" | "relay" | "help" | "advanced" | "support" | null;
 
 export type MoreScreenV2Props = {
   airportCode: string;
@@ -63,6 +66,10 @@ export type MoreScreenV2Props = {
   onDiagnosticsModeChange: (next: MobileDiagnosticsMode) => void;
   onOpenAirport: () => void;
   onRerunSetup: () => void;
+  relayAccess: MobileRelayAccessSnapshot;
+  relayProtectionAvailable: boolean;
+  onVerifyRelayAccess: () => Promise<string | void> | string | void;
+  onProtectRelayAccess: (email: string) => Promise<string>;
 };
 
 type RowProps = {
@@ -289,6 +296,165 @@ function HostPanel({
         <Text style={styles.secondaryButtonText}>Review pairing</Text>
       </Pressable>
       <Text style={styles.disclaimer}>Matrix and physical display configuration remains host-owned and is never sent through widget or Live Activity extensions.</Text>
+    </View>
+  );
+}
+
+function RelayAccessPanel({
+  styles,
+  appearance,
+  standalone,
+  relayAccess,
+  relayProtectionAvailable,
+  onVerifyRelayAccess,
+  onProtectRelayAccess
+}: {
+  styles: ReturnType<typeof makeStyles>;
+  appearance: MobileAppearance;
+  standalone: boolean;
+  relayAccess: MobileRelayAccessSnapshot;
+  relayProtectionAvailable: boolean;
+  onVerifyRelayAccess: () => Promise<string | void> | string | void;
+  onProtectRelayAccess: (email: string) => Promise<string>;
+}) {
+  const [email, setEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [message, setMessage] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const checking = relayAccess.state === "checking" || verifying;
+  const statusTitle = relayAccess.state === "active_here"
+    ? "Active on this phone"
+    : relayAccess.state === "active_elsewhere"
+      ? "Active on another main device"
+      : relayAccess.state === "available"
+        ? "Ready to use"
+        : relayAccess.state === "suspended"
+          ? "Access suspended"
+          : relayAccess.state === "refunded"
+            ? "Purchase refunded"
+            : relayAccess.state === "revoked"
+              ? "Access revoked"
+              : relayAccess.state === "release_pending"
+                ? "Freeing access is pending"
+                : relayAccess.state === "retryable_unavailable"
+                  ? "Check unavailable"
+                  : checking
+                    ? "Checking access"
+                    : "Verification needed";
+  const verifyLabel = relayAccess.state === "release_pending"
+    ? "Retry freeing Relay Access"
+    : Platform.OS === "android" && relayAccess.state === "verification_needed"
+      ? "Get or restore Relay Access"
+    : ["suspended", "refunded", "revoked", "retryable_unavailable"].includes(relayAccess.state)
+      ? Platform.OS === "android" ? "Restore Relay Access" : "Restore included access"
+      : Platform.OS === "android" ? "Verify Relay Access" : "Verify included access";
+  const protect = async () => {
+    if (sending || checking) return;
+    if (!email.trim()) {
+      setMessage("Enter an email address first.");
+      return;
+    }
+    setSending(true);
+    try {
+      setMessage(await onProtectRelayAccess(email.trim()));
+      setEmail("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The recovery link could not be requested.");
+    } finally {
+      setSending(false);
+    }
+  };
+  const verify = async () => {
+    if (checking) return;
+    setVerifying(true);
+    setMessage("");
+    try {
+      const result = await onVerifyRelayAccess();
+      if (result) setMessage(result);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Relay Access could not be checked.");
+    } finally {
+      setVerifying(false);
+    }
+  };
+  const hasVerifiedSummary = Boolean(relayAccess.licenseRef || relayAccess.lastSuccessfulCheckAt);
+  const lastChecked = relayAccess.lastSuccessfulCheckAt
+    ? new Date(relayAccess.lastSuccessfulCheckAt).toLocaleString()
+    : "Not verified yet";
+  return (
+    <View style={styles.panelContent}>
+      <Text style={styles.panelIntro}>{Platform.OS === "android"
+        ? "Companion and VATSIM are free. The one-time Google Play Relay Access product powers one main device: this phone in real-flight Standalone mode or one Local Flight desktop."
+        : "This paid app includes one portable Beacon Relay Access license. It can power one main device: this phone in Standalone mode or one Local Flight desktop. Companion follows its host and uses no additional place."}</Text>
+      <View style={styles.informationCard}>
+        <Text style={styles.informationTitle}>{statusTitle}</Text>
+        <Text style={styles.informationBody}>{relayAccess.message}</Text>
+        {hasVerifiedSummary ? (
+          <>
+            {relayAccess.sourceLabel ? <Text style={styles.informationBody}>Source: {relayAccess.sourceLabel}</Text> : null}
+            {relayAccess.maskedKeyRef ? <Text style={styles.informationBody}>Reference: {relayAccess.maskedKeyRef}</Text> : null}
+            <Text style={styles.informationBody}>Protection: {relayAccess.protectionEnabled ? "On" : "Not added"}</Text>
+            {relayAccess.currentMainDeviceDescription ? <Text style={styles.informationBody}>Main device: {relayAccess.currentMainDeviceDescription}</Text> : null}
+            <Text style={styles.informationBody}>Last verified: {lastChecked}</Text>
+          </>
+        ) : null}
+      </View>
+      <Text style={styles.informationBody}>{paidAppStoreLabel()} may ask you to sign in only after you choose the action below.</Text>
+      <Pressable
+        style={[styles.secondaryButton, checking && { opacity: 0.6 }]}
+        disabled={checking}
+        onPress={() => void verify()}
+        {...accessibleButton({ label: checking ? "Checking Relay Access" : verifyLabel, disabled: checking, busy: checking })}
+      >
+        <Text style={styles.secondaryButtonText}>{checking ? "Checking…" : verifyLabel}</Text>
+      </Pressable>
+      <Text style={styles.informationTitle}>{relayAccess.protectionEnabled
+        ? "Recovery and moving access"
+        : Platform.OS === "android" ? "Protect Relay Access" : "Protect your included access"}</Text>
+      {relayProtectionAvailable ? (
+        <>
+          <Text style={styles.informationBody}>
+            {relayAccess.protectionEnabled
+              ? "Request a fresh one-time email link to manage recovery or move Relay Access. No password or Beacon account is created."
+              : "Email is optional and creates no account. Confirm it once to protect recovery and moving access between main devices."}
+          </Text>
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            accessibilityLabel="Email for Relay Access protection and recovery"
+            editable={!sending && !checking}
+            returnKeyType="send"
+            onSubmitEditing={() => void protect()}
+            placeholder="you@example.com"
+            placeholderTextColor={appearance.textDim}
+            style={styles.relayEmailInput}
+          />
+          <Pressable
+            style={[styles.primaryButton, (sending || checking) && { opacity: 0.6 }]}
+            disabled={sending || checking}
+            onPress={() => void protect()}
+            {...accessibleButton({
+              label: sending ? "Sending verification email" : relayAccess.protectionEnabled ? "Email a management link" : "Protect Relay Access",
+              disabled: sending || checking,
+              busy: sending
+            })}
+          >
+            <Text style={styles.primaryButtonText}>{sending ? "Sending…" : relayAccess.protectionEnabled ? "Email a one-time link" : "Protect Relay Access"}</Text>
+          </Pressable>
+        </>
+      ) : (
+        <Text style={styles.informationBody}>Activate Relay Access on this phone in real-flight Standalone before adding an optional recovery email.</Text>
+      )}
+      {message ? <Text style={styles.panelIntro}>{message}</Text> : null}
+      <Text style={styles.disclaimer}>{standalone
+        ? "Moving Relay Access stops direct Standalone data here. LAN and Remote Companion continue through their desktop host."
+        : Platform.OS === "android"
+          ? "Remote Companion requires Relay Access on its desktop host. A Google Play Relay Access purchase on this phone cannot substitute for an unlicensed host."
+          : "Remote Companion requires Relay Access on its desktop host. The access included with this phone cannot substitute for an unlicensed host."}</Text>
     </View>
   );
 }
@@ -741,6 +907,10 @@ function PanelSheet({
   onDiagnosticsModeChange,
   onOpenAirport,
   onRerunSetup,
+  relayAccess,
+  relayProtectionAvailable,
+  onVerifyRelayAccess,
+  onProtectRelayAccess,
   onClose
 }: {
   panel: Exclude<MorePanel, null>;
@@ -765,6 +935,10 @@ function PanelSheet({
   onDiagnosticsModeChange: (next: MobileDiagnosticsMode) => void;
   onOpenAirport: () => void;
   onRerunSetup: () => void;
+  relayAccess: MobileRelayAccessSnapshot;
+  relayProtectionAvailable: boolean;
+  onVerifyRelayAccess: () => Promise<string | void> | string | void;
+  onProtectRelayAccess: (email: string) => Promise<string>;
   onClose: () => void;
 }) {
   const title = panel === "appearance"
@@ -775,6 +949,8 @@ function PanelSheet({
       ? "Widgets & Live Activity"
       : panel === "host"
         ? "Host & Displays"
+        : panel === "relay"
+          ? "Relay Access"
         : panel === "help"
           ? "Help & Privacy"
           : panel === "support"
@@ -839,6 +1015,18 @@ function PanelSheet({
               onClose={onClose}
             />
           </ScrollView>
+        ) : panel === "relay" ? (
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <RelayAccessPanel
+              styles={styles}
+              appearance={appearance}
+              standalone={standalone}
+              relayAccess={relayAccess}
+              relayProtectionAvailable={relayProtectionAvailable}
+              onVerifyRelayAccess={onVerifyRelayAccess}
+              onProtectRelayAccess={onProtectRelayAccess}
+            />
+          </ScrollView>
         ) : (
           <ScrollView showsVerticalScrollIndicator={false}>
             <AdvancedPanel
@@ -860,6 +1048,24 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
   const styles = useMemo(() => makeStyles(appearance, props.layoutClass), [appearance, props.layoutClass]);
   const [panel, setPanel] = useState<MorePanel>(null);
   const expanded = props.layoutClass === "expanded" || props.layoutClass === "large";
+  const includedPrefix = Platform.OS === "android" ? "Relay Access" : "Included access";
+  const relayDetail = props.relayAccess.state === "active_here"
+    ? "Active on this device · recovery and transfers"
+    : props.relayAccess.state === "active_elsewhere"
+      ? `Active on ${props.relayAccess.currentMainDeviceDescription || "another main device"}`
+      : props.relayAccess.state === "available"
+        ? `${includedPrefix} ready for a main device`
+        : props.relayAccess.state === "release_pending"
+          ? "Freeing access from this phone is pending"
+          : props.relayAccess.state === "suspended"
+            ? `${includedPrefix} is suspended`
+            : props.relayAccess.state === "refunded"
+              ? "Store purchase was refunded"
+              : props.relayAccess.state === "revoked"
+                ? `${includedPrefix} was revoked`
+                : props.relayAccess.state === "retryable_unavailable"
+                  ? "Verification unavailable · explicit retry"
+                  : `${includedPrefix} · verification and recovery`;
 
   useEffect(() => {
     if (props.requestedPanel) setPanel(props.requestedPanel);
@@ -922,6 +1128,15 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
               <View style={styles.groupSeparator} />
             </>
           ) : null}
+          <SettingsRow
+            icon="key-variant"
+            title="Relay Access"
+            detail={relayDetail}
+            onPress={() => setPanel("relay")}
+            appearance={appearance}
+            styles={styles}
+          />
+          <View style={styles.groupSeparator} />
           <SettingsRow icon="lifebuoy" title="Help & Privacy" detail="Plain-language guidance and privacy choices" onPress={() => setPanel("help")} appearance={appearance} styles={styles} />
           <View style={styles.groupSeparator} />
           <SettingsRow icon="stethoscope" title="Advanced diagnostics" detail="Diagnostic preferences and sanitized technical context" onPress={() => setPanel("advanced")} appearance={appearance} styles={styles} />
@@ -983,6 +1198,10 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
           onDiagnosticsModeChange={props.onDiagnosticsModeChange}
           onOpenAirport={props.onOpenAirport}
           onRerunSetup={props.onRerunSetup}
+          relayAccess={props.relayAccess}
+          relayProtectionAvailable={props.relayProtectionAvailable}
+          onVerifyRelayAccess={props.onVerifyRelayAccess}
+          onProtectRelayAccess={props.onProtectRelayAccess}
           onClose={() => setPanel(null)}
         />
       ) : null}
@@ -1028,6 +1247,7 @@ function makeStyles(a: MobileAppearance, layoutClass: LayoutWidthClass) {
     closeButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: a.lineSoft },
     panelContent: { padding: 20, width: "100%", maxWidth: 760, alignSelf: "center" },
     panelIntro: { color: a.textMuted, fontSize: 14, lineHeight: 20 },
+    relayEmailInput: { minHeight: 50, color: a.text, backgroundColor: a.shell, borderColor: a.line, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, paddingHorizontal: 15, marginTop: 14 },
     choiceGroup: { borderRadius: 19, backgroundColor: a.shell, overflow: "hidden", marginTop: 18 },
     appearanceChoice: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 13, paddingHorizontal: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: a.lineSoft },
     appearanceChoiceSelected: { backgroundColor: `${a.blue}0F` },

@@ -558,6 +558,7 @@ def test_byok_and_relay_fair_fetch_normalize_equivalently(monkeypatch) -> None:
 
     monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: True)
     monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: False)
+    monkeypatch.setattr(aviationstack_client, "_selected_data_route", lambda source=None, data_route=None: "byok")
     byok_payload, _ = aviationstack_client.fetch_flights_strategy(
         airport_iata="ZRH",
         timezone_name="UTC",
@@ -570,6 +571,7 @@ def test_byok_and_relay_fair_fetch_normalize_equivalently(monkeypatch) -> None:
 
     monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: True)
+    monkeypatch.setattr(aviationstack_client, "_selected_data_route", lambda source=None, data_route=None: "relay")
     relay_payload, _ = aviationstack_client.fetch_flights_strategy(
         airport_iata="ZRH",
         timezone_name="UTC",
@@ -609,7 +611,7 @@ def test_shared_relay_schedule_records_feed_normalize_pipeline_without_provider_
         }
     ]
 
-    monkeypatch.setattr(aviationstack_client, "_relay_uses_shared_schedule", lambda source=None: True)
+    monkeypatch.setattr(aviationstack_client, "_relay_uses_shared_schedule", lambda source=None, **kwargs: True)
     monkeypatch.setattr(
         aviationstack_client,
         "fetch_relay_schedule_records",

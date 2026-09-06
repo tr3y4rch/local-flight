@@ -41,6 +41,12 @@
           "recordAudioAndroid": false
         }
       ],
+      [
+        "./plugins/with-localflight-paid-app",
+        {
+          "relayAccessProductId": "cc.beacontools.localflight.relay_access"
+        }
+      ],
       "./plugins/with-localflight-android-network",
       "./plugins/with-localflight-privacy-manifest",
       "./plugins/with-localflight-ios-widget",
@@ -86,7 +92,8 @@
       },
       "permissions": [
         "CAMERA",
-        "VIBRATE"
+        "VIBRATE",
+        "com.android.vending.BILLING"
       ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
@@ -98,6 +105,24 @@
     "extra": {
       "localFlightServerHint": "http://192.168.1.10:8000",
       "localFlightVersion": "0.5.2",
+      "localFlightDeployment": "staging",
+      "localFlight": {
+        "deploymentEnvironment": "staging",
+        "relayOrigin": "https://relay-staging.beacontools.cc",
+        "relayFailoverOrigins": [],
+        "acceptedPurchaseEnvironments": [
+          "sandbox",
+          "test"
+        ]
+      },
+      "localFlightRelay": {
+        "canonicalOrigin": "https://relay-staging.beacontools.cc",
+        "failoverOrigins": [],
+        "acceptedPurchaseEnvironments": [
+          "sandbox",
+          "test"
+        ]
+      },
       "eas": {
         "projectId": "085634ce-4117-4fd6-b2d6-cbb7f90b4fdd",
         "build": {

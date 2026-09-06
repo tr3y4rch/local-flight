@@ -2,7 +2,7 @@
 
 Local Flight is one local server with several client surfaces. The important idea is simple: choose where the board should be seen, and Local Flight keeps the same data, setup, history, diagnostics, and APIs underneath.
 
-Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight). The hosted relay used by Community Relay, Remote Companion fallback, and Mobile Standalone is `https://relay.beacontools.cc`.
+Public project docs live at [beacontools.cc/local-flight](https://beacontools.cc/local-flight). The hosted Beacon Relay used by Relay Access, Remote Companion fallback, and Mobile Standalone is `https://relay.beacontools.cc`.
 
 ---
 
@@ -204,7 +204,7 @@ Remote Companion still requires the host to be online. It is not Standalone mode
 
 ### Standalone
 
-Standalone talks directly to the hosted Beacon Tools relay and does not need your own Local Flight host online. Its careful refresh limits keep the shared service reliable and fairly available.
+Standalone talks directly to the hosted Beacon Tools relay and does not need your own Local Flight host online. It can use licensed real-flight data or free VATSIM virtual traffic. Its careful refresh limits keep the shared service reliable and fairly available.
 
 Use Standalone for:
 
@@ -213,6 +213,7 @@ Use Standalone for:
 - Local on-device History
 - Lightweight Settings
 - Manual reports and diagnostics consent
+- A source choice between real airline data and VATSIM
 
 Standalone limits:
 
@@ -248,13 +249,13 @@ Display mode decides where Local Flight appears. Data access decides where fligh
 
 You can use any display mode with:
 
-- **Local Flight Relay** for shared real-world schedule snapshots
+- **Beacon Relay** for licensed shared real-world schedule snapshots
 - **Use your own keys** for direct provider access from your own machine
 - **VATSIM** for virtual network traffic
 
 Changing display mode does not change your data source by itself.
 
-Mobile Standalone is the one special case: because there is no paired local server, it always uses the hosted relay's current shared real-data policy and local on-device history. It does not expose BYOK or VATSIM controls.
+Mobile Standalone is the one special case: it does not expose BYOK because there is no paired local server. Real airline data uses the hosted Relay policy and requires one portable Relay license on the phone. VATSIM uses sanitized virtual-data endpoints and needs no Relay Access credential. Both keep movement history on the device.
 
 The hosted relay's current real-data path is cache-first and can use AeroDataBox primary schedule data with AviationStack sparse fill/fallback where configured. That provider mix is separate from the display mode you choose.
 
@@ -267,7 +268,7 @@ Local Flight keeps the display shell separate from the aviation data sources you
 - Native Qt is recommended for desktop because it avoids extra browser-vendor surfaces for the main app window.
 - LAN browser UI remains supported because it is useful for headless installs, remote viewing, kiosk displays, and recovery.
 - Companion and Matrix stay server-mediated through your Local Flight instance. Companion uses LAN first and can fall back to encrypted Remote Companion only for paired relay-linked hosts.
-- Mobile Standalone is relay-mediated, simplified, and rate-limited by design.
+- Mobile Standalone is relay-mediated, simplified, and rate-limited by design. Its VATSIM path bypasses Relay licensing.
 - Diagnostics are consent-based and sanitized before leaving the machine.
 
 For install commands, see [Install Guide](install.md).

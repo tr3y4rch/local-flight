@@ -1,0 +1,55 @@
+Your airport board, wherever you are.
+
+The Android app is free to download. Pair over Wi-Fi with Local Flight on macOS, Windows, Linux, or Raspberry Pi to see arrivals, departures, nearby traffic, movement history, and host controls.
+
+COMPANION FOR YOUR LOCAL FLIGHT HOST
+
+Choose “Connect to a Local Flight host” during setup. Companion mode connects directly to your host nearby. If you explicitly enable Remote Companion, the same paired device can continue through end-to-end encrypted relay routing away from home while your host is online. The nearby connection is always preferred, and remote access can be revoked from the host.
+
+NO HOST? USE STANDALONE.
+
+Choose “Use without a Local Flight host” for a simpler airport board. VATSIM virtual traffic works without buying Relay Access. Real airline data uses Beacon Relay and requires a one-time in-app purchase of Beacon Relay Access, with no subscription. Relay Access can be active on one phone using real-flight Standalone or one Local Flight desktop. Purchase or restore starts only after you choose the explicit real-flight setup action, and Mobile never asks for or displays an LFRA key.
+
+Companion and VATSIM are free to use and do not require or consume Relay Access. Remote Companion requires Relay Access on its desktop host; a phone purchase cannot replace access on an unlicensed host. Moving purchased access to a different main device always requires a named confirmation; it then stops direct Relay use on the previous main device. A Relay Access license bought elsewhere can be moved to this official Android app through an explicit, integrity-protected transfer without another Google Play purchase.
+
+BUILT FOR DAILY GLANCES
+
+• Arrivals and departures with airport-local times
+• Status, delay, terminal, and gate details when supplied by the selected source
+• A responsive radar-style view of nearby aircraft
+• Deduplicated movement history
+• Flight detail sheets using available movement data
+• Pinned-flight and airport-board home-screen widgets
+• Warm light, midnight dark, device-matched, and high-contrast appearances
+• Adaptive Board / Radar / History / More navigation
+• An explicit fullscreen Display with familiar horizontal FIDS columns
+
+FOR AVIATION ENTHUSIASTS
+
+Companion can reflect real-flight sources configured on your host or a VATSIM-focused virtual view. Standalone can show airline schedules or VATSIM traffic without running Local Flight elsewhere.
+
+LOCAL-FIRST BY DESIGN
+
+• No Local Flight account required
+• No advertising SDKs or cross-app tracking
+• Companion talks to your own server first
+• Remote Companion traffic is end-to-end encrypted
+• Standalone movement history stays on your device
+• Automatic diagnostics are an explicit choice
+• Companion and VATSIM require no Relay Access purchase on the phone
+• Email stays optional and appears only if you later choose protection or recovery
+• Camera access is used only for optional pairing QR codes; manual entry remains available
+
+OPTIONAL SUPPORT
+
+Three one-time Google Play support choices are available in More. They unlock nothing, add no subscription, and never create Relay Access. Google handles payment details; Local Flight receives only the minimal transaction evidence needed for verification.
+
+WHAT YOU NEED
+
+Companion requires a Local Flight desktop, Linux server, or Raspberry Pi host. Remote Companion additionally requires explicit pairing, an active Relay Access license on the host, and an online host. Standalone requires internet access; real-flight Standalone also requires Relay Access and intentionally refreshes less frequently than Companion.
+
+IMPORTANT
+
+Local Flight is an informational display aid. Flight, weather, radar, airport-surface, and relay data may be delayed, incomplete, cached, incorrect, or unavailable.
+
+Do not use Local Flight for navigation, dispatch, operational control, flight planning, professional aviation work, or safety decisions.

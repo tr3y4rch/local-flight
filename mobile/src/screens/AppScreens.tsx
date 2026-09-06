@@ -24,6 +24,16 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "ex
 
 import { BeaconToolsMark } from "../components/BeaconToolsMark";
 import { BrandWordmark } from "../components/Brand";
+import {
+  isExpiredPendingRelayActivationError,
+  isStaleMoveConfirmationError,
+  isStaleRelayActivationGrantError,
+  mobileAccessErrorPresentation,
+  paidAppStoreLabel,
+  type MobileAccessErrorPresentation,
+  type MobileRelayAccessSnapshot
+} from "../access/paidAppAccess";
+import { mobileAccessAction } from "../access/mobileRelayState";
 import { getConfig, getDoc, getHealth, getMobileSummary, getRootHealth, normalizeServerUrl, patchConfig, searchAirports } from "../api/client";
 import { testRemoteCompanionProbe, type RemoteCompanionProbeResult } from "../api/remoteCompanion";
 import { activateStandalone, resolveStandaloneAirport, searchStandaloneAirports } from "../api/standalone";
@@ -156,6 +166,7 @@ import { hapticLight, hapticSelection } from "../utils/haptics";
 import { usePressScale } from "../utils/usePressScale";
 import { SUPPORT_PRODUCT_IDS, type SupportProductId } from "../iap/products";
 import type { SupportPurchaseController } from "../iap/types";
+import { englishCopy } from "../content/en";
 
 type AppIconName = LocalFlightIconName;
 export type DocSlug = "readme" | "install" | "display-modes" | "privacy" | "changelog";
@@ -414,23 +425,27 @@ type DocHeading = {
   title: string;
   index: number;
 };
-type CompanionSetupResult = {
+export type CompanionSetupResult = {
   mode: "lan_companion";
   serverUrl: string;
   diagnosticsMode: MobileDiagnosticsMode;
   config: AppConfig;
   state: AppState;
 };
-type StandaloneSetupResult = {
+export type StandaloneSetupResult = {
   mode: "standalone";
   relayInstallId: string;
-  relayActivationToken: string;
+  relayDeviceCredential: string;
+  relayAccess?: MobileRelayAccessSnapshot;
+  relayOrigin?: string;
+  activationState?: "active" | "pending_commit";
+  pendingExpiresIn?: number;
   airport: StandaloneAirport;
   standaloneSource: StandaloneFlightSource;
   diagnosticsMode: MobileDiagnosticsMode;
   activationStatus: string;
 };
-type MobileSetupResult = CompanionSetupResult | StandaloneSetupResult;
+export type MobileSetupResult = CompanionSetupResult | StandaloneSetupResult;
 
 function keyedPart(value: unknown): string {
   return String(value ?? "")
@@ -1854,7 +1869,7 @@ export function FidsScreen({
         ) : standalone ? (
           <StandaloneEmptyState
             title="Standalone board waiting"
-            body="Pull to refresh when you want a relay check. Auto-refresh stays slow to protect shared schedule tokens."
+            body="Pull to refresh when you want a Relay check. Automatic checks stay infrequent to avoid unnecessary requests."
           />
         ) : (
           <Text style={styles.empty}>Board waiting. Local Flight will show the next available snapshot here.</Text>
@@ -4925,28 +4940,52 @@ function AdminScreen({
 
 export function CompanionSetupScreen({
   initialUrl,
+  initialMode = "lan_companion",
+  initialStandaloneAirport = null,
+  initialStandaloneSource = "real",
+  initialCompanionSummary = null,
+  initialPendingStandaloneResult = null,
+  initialStandaloneMove = null,
+  setupChange = false,
+  relayReleasePending = false,
   pairingUrl = "",
   pairingNonce = 0,
   pairingExpectedServerFingerprint = "",
   initialDiagnosticsMode,
+  initialRelayActivationGrant = "",
   onPairingLoaded,
-  onComplete
+  onComplete,
+  onCancel,
+  onRetryRelayRelease,
+  onDiscardRelayActivationGrant
 }: {
   initialUrl: string;
+  initialMode?: MobileSetupMode;
+  initialStandaloneAirport?: StandaloneAirport | null;
+  initialStandaloneSource?: StandaloneFlightSource;
+  initialCompanionSummary?: CompanionSetupResult | null;
+  initialPendingStandaloneResult?: StandaloneSetupResult | null;
+  initialStandaloneMove?: { token: string; mainDeviceName: string } | null;
+  setupChange?: boolean;
+  relayReleasePending?: boolean;
   pairingUrl?: string;
   pairingNonce?: number;
   pairingExpectedServerFingerprint?: string;
   initialDiagnosticsMode: MobileDiagnosticsMode;
+  initialRelayActivationGrant?: string;
   onPairingLoaded?: (pairing: PairingLinkResult) => void;
   onComplete: (result: MobileSetupResult) => Promise<void> | void;
+  onCancel?: () => Promise<void> | void;
+  onRetryRelayRelease?: () => Promise<boolean>;
+  onDiscardRelayActivationGrant?: () => void;
 }) {
-  const [step, setStep] = useState<CompanionSetupStep>("welcome");
-  const [setupMode, setSetupMode] = useState<MobileSetupMode>("lan_companion");
+  const [step, setStep] = useState<CompanionSetupStep>(initialPendingStandaloneResult ? "review" : setupChange ? "mode" : "welcome");
+  const [setupMode, setSetupMode] = useState<MobileSetupMode>(initialPendingStandaloneResult ? "standalone" : initialMode);
   const [serverInput, setServerInput] = useState(initialUrl);
-  const [airportInput, setAirportInput] = useState("");
+  const [airportInput, setAirportInput] = useState(initialStandaloneAirport ? `${initialStandaloneAirport.iata || initialStandaloneAirport.icao} - ${initialStandaloneAirport.name}` : "");
   const [airportResults, setAirportResults] = useState<AirportResult[]>([]);
-  const [selectedStandaloneAirport, setSelectedStandaloneAirport] = useState<AirportResolved | null>(null);
-  const [standaloneSource, setStandaloneSource] = useState<StandaloneFlightSource>("real");
+  const [selectedStandaloneAirport, setSelectedStandaloneAirport] = useState<AirportResolved | null>(initialStandaloneAirport ? { ...initialStandaloneAirport, type: "large_airport" } : null);
+  const [standaloneSource, setStandaloneSource] = useState<StandaloneFlightSource>(initialStandaloneSource);
   const [airportSearchState, setAirportSearchState] = useState<AirportSearchState>("idle");
   const [airportSearchRetryNonce, setAirportSearchRetryNonce] = useState(0);
   const [resolvingAirport, setResolvingAirport] = useState(false);
@@ -4955,11 +4994,17 @@ export function CompanionSetupScreen({
   );
   const [testing, setTesting] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [standaloneMove, setStandaloneMove] = useState<{
+    token: string;
+    mainDeviceName: string;
+  } | null>(initialStandaloneMove);
+  const [pendingStandaloneResult, setPendingStandaloneResult] = useState<StandaloneSetupResult | null>(initialPendingStandaloneResult);
+  const [accessNotice, setAccessNotice] = useState<MobileAccessErrorPresentation | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupProgress, setSetupProgress] = useState<string | null>(null);
   const [urlCheckState, setUrlCheckState] = useState<SetupUrlCheckState>("idle");
   const [urlCheckMessage, setUrlCheckMessage] = useState("Enter the address shown by your Local Flight host.");
-  const [serverSummary, setServerSummary] = useState<CompanionSetupResult | null>(null);
+  const [serverSummary, setServerSummary] = useState<CompanionSetupResult | null>(initialCompanionSummary);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const stepAnim = useRef(new Animated.Value(1)).current;
@@ -4992,6 +5037,15 @@ export function CompanionSetupScreen({
       setDiagnosticsMode(initialDiagnosticsMode);
     }
   }, [initialDiagnosticsMode]);
+
+  useEffect(() => {
+    if (!initialRelayActivationGrant.startsWith("lfrag_") || pendingStandaloneResult) return;
+    setSetupMode("standalone");
+    setStandaloneMove(null);
+    setAccessNotice(null);
+    setSetupError(null);
+    goToStep("airport");
+  }, [goToStep, initialRelayActivationGrant, pendingStandaloneResult]);
 
   useEffect(() => {
     stepAnim.setValue(0);
@@ -5237,6 +5291,8 @@ export function CompanionSetupScreen({
     setAirportResults([]);
     setAirportSearchState("idle");
     setSetupError(null);
+    setStandaloneMove(null);
+    setAccessNotice(null);
     Keyboard.dismiss();
   }, []);
 
@@ -5254,6 +5310,8 @@ export function CompanionSetupScreen({
       setAirportInput(`${airport.iata || airport.icao} - ${airport.name}`);
       setAirportResults([]);
       setAirportSearchState("idle");
+      setStandaloneMove(null);
+      setAccessNotice(null);
       Keyboard.dismiss();
     } catch (exc) {
       setSetupError(standaloneAirportLookupErrorMessage(exc));
@@ -5288,6 +5346,8 @@ export function CompanionSetupScreen({
       }
       setFinishing(true);
       setSetupError(null);
+      setAccessNotice(null);
+      let verifyingPurchase = false;
       try {
         const airportLookup = selectedStandaloneAirport.iata || selectedStandaloneAirport.icao;
         setSetupProgress("Checking the selected airport...");
@@ -5295,23 +5355,125 @@ export function CompanionSetupScreen({
           ? await resolveStandaloneAirport(airportLookup)
           : selectedStandaloneAirport;
         const relayInstallId = await loadMobileRelayInstallId();
-        setSetupProgress("Activating Standalone on this device...");
+        const accessAction = mobileAccessAction({
+          platform: Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "other",
+          route: "standalone",
+          source: standaloneSource,
+          hasActivationGrant: Boolean(initialRelayActivationGrant)
+        });
+        if (accessAction === "none") {
+          setSetupProgress("Saving free VATSIM Standalone mode on this device...");
+          await onComplete({
+            mode: "standalone",
+            relayInstallId,
+            relayDeviceCredential: "",
+            airport: resolvedAirport,
+            standaloneSource,
+            diagnosticsMode,
+            activationStatus: "not_required"
+          });
+          setPendingStandaloneResult(null);
+          return;
+        }
+        if (relayReleasePending) {
+          setSetupProgress("Finishing the previous Relay Access release...");
+          const released = await onRetryRelayRelease?.();
+          if (!released) {
+            setAccessNotice({
+              state: "retryable_unavailable",
+              title: "Finish freeing Relay Access first",
+              body: "The previous main-device release is still pending. Companion and VATSIM remain available while Beacon Relay is unreachable.",
+              action: "Try again"
+            });
+            return;
+          }
+          setAccessNotice({
+            state: "verification_needed",
+            title: "Previous access freed",
+            body: "The old main-device place is available now. Continue when you are ready to verify this phone.",
+            action: Platform.OS === "android" ? "Get or restore Relay Access" : "Try again"
+          });
+          return;
+        }
+        verifyingPurchase = true;
+        if (pendingStandaloneResult) {
+          setSetupProgress("Finishing the securely staged Relay activation...");
+          await onComplete(pendingStandaloneResult);
+          setPendingStandaloneResult(null);
+          return;
+        }
+        setSetupProgress(initialRelayActivationGrant && Platform.OS === "android"
+          ? "Verifying this Google Play app installation…"
+          : Platform.OS === "android"
+            ? "Buying or restoring Relay Access from Google Play…"
+            : `Verifying the ${paidAppStoreLabel()} purchase…`);
         const activation = await activateStandalone({
           installId: relayInstallId,
-          airport: resolvedAirport
+          airport: resolvedAirport,
+          activationGrant: initialRelayActivationGrant,
+          confirmMoveToken: standaloneMove?.token
         });
+        if (!activation.deviceCredential && activation.status === "main_device_in_use" && activation.moveToken) {
+          setStandaloneMove({
+            token: activation.moveToken,
+            mainDeviceName: activation.currentMainDeviceDescription || "another main device"
+          });
+          return;
+        }
+        setStandaloneMove(null);
         setSetupProgress("Saving the airport and privacy choice on this device...");
-        await onComplete({
+        const result: StandaloneSetupResult = {
           mode: "standalone",
           relayInstallId,
-          relayActivationToken: activation.activationToken,
+          relayDeviceCredential: activation.deviceCredential,
+          relayAccess: activation.access,
+          relayOrigin: activation.relayOrigin,
+          activationState: activation.activationState,
+          pendingExpiresIn: activation.pendingExpiresIn,
           airport: resolvedAirport,
           standaloneSource,
           diagnosticsMode,
           activationStatus: activation.status
-        });
+        };
+        setPendingStandaloneResult(result);
+        await onComplete(result);
+        setPendingStandaloneResult(null);
       } catch (exc) {
-        setSetupError(standaloneConnectionErrorMessage(exc));
+        if (verifyingPurchase) {
+          if (isStaleMoveConfirmationError(exc)) {
+            setStandaloneMove(null);
+            setAccessNotice({
+              state: "verification_needed",
+              title: "Move confirmation expired",
+              body: "Nothing moved. Verify again to load the current main device and create a fresh confirmation.",
+              action: "Try again"
+            });
+          } else if (isStaleRelayActivationGrantError(exc)) {
+            setStandaloneMove(null);
+            setPendingStandaloneResult(null);
+            onDiscardRelayActivationGrant?.();
+            setAccessNotice({
+              state: "verification_needed",
+              title: "Transfer link expired",
+              body: Platform.OS === "android"
+                ? "The transfer was not used. Continue with Google Play Relay Access or request a fresh transfer link."
+                : "The transfer was not used. Continue with the access included with this app or request a fresh transfer link.",
+              action: Platform.OS === "android" ? "Get or restore Relay Access" : "Try again"
+            });
+          } else if (isExpiredPendingRelayActivationError(exc)) {
+            setPendingStandaloneResult(null);
+            setAccessNotice({
+              state: "verification_needed",
+              title: "Activation expired safely",
+              body: "Relay Access was not committed. Verify again to start a fresh activation.",
+              action: "Try again"
+            });
+          } else {
+            setAccessNotice(mobileAccessErrorPresentation(exc));
+          }
+        } else {
+          setSetupError(standaloneConnectionErrorMessage(exc));
+        }
       } finally {
         setFinishing(false);
         setSetupProgress(null);
@@ -5326,6 +5488,7 @@ export function CompanionSetupScreen({
     }
     setFinishing(true);
     setSetupError(null);
+    setAccessNotice(null);
     try {
       await onComplete({ ...serverSummary, diagnosticsMode });
     } catch (exc) {
@@ -5333,7 +5496,7 @@ export function CompanionSetupScreen({
     } finally {
       setFinishing(false);
     }
-  }, [diagnosticsMode, goToStep, onComplete, selectedStandaloneAirport, serverSummary, setupMode, standaloneSource]);
+  }, [diagnosticsMode, goToStep, initialRelayActivationGrant, onComplete, onDiscardRelayActivationGrant, onRetryRelayRelease, pendingStandaloneResult, relayReleasePending, selectedStandaloneAirport, serverSummary, setupMode, standaloneMove, standaloneSource]);
 
   const panelMotion = {
     opacity: stepAnim,
@@ -5363,6 +5526,26 @@ export function CompanionSetupScreen({
   const compactProgressWidth = progressAnim.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] });
   const enteredAirportCode = airportCodeFromQuery(airportInput);
   const canContinueWithAirport = Boolean(selectedStandaloneAirport || enteredAirportCode);
+  const paidStoreName = paidAppStoreLabel();
+  const setupAccessAction = mobileAccessAction({
+    platform: Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "other",
+    route: setupMode,
+    source: standaloneSource,
+    hasActivationGrant: Boolean(initialRelayActivationGrant)
+  });
+  const verifyAndOpenBoardLabel = englishCopy.setup.relayAccess.verifyAndOpenBoard(paidStoreName);
+  const finishSetupLabel = setupMode !== "standalone"
+    ? "Finish Companion setup"
+    : standaloneSource === "virtual"
+      ? "Open free VATSIM Board"
+      : setupAccessAction === "android_integrity_grant"
+        ? "Verify app & continue transfer"
+        : setupAccessAction === "android_purchase"
+          ? englishCopy.setup.relayAccess.getOrRestoreAndOpenBoard
+        : verifyAndOpenBoardLabel;
+  const standaloneModeDescription = Platform.OS === "android"
+    ? "Use this phone on its own. VATSIM is free; real-flight Standalone uses the one-time Relay Access product from Google Play."
+    : englishCopy.setup.standalone.description(paidStoreName);
 
   return (
     <KeyboardAvoidingView
@@ -5457,7 +5640,13 @@ export function CompanionSetupScreen({
               Choose how this device gets flight information, then review privacy before opening the Board.
             </Text>
             <View style={styles.companionSetupChecklist}>
-              <SetupChecklistItem icon={SETUP_ICONS.server} title="Connect your way" body="Use a Local Flight host, or choose an airport without one." />
+              <SetupChecklistItem
+                icon={SETUP_ICONS.server}
+                title="One connected ecosystem"
+                body={Platform.OS === "android"
+                  ? "Use a Local Flight host or free VATSIM mode. Real-flight Standalone uses the one-time Google Play Relay Access product."
+                  : "Use a Local Flight host, or use the portable Relay Access included with this paid app."}
+              />
               <SetupChecklistItem icon={SETUP_ICONS.lan} title="Change it later" body="You can run setup again from More on this device." />
               <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Privacy is your choice" body="Automatic crash reports are optional." />
             </View>
@@ -5483,8 +5672,10 @@ export function CompanionSetupScreen({
             </Text>
             <View style={styles.companionSetupOptionStack}>
               {([
-                ["lan_companion", "Connect to a Local Flight host", "Pair this device with Local Flight running on a computer or Raspberry Pi over the same Wi-Fi."],
-                ["standalone", "Use without a Local Flight host", "Choose an airport for Airline schedules or VATSIM traffic on this device."]
+                ["lan_companion", englishCopy.setup.companion.label, Platform.OS === "android"
+                  ? englishCopy.setup.companion.androidDescription
+                  : englishCopy.setup.companion.description],
+                ["standalone", englishCopy.setup.standalone.label, standaloneModeDescription]
               ] as Array<[MobileSetupMode, string, string]>).map(([mode, title, body]) => (
                 <Pressable
                   key={mode}
@@ -5499,6 +5690,8 @@ export function CompanionSetupScreen({
                   })}
                   onPress={() => {
                     setSetupMode(mode);
+                    setStandaloneMove(null);
+                    setAccessNotice(null);
                     setSetupError(null);
                   }}
                 >
@@ -5523,10 +5716,10 @@ export function CompanionSetupScreen({
             </Pressable>
             <Pressable
               style={styles.companionSetupSecondary}
-              onPress={() => goToStep("welcome")}
-              {...accessibleButton({ label: "Back to welcome" })}
+              onPress={() => setupChange && onCancel ? void onCancel() : goToStep("welcome")}
+              {...accessibleButton({ label: setupChange ? "Cancel setup changes" : "Back to welcome" })}
             >
-              <Text style={styles.companionSetupSecondaryText}>Back</Text>
+              <Text style={styles.companionSetupSecondaryText}>{setupChange ? "Cancel changes" : "Back"}</Text>
             </Pressable>
           </Animated.View>
         ) : null}
@@ -5653,7 +5846,7 @@ export function CompanionSetupScreen({
           <Animated.View style={[styles.companionSetupPanel, panelMotion]}>
             <Text style={styles.companionSetupPanelTitle}>Choose an airport for this device</Text>
             <Text style={styles.companionSetupBody}>
-              Using Local Flight without a host is called Standalone. Choose one airport for Airline schedules or VATSIM traffic on this device.
+              Using Local Flight without a host is called Standalone. Choose an airport, then use free VATSIM traffic or real-flight Airline schedules with Relay Access.
             </Text>
             <View
               style={[
@@ -5675,6 +5868,8 @@ export function CompanionSetupScreen({
                   setSelectedStandaloneAirport(null);
                   setAirportResults([]);
                   setAirportSearchState(value.trim().length >= 2 ? "loading" : "idle");
+                  setStandaloneMove(null);
+                  setAccessNotice(null);
                   setSetupError(null);
                 }}
                 returnKeyType="search"
@@ -5799,7 +5994,11 @@ export function CompanionSetupScreen({
                   <Pressable
                     key={value}
                     style={[styles.companionSetupOption, active && styles.companionSetupOptionActive]}
-                    onPress={() => setStandaloneSource(value)}
+                    onPress={() => {
+                      setStandaloneSource(value);
+                      setStandaloneMove(null);
+                      setAccessNotice(null);
+                    }}
                     {...accessibleButton({ label: title, hint: body, selected: active })}
                   >
                     <View style={styles.companionSetupOptionTop}>
@@ -5905,44 +6104,142 @@ export function CompanionSetupScreen({
             <Text style={styles.companionSetupPanelTitle}>Review this device</Text>
             <Text style={styles.companionSetupBody}>
               {setupMode === "standalone"
-                ? "Confirm the airport and flight-information choice, then activate Standalone on this device."
-                : "Confirm the Local Flight host and privacy choice, then save the connection on this device."}
+                ? standaloneSource === "virtual"
+                  ? englishCopy.setup.relayAccess.vatsimReview
+                  : Platform.OS === "android"
+                    ? englishCopy.setup.relayAccess.androidStandaloneReview
+                    : englishCopy.setup.relayAccess.standaloneReview(paidStoreName)
+                : "Confirm the Local Flight host and privacy choice."}
             </Text>
             <View style={styles.companionSetupSummary}>
               <InfoLine label="Mode" value={setupMode === "standalone" ? "Standalone" : "Companion"} />
               <InfoLine label={setupMode === "standalone" ? "Airport" : "Local Flight host"} value={setupMode === "standalone" ? (selectedStandaloneAirport?.iata || "Not selected") : (serverSummary?.serverUrl || normalizeServerUrl(serverInput) || "Not tested")} />
               <InfoLine label={setupMode === "standalone" ? "Flight information" : "Airport"} value={setupMode === "standalone" ? (standaloneSource === "virtual" ? "VATSIM traffic" : "Airline schedules") : (serverSummary?.config.airport_iata || "Not set")} />
-              <InfoLine label="Status" value={setupMode === "standalone" ? "Activate when saved" : (serverSummary?.state.ok === false ? "Needs attention" : "Ready")} />
+              <InfoLine label="Status" value={setupMode === "standalone"
+                ? standaloneSource === "virtual"
+                  ? "No Relay Access required"
+                  : standaloneMove
+                    ? `Used by ${standaloneMove.mainDeviceName}`
+                    : pendingStandaloneResult
+                      ? "Activation safely staged"
+                      : Platform.OS === "android"
+                        ? "Purchase or transfer verification required"
+                        : "Purchase check required"
+                : (serverSummary?.state.ok === false ? "Host needs attention" : Platform.OS === "android" ? "Ready to pair" : "Ready to pair and verify access")} />
               <InfoLine label="Reports" value={diagnosticsMode === "manual" ? "Ask me first" : diagnosticsMode === "auto" ? "Crash reports" : "Crash reports + context"} />
             </View>
+            <View style={styles.companionSetupAccessCard}>
+              <View style={styles.companionSetupAccessHeading}>
+                <LocalFlightIcon name="key-variant" size={18} color={palette.green} />
+                <Text style={styles.companionSetupAccessTitle}>{standaloneSource === "virtual" && setupMode === "standalone"
+                  ? "No Relay Access needed"
+                  : Platform.OS === "android"
+                    ? "Beacon Relay Access"
+                    : englishCopy.setup.relayAccess.includedHeading}</Text>
+              </View>
+              <Text style={styles.companionSetupAccessBody}>{setupMode === "standalone" && standaloneSource === "virtual"
+                ? englishCopy.setup.relayAccess.vatsimReview
+                : Platform.OS === "android"
+                  ? setupMode === "lan_companion"
+                    ? englishCopy.setup.relayAccess.androidCompanionReview
+                    : englishCopy.setup.relayAccess.androidStandaloneReview
+                  : englishCopy.setup.relayAccess.includedBody}</Text>
+              {setupMode === "lan_companion" && Platform.OS !== "android" ? (
+                <Text style={styles.companionSetupAccessBody}>{englishCopy.setup.relayAccess.companionReview}</Text>
+              ) : null}
+            </View>
+            {relayReleasePending && setupMode === "standalone" && standaloneSource === "real" ? (
+              <View style={styles.companionSetupWarningCard}>
+                <Text style={styles.companionSetupWarningTitle}>Previous release still pending</Text>
+                <Text style={styles.companionSetupWarningBody}>Finish freeing the previous main device before activating real-flight Standalone. Companion and VATSIM remain available.</Text>
+              </View>
+            ) : null}
+            {standaloneMove ? (
+              <View style={styles.companionSetupWarningCard}>
+                <Text style={styles.companionSetupWarningTitle}>Relay Access is in use</Text>
+                <Text style={styles.companionSetupWarningBody}>
+                  Relay Access is currently used by {standaloneMove.mainDeviceName}. Moving it here will stop direct Relay use there.
+                </Text>
+                <Pressable
+                  style={styles.companionSetupSecondary}
+                  onPress={() => {
+                    setSetupMode("lan_companion");
+                    setStandaloneMove(null);
+                    setAccessNotice(null);
+                    goToStep("pairing");
+                  }}
+                  {...accessibleButton({ label: "Use Companion instead" })}
+                >
+                  <Text style={styles.companionSetupSecondaryText}>Use Companion instead</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.companionSetupPrimary, finishing && styles.connectButtonDisabled]}
+                  onPress={() => void finishSetup()}
+                  disabled={finishing}
+                  {...accessibleButton({ label: "Move Relay Access here", disabled: finishing, busy: finishing })}
+                >
+                  {finishing ? <ActivityIndicator color={solidButtonInk()} /> : <LocalFlightIcon name={ACTION_ICONS.finish} size={16} color={solidButtonInk()} />}
+                  <Text style={styles.companionSetupPrimaryText}>{finishing ? "Moving Relay Access…" : "Move Relay Access here"}</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {accessNotice ? (
+              <View style={styles.companionSetupWarningCard}>
+                <Text style={styles.companionSetupWarningTitle}>{accessNotice.title}</Text>
+                <Text style={styles.companionSetupWarningBody}>{accessNotice.body}</Text>
+              </View>
+            ) : null}
             <SetupProgressRail
               active={finishing}
               label={setupProgress || (finishing ? "Saving setup..." : "Ready to save and open the Board.")}
-              steps={setupMode === "standalone" ? ["Check airport", "Activate this device", "Open Board"] : ["Save host", "Save privacy choice", "Open Board"]}
+              steps={setupMode === "standalone"
+                ? standaloneSource === "virtual"
+                  ? ["Check airport", "Save free VATSIM mode", "Open Board"]
+                  : ["Check airport", Platform.OS === "android" ? "Verify Relay Access" : `Verify ${paidStoreName}`, "Commit this phone", "Open Board"]
+                : Platform.OS === "android" ? ["Pair host", "Open Board"] : ["Pair host", `Verify ${paidStoreName}`, "Open Board"]}
             />
-            <Pressable
-              style={[styles.companionSetupPrimary, finishing && styles.connectButtonDisabled]}
-              onPress={() => {
-                Keyboard.dismiss();
-                void finishSetup();
-              }}
-              disabled={finishing}
-              {...accessibleButton({
-                  label: finishing ? "Saving setup" : "Finish",
-                disabled: finishing,
-                busy: finishing
-              })}
-            >
-              {finishing ? <ActivityIndicator color={solidButtonInk()} /> : <LocalFlightIcon name={ACTION_ICONS.finish} size={16} color={solidButtonInk()} />}
-              <Text style={styles.companionSetupPrimaryText}>{finishing ? "Saving" : "Save and open Board"}</Text>
-            </Pressable>
-            <Pressable
-              style={styles.companionSetupSecondary}
-              onPress={() => goToStep("privacy")}
-              {...accessibleButton({ label: "Back to privacy choices" })}
-            >
-              <Text style={styles.companionSetupSecondaryText}>Back</Text>
-            </Pressable>
+            {!standaloneMove ? (
+              <Pressable
+                style={[styles.companionSetupPrimary, finishing && styles.connectButtonDisabled]}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  void finishSetup();
+                }}
+                disabled={finishing}
+                {...accessibleButton({
+                  label: finishing ? `Finishing ${setupMode === "standalone" ? "Standalone" : "Companion"} setup` : accessNotice?.action || finishSetupLabel,
+                  disabled: finishing,
+                  busy: finishing
+                })}
+              >
+                {finishing ? <ActivityIndicator color={solidButtonInk()} /> : <LocalFlightIcon name={ACTION_ICONS.finish} size={16} color={solidButtonInk()} />}
+                <Text style={styles.companionSetupPrimaryText}>{finishing
+                  ? setupMode !== "standalone"
+                    ? "Finishing Companion setup…"
+                    : standaloneSource === "virtual"
+                      ? "Saving VATSIM setup…"
+                      : pendingStandaloneResult
+                        ? "Finishing Relay activation…"
+                        : Platform.OS === "android"
+                          ? "Checking Relay Access…"
+                          : "Checking purchase…"
+                  : accessNotice?.action || finishSetupLabel}</Text>
+              </Pressable>
+            ) : null}
+            {!pendingStandaloneResult ? (
+              <Pressable
+                style={styles.companionSetupSecondary}
+                onPress={() => goToStep("privacy")}
+                {...accessibleButton({ label: "Back to privacy choices" })}
+              >
+                <Text style={styles.companionSetupSecondaryText}>Back</Text>
+              </Pressable>
+            ) : null}
+            {setupChange && onCancel && !pendingStandaloneResult ? (
+              <Pressable style={styles.companionSetupSecondary} onPress={() => void onCancel()} {...accessibleButton({ label: "Cancel setup changes" })}>
+                <Text style={styles.companionSetupSecondaryText}>Cancel changes</Text>
+              </Pressable>
+            ) : null}
           </Animated.View>
         ) : null}
 
@@ -9856,7 +10153,7 @@ export function AirportConfigSheet({
             </View>
             <Text style={styles.configPolicyText}>
               {schedulePolicy?.community_shared && source === "real"
-                ? schedulePolicy.reason || "Community Relay uses 30-minute-or-slower shared schedule snapshots to protect upstream providers."
+                ? schedulePolicy.reason || "Beacon Relay uses 30-minute-or-slower shared schedule snapshots to protect upstream providers."
                 : "Refresh choices are 15, 30, 45, and 60 minutes, then longer options. Shorter values keep local displays fresh; longer values are kinder to schedule providers."}
             </Text>
 

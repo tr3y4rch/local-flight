@@ -31,11 +31,11 @@ export const englishGlossary = {
     avoid: ["cloud sync", "public tunnel"]
   },
   communityRelay: {
-    term: "Community Relay",
-    definition: "The shared Local Flight service that provides bounded public data and relay functions.",
+    term: "Beacon Relay",
+    definition: "The optional hosted Local Flight service. One portable Relay Access license can power one main device: a Local Flight desktop or a phone in Standalone mode.",
     audience: "help",
-    preferredUsage: "Use the full name on first mention, then “relay”.",
-    avoid: ["Local Flight cloud", "provider proxy"]
+    preferredUsage: "Use the full name on first mention, then “relay”; say “main device” in user-facing copy.",
+    avoid: ["Local Flight cloud", "provider proxy", "receiver", "seat", "entitlement"]
   },
   supportId: {
     term: "Support ID",

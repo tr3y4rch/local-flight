@@ -75,6 +75,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self._last_airport_query = ""
         self._skin_buttons: dict[str, Any] = {}
         self._surface_check_future: Future[Any] | None = None
+        self._remote_invite_future: Future[Any] | None = None
         self._current_theme = "dark"
         self._current_skin = "standard"
         screen = self.QtWidgets.QApplication.primaryScreen()
@@ -96,6 +97,9 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.surface_check_timer = QtCore.QTimer(self.widget)
         self.surface_check_timer.setInterval(100)
         self.surface_check_timer.timeout.connect(self._poll_surface_check)
+        self.remote_invite_timer = QtCore.QTimer(self.widget)
+        self.remote_invite_timer.setInterval(50)
+        self.remote_invite_timer.timeout.connect(self._poll_remote_companion_invite)
 
         self._build_header()
         self._build_status_band()
@@ -154,9 +158,9 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
         self.current_airport_value = self._status_card("Airport", "---", "No config loaded yet.", "airport")
-        self.current_source_value = self._status_card("Data", "-", "Real schedule or VATSIM source.", "source")
+        self.current_source_value = self._status_card("Data route", "-", "Change this through the setup wizard.", "source")
         self.current_refresh_value = self._status_card("Refresh", "-", "Provider-friendly cadence.", "clock")
-        self.current_relay_value = self._status_card("Relay", "-", "No tokens or secrets shown here.", "relay")
+        self.current_relay_value = self._status_card("Relay", "-", "No credentials or secrets shown here.", "relay")
         self.current_surface_value = self._status_card("Surface", "-", "Radar ground drawing state.", "radar")
         columns = 1 if self.available_width < 900 else 2 if self.compact_geometry else 5
         for index, widget in enumerate(
@@ -235,7 +239,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         return _SettingsIcon(kind)
 
     def _build_airport_data(self) -> Any:
-        box, layout = panel(self.QtWidgets, "\U0001F6EC  Airport & Source")
+        box, layout = panel(self.QtWidgets, "\U0001F6EC  Airport & Data Route")
         layout.addWidget(
             label(
                 self.QtWidgets,
@@ -264,19 +268,28 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.source = self.QtWidgets.QComboBox()
         for option in SOURCE_OPTIONS:
             self.source.addItem(option.label, option.value)
+        self.source.hide()
+        self.data_route_value = self._readonly_line()
+        self.data_route_value.setAccessibleName("Current data route")
+        self.change_data_route_btn = self.QtWidgets.QPushButton("Change data route")
+        self.change_data_route_btn.setMinimumHeight(44)
+        self.change_data_route_btn.clicked.connect(self.reset_setup)
         self.refresh_seconds = self.QtWidgets.QComboBox()
         self._populate_refresh_options("real")
         self.source.currentIndexChanged.connect(lambda _idx: self._populate_refresh_options(self._combo_value(self.source, "real")))
         form.addRow("IATA", self.airport_iata)
         form.addRow("ICAO", self.airport_icao)
         form.addRow("Timezone", self.timezone)
-        form.addRow("Flight source", self.source)
+        route_row = self.QtWidgets.QHBoxLayout()
+        route_row.addWidget(self.data_route_value, 1)
+        route_row.addWidget(self.change_data_route_btn)
+        form.addRow("Data route", route_row)
         form.addRow("Refresh cadence", self.refresh_seconds)
         layout.addLayout(form)
         layout.addWidget(
             label(
                 self.QtWidgets,
-                "Community Relay shows 30-minute-or-slower refresh choices when it is the active schedule mode.",
+                "The route is read-only here. Change it through setup so Relay Access can be released safely when needed.",
                 "Muted",
                 wrap=True,
             )
@@ -500,8 +513,8 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
 
     def _build_relay_details(self) -> None:
         self.relay_group, self.relay_body, layout = self._collapsible_section(
-            "Relay details",
-            subtitle="Community Relay or managed-access status — tokens stay hidden.",
+            "Relay Access",
+            subtitle="Read-only access status — credentials stay hidden.",
             emoji="\U0001F517",  # 🔗
         )
         grid = self.QtWidgets.QGridLayout()
@@ -513,10 +526,10 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.relay_access_detail = label(self.QtWidgets, "Loading...", "Muted", wrap=True)
         for index, (title, value) in enumerate(
             (
-                ("Access mode", self.relay_mode_detail),
-                ("Relay host", self.relay_url_detail),
-                ("Token state", self.relay_token_detail),
-                ("What it means", self.relay_access_detail),
+                ("Access status", self.relay_mode_detail),
+                ("Purchase source", self.relay_url_detail),
+                ("Key reference", self.relay_token_detail),
+                ("Current main device", self.relay_access_detail),
             )
         ):
             cell = self._detail_cell(title, value)
@@ -1048,12 +1061,27 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.remote_companion_label.setText("\n".join(lines))
 
     def _create_remote_companion_invite(self) -> None:
+        if self._remote_invite_future is not None and not self._remote_invite_future.done():
+            return
         self._set_status("Creating short-lived Remote Companion QR...", "Muted", busy=True)
+        self._remote_invite_future = API_EXECUTOR.submit(self.service.remote_companion_invite)
+        self.remote_invite_timer.start()
+
+    def _poll_remote_companion_invite(self) -> None:
+        future = self._remote_invite_future
+        if future is None or not future.done():
+            return
+        self.remote_invite_timer.stop()
+        self._remote_invite_future = None
         try:
-            payload = self.service.remote_companion_invite()
+            payload = future.result()
         except Exception as exc:
             self._set_status(f"Remote Companion invite failed: {exc}", "StatusBad")
             return
+        self._apply_remote_companion_invite(payload)
+
+    def _apply_remote_companion_invite(self, payload: Any) -> None:
+        payload = payload if isinstance(payload, dict) else {}
         pairing = payload.get("pairing") if isinstance(payload.get("pairing"), dict) else {}
         self._current_remote_pairing_link = str(pairing.get("deep_link") or "")
         if not self._current_remote_pairing_link:
@@ -1172,6 +1200,12 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         )
         self.display_name.setText(str(cfg.get("display_name") or "Local Flight"))
         self._set_combo_value(self.source, str(cfg.get("source") or "real"))
+        route = str(cfg.get("data_route") or ("vatsim" if cfg.get("source") == "virtual" else "relay"))
+        self.data_route_value.setText({
+            "relay": "Beacon Relay",
+            "byok": "Bring Your Own Keys",
+            "vatsim": "VATSIM",
+        }.get(route, "Beacon Relay"))
         self._populate_refresh_options(str(cfg.get("source") or "real"))
         self._set_combo_value(self.theme, str(cfg.get("theme") or "dark"))
         skin = str(cfg.get("skin") or "standard")
@@ -1206,8 +1240,9 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.current_airport_value.value_label.setText(
             f"{cfg.get('airport_iata') or '---'} / {cfg.get('airport_icao') or '----'}"
         )
-        source_value = str(cfg.get("source") or "-")
-        self.current_source_value.value_label.setText(option_label(SOURCE_OPTIONS, source_value).upper())
+        route = str(cfg.get("data_route") or ("vatsim" if cfg.get("source") == "virtual" else "relay"))
+        route_label = {"relay": "Beacon Relay", "byok": "Bring Your Own Keys", "vatsim": "VATSIM"}.get(route, "Beacon Relay")
+        self.current_source_value.value_label.setText(route_label.upper())
         self.current_refresh_value.value_label.setText(self.refresh_seconds.currentText() or "-")
         self.current_relay_value.value_label.setText("Checking...")
         surface_mode = str(cfg.get("radar_surface_mode") or ("relay" if cfg.get("radar_surface_enabled") else "off"))
@@ -1227,19 +1262,25 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             self.current_relay_value.value_label.setText("Unavailable")
             self.current_relay_value.detail_label.setText("Connection status could not be read. Try again shortly.")
             return
-        has_token = bool(info.get("has_activation_token") or info.get("activation_token_present") or info.get("managed"))
-        relay_url = str(info.get("relay_url") or "local relay")
-        self.current_relay_value.value_label.setText("Managed access" if has_token else "Community/BYOK")
-        self.current_relay_value.detail_label.setText(f"{relay_url} - token status only, no raw token shown.")
+        relay_state = str(info.get("relay_state") or "none")
+        access_state = str(info.get("access_state") or "")
+        state_label = {
+            "none": "Not active here",
+            "checking": "Checking",
+            "active": "Active here",
+            "inactive": "Inactive",
+            "unreachable": "Temporarily unavailable",
+            "release_pending": "Release pending",
+        }.get(relay_state, "Unknown")
+        self.current_relay_value.value_label.setText(state_label)
+        self.current_relay_value.detail_label.setText(
+            f"License status: {access_state or 'not yet confirmed'}. No credential is shown."
+        )
         if hasattr(self, "relay_mode_detail"):
-            mode = "Managed access" if has_token else "Community relay / BYOK"
-            token = "Linked token present" if has_token else "No linked managed token"
-            self.relay_mode_detail.setText(mode)
-            self.relay_url_detail.setText(relay_url.rstrip("/") or "Default hosted relay")
-            self.relay_token_detail.setText(token)
-            self.relay_access_detail.setText(
-                "Community installs share airport snapshots through the relay; BYOK keeps provider access on this device."
-            )
+            self.relay_mode_detail.setText(state_label)
+            self.relay_url_detail.setText(str(info.get("purchase_source") or "Not available"))
+            self.relay_token_detail.setText(str(info.get("masked_key_reference") or "Not available"))
+            self.relay_access_detail.setText(str(info.get("current_main_device_description") or "No main device confirmed"))
 
     def _refresh_provider_keys(self) -> None:
         try:
@@ -1399,7 +1440,9 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             "airport_icao": self.airport_icao.text().strip().upper(),
             "timezone": self.timezone.text().strip(),
             "display_name": self.display_name.text().strip() or "Local Flight",
-            "source": self._combo_value(self.source, "real"),
+            "data_route": str(getattr(self, "_loaded_config", {}).get("data_route") or (
+                "vatsim" if self._combo_value(self.source, "real") == "virtual" else "relay"
+            )),
             "refresh_seconds": int(self.refresh_seconds.currentData()),
             "theme": self._combo_value(self.theme, "dark"),
             "skin": self._combo_value(self.skin, "standard"),

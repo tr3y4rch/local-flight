@@ -1,0 +1,80 @@
+---
+import SiteLayout from "../../../../layouts/SiteLayout.astro";
+---
+
+<SiteLayout
+  title="Beacon Relay Access terms"
+  description="Terms, refund paths, main-device rules, and service-availability conditions for Beacon Relay Access."
+  active="relay"
+>
+  <header class="document-hero terminal-frame">
+    <div class="eyebrow">Beacon Relay Access / Terms</div>
+    <h1>Non-expiring access—not a promise that a hosted service lasts forever.</h1>
+    <p class="hero-lede">These terms explain what one Relay Access purchase provides, how it moves between main devices, and what can affect hosted aviation-data availability.</p>
+    <p class="hero-footnote">Effective September 6, 2026 · No recurring Beacon Tools fee · One main device per license</p>
+  </header>
+
+  <div class="terminal-frame document-layout">
+    <aside class="document-nav" aria-label="Terms sections">
+      <strong>On this page</strong>
+      <a href="#product">The product</a>
+      <a href="#receiver">Main-device rule</a>
+      <a href="#delivery">Delivery and recovery</a>
+      <a href="#refunds">Refunds and store ownership</a>
+      <a href="#availability">Service availability</a>
+      <a href="#use">Acceptable use</a>
+      <a href="#changes">Changes and support</a>
+    </aside>
+
+    <article class="document-content">
+      <section class="policy-section" id="product">
+        <span class="section-index">01 / THE PRODUCT</span>
+        <h2>Beacon Relay Access is optional hosted access.</h2>
+        <p>Local Flight desktop and server software remains free and open source. Bring Your Own Keys and VATSIM remain available without a Relay Access purchase. Relay Access covers the convenience and operation of Beacon Tools’ hosted relay; it does not sell or restrict the Local Flight source code.</p>
+        <p>Every completed supported purchase creates one separate <code>beacon_relay_lifetime_v1</code> license. The access has no scheduled expiry and no recurring Beacon Tools fee. “Lifetime” is the internal product identifier, not an unconditional guarantee of perpetual hosting, unchanged features, or continued access to any particular aviation-data provider.</p>
+      </section>
+
+      <section class="policy-section" id="receiver">
+        <span class="section-index">02 / ONE MAIN DEVICE</span>
+        <h2>One license powers one main device at a time.</h2>
+        <p>The active main device may be a desktop installation using Beacon Relay or a mobile installation using real-flight Standalone. Moving the license requires confirmation and disables the old device credential only after the new device has safely stored and committed its credential.</p>
+        <p>LAN Companion screens share the desktop host rather than using the license separately. Encrypted Remote Companion works the same way. Buying more than once creates additional separate licenses; purchases are not merged.</p>
+      </section>
+
+      <section class="policy-section" id="delivery">
+        <span class="section-index">03 / DELIVERY AND RECOVERY</span>
+        <h2>The license is portable without a Beacon account.</h2>
+        <p>A web purchase delivers an <code>LFRA-…</code> master key in the successful browser session and through Beacon Tools email. Desktop exchanges that key for a revocable device credential and discards the master key. Mobile never accepts or displays a raw key as an unlock mechanism.</p>
+        <p>The paid iOS app creates its included license after its App Store entitlement is verified. Android creates a license after its optional one-time Relay product is verified; an official Android app can also receive an existing license through an attested handoff. Email is optional until you choose to protect, recover, or transfer a license. Passwordless links and activation grants are short-lived. You are responsible for keeping master keys, email links, and device credentials private.</p>
+      </section>
+
+      <section class="policy-section" id="refunds">
+        <span class="section-index">04 / PURCHASES AND REFUNDS</span>
+        <h2>The purchase source controls the app download and refund path.</h2>
+        <p>A Stripe web or Android in-app Relay purchase does not include ownership of the paid iOS app. An App Store purchase includes the iOS app and one Relay license. The Android app download is free; its optional Relay purchase is a separate non-consumable product. App and purchase ownership do not move between stores even though the resulting Relay license can move between eligible Local Flight main devices.</p>
+        <p>Stripe refund questions go through Beacon Tools support, subject to applicable law and the checkout terms. Apple and Google handle purchases and refunds made in their stores under their own rules. Once Beacon Tools receives and verifies an authoritative refund, revocation, or finally lost-dispute notice, the associated Relay entitlement ends and its device credentials are disabled. Apple refund and repurchase under the same App Transaction identity restore the same license when authoritative ownership is verified. A distinct Stripe or Google purchase creates a separate license.</p>
+      </section>
+
+      <section class="policy-section" id="availability">
+        <span class="section-index">05 / SERVICE AVAILABILITY</span>
+        <h2>Hosted access depends on systems and permissions outside the license.</h2>
+        <p>Beacon Relay may be interrupted by maintenance, network incidents, capacity limits, security controls, store-verification outages, or upstream data-provider changes. No uptime level or uninterrupted access is promised unless Beacon Tools publishes a separate written service-level agreement.</p>
+        <p>Commercial aviation-data capabilities remain disabled unless the relevant provider permission is confirmed. A purchase never overrides a provider contract. Beacon Tools may change, limit, replace, or discontinue a provider or capability to comply with law, provider terms, security needs, or sustainable service operation. Known cached data may be shown while a live source is unavailable.</p>
+      </section>
+
+      <section class="policy-section" id="use">
+        <span class="section-index">06 / ACCEPTABLE USE</span>
+        <h2>Use the service through Local Flight.</h2>
+        <p>Do not share credentials publicly, bypass the one-main-device limit, automate abusive traffic, probe private operator systems, resell access, or redistribute provider-derived data beyond the use permitted by Local Flight and the applicable provider terms. Beacon Tools may suspend access needed to investigate abuse, fraud, a payment dispute, or a security risk.</p>
+        <p>Local Flight and Beacon Relay are informational display tools. They are not for navigation, dispatch, operational control, flight planning, professional aviation work, or safety decisions.</p>
+      </section>
+
+      <section class="policy-section" id="changes">
+        <span class="section-index">07 / CHANGES AND SUPPORT</span>
+        <h2>Material changes will be reflected here.</h2>
+        <p>Beacon Tools may update these terms as the product, law, store rules, or provider agreements change. The effective date above identifies the current version. Changes do not create a subscription or merge separate licenses.</p>
+        <p>For purchase, delivery, accessibility, or service questions, use <a href="/support/">Beacon Tools support</a>. For personal-data and deletion requests, use <a href="/privacy/choices/">Privacy choices</a>.</p>
+      </section>
+    </article>
+  </div>
+</SiteLayout>

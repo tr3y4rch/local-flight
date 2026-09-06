@@ -31,6 +31,47 @@ def test_lan_pairing_link_stays_compatible() -> None:
     assert "remote=1" not in link
 
 
+def test_remote_host_exchanges_bearer_credential_for_one_time_ws_ticket(monkeypatch: pytest.MonkeyPatch) -> None:
+    from localflight.sources.web import remote_companion_agent
+
+    captured: dict[str, object] = {}
+
+    def _post(_url, **kwargs):
+        captured.update(kwargs)
+        return type(
+            "Response",
+            (),
+            {
+                "ok": True,
+                "status_code": 200,
+                "json": lambda self: {
+                    "ok": True,
+                    "ticket": "lfrws_one_time_ticket",
+                    "websocket_path": "/v1/remote-companion/host/ws",
+                },
+            },
+        )()
+
+    monkeypatch.setattr(remote_companion_agent.requests, "post", _post)
+    result = remote_companion_agent._request_remote_companion_ws_ticket(
+        "https://relay.example.test",
+        install_id="11111111-1111-4111-8111-111111111111",
+        activation_token="lfr_long_lived_receiver_secret",
+    )
+    url = remote_companion_agent._relay_ws_url(
+        "https://relay.example.test",
+        install_id="11111111-1111-4111-8111-111111111111",
+        websocket_path=result["websocket_path"],
+    )
+
+    assert captured["headers"]["Authorization"] == "Bearer lfr_long_lived_receiver_secret"
+    assert captured["json"] == {"install_id": "11111111-1111-4111-8111-111111111111"}
+    assert "activation_token" not in url
+    assert "lfr_long_lived_receiver_secret" not in url
+    assert "ticket=" not in url
+    assert "lfrws_one_time_ticket" not in url
+
+
 def test_remote_pairing_payload_adds_invite_fields(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setenv("LOCALFLIGHT_HOME", str(tmp_path))
     from localflight.companion_pairing import remote_pairing_gateway_payload

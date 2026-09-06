@@ -14,7 +14,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
 from fastapi.testclient import TestClient
 
 import localflight.scheduler.control as scheduler_control
@@ -139,7 +139,8 @@ def test_setup_reset_preserves_identity_and_token_but_new_identity_clears_token(
     assert result["ok"] is True
     assert not marker.exists()
     assert storage_install.get_install_id() == install_id
-    assert storage_install.get_activation_token() == "lfm_old_token"
+    assert storage_install.get_stored_activation_token() == "lfm_old_token"
+    assert storage_install.get_activation_token() == ""
 
     new_id = storage_install.new_install_identity()
 
@@ -150,6 +151,7 @@ def test_setup_reset_preserves_identity_and_token_but_new_identity_clears_token(
 
 def test_relay_access_mode_keeps_linked_community_and_managed_policies_distinct(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("LOCALFLIGHT_ENABLE_LEGACY_RELAY_COMPAT", "1")
     monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
     monkeypatch.delenv("LOCALFLIGHT_RELAY_ACCESS_MODE", raising=False)
     storage_install.set_activation_token("lfm_policy_test")
@@ -172,6 +174,7 @@ def test_relay_repair_cooldown_is_scoped_to_identity_and_token(tmp_path: Path, m
     from localflight.sources.web import relay_activation
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("LOCALFLIGHT_ENABLE_LEGACY_RELAY_COMPAT", "1")
     monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
     relay_activation.reset_auto_repair_state()
     calls: list[str] = []
@@ -201,7 +204,56 @@ def test_relay_repair_cooldown_is_scoped_to_identity_and_token(tmp_path: Path, m
     assert calls == ["activate", "activate"]
 
 
-def test_setup_activate_reuses_valid_stored_token_without_reissuing(tmp_path: Path, monkeypatch) -> None:
+def test_portable_relay_credential_uses_bearer_header_not_query(tmp_path: Path, monkeypatch) -> None:
+    from localflight.sources.web import relay_activation
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
+    storage_install.set_activation_token("lfr_device_secret_not_for_urls")
+    relay_activation.reset_auto_repair_state()
+    captured: dict[str, object] = {}
+
+    def _get(_url, **kwargs):
+        captured["url"] = _url
+        captured.update(kwargs)
+        return types.SimpleNamespace(
+            status_code=200,
+            headers={},
+            json=lambda: {"ok": True, "active": True, "access_state": "active", "token_prefix": "lfr_device_"},
+        )
+
+    monkeypatch.setattr(relay_activation.requests, "get", _get)
+    result = relay_activation.ensure_relay_link(requested_mode="relay", force=True)
+
+    assert result["linked"] is True
+    assert str(captured["url"]).endswith("/v1/access/status")
+    assert captured["headers"]["Authorization"] == "Bearer lfr_device_secret_not_for_urls"
+    assert "activation_token" not in captured["params"]
+
+
+def test_setup_activation_test_never_sends_typed_master_key_as_legacy_query(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+    import requests
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
+    storage_install.set_activation_token("")
+    monkeypatch.setattr(requests, "get", lambda *_args, **_kwargs: pytest.fail("master key must not be sent"))
+
+    result = asyncio.run(
+        ui_server.setup_test_activation(
+            ui_server.ActivationTokenTestIn(
+                relay_url="https://relay.beacontools.cc",
+                activation_token="LFRA-AAAA-BBBB-CCCC-DDDD",
+            )
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "token_invalid"
+
+
+def test_setup_activate_rejects_legacy_community_mode_without_network_call(tmp_path: Path, monkeypatch) -> None:
     import asyncio
     import requests
 
@@ -234,15 +286,21 @@ def test_setup_activate_reuses_valid_stored_token_without_reissuing(tmp_path: Pa
     monkeypatch.setattr(requests, "get", _get)
     monkeypatch.setattr(requests, "post", _post)
 
-    result = asyncio.run(ui_server.setup_activate(ui_server.ActivationSetupIn(relay_url="https://relay.beacontools.cc")))
+    result = asyncio.run(
+        ui_server.setup_activate(
+            ui_server.ActivationSetupIn(
+                relay_url="https://relay.beacontools.cc",
+                requested_mode="community",
+            )
+        )
+    )
 
-    assert result["ok"] is True
-    assert result["activation_token_present"] is True
-    assert result["activation_token_prefix"] == "lfm_existi"
-    assert calls == ["status"]
+    assert result["ok"] is False
+    assert result["status"] == "activation_mode_unsupported"
+    assert calls == []
 
 
-def test_setup_activate_repairs_invalid_stored_token_with_reissue(tmp_path: Path, monkeypatch) -> None:
+def test_setup_activate_never_repairs_legacy_token_or_overwrites_it(tmp_path: Path, monkeypatch) -> None:
     import asyncio
     import requests
 
@@ -285,16 +343,22 @@ def test_setup_activate_repairs_invalid_stored_token_with_reissue(tmp_path: Path
     monkeypatch.setattr(requests, "get", _status)
     monkeypatch.setattr(requests, "post", lambda *args, **kwargs: calls.append("activate") or _ActivateResponse())
 
-    result = asyncio.run(ui_server.setup_activate(ui_server.ActivationSetupIn(relay_url="https://relay.beacontools.cc")))
+    result = asyncio.run(
+        ui_server.setup_activate(
+            ui_server.ActivationSetupIn(
+                relay_url="https://relay.beacontools.cc",
+                requested_mode="community",
+            )
+        )
+    )
 
-    assert calls == ["status", "activate", "status"]
-    assert result["ok"] is True
-    assert result["activation_token_present"] is True
-    assert result["activation_token_prefix"] == "lfm_fresh"
-    assert storage_install.get_activation_token() == "lfm_fresh_token"
+    assert calls == []
+    assert result["ok"] is False
+    assert result["status"] == "activation_mode_unsupported"
+    assert storage_install.get_stored_activation_token() == "lfm_stale_token"
 
 
-def test_setup_relay_errors_are_typed_and_friendly(tmp_path: Path, monkeypatch) -> None:
+def test_setup_relay_errors_do_not_infer_state_from_legacy_prose(tmp_path: Path, monkeypatch) -> None:
     import asyncio
     import requests
 
@@ -314,8 +378,8 @@ def test_setup_relay_errors_are_typed_and_friendly(tmp_path: Path, monkeypatch) 
     result = asyncio.run(ui_server.setup_client_status(ui_server.ClientStatusSetupIn(relay_url="https://relay.beacontools.cc")))
 
     assert result["ok"] is False
-    assert result["status"] == "token_bound_elsewhere"
-    assert "another Local Flight install" in result["error"]
+    assert result["status"] == "credential_not_found"
+    assert result["error"] == "This desktop needs a current Relay Access device credential."
     assert "HTTP 403" not in result["error"]
 
 
@@ -323,6 +387,7 @@ def test_managed_relay_auth_failure_sets_local_cooldown(tmp_path: Path, monkeypa
     import requests
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("LOCALFLIGHT_ENABLE_LEGACY_RELAY_COMPAT", "1")
     monkeypatch.delenv("LOCALFLIGHT_ACTIVATION_TOKEN", raising=False)
     storage_install.set_activation_token("lfm_stale_token")
     calls = {"count": 0}
@@ -1644,7 +1709,7 @@ def test_api_config_exposes_matrix_safe_clock_payload(tmp_path: Path, monkeypatc
     assert payload["clock_local_offset_minutes"] == 240
 
 
-def test_api_config_coerces_community_relay_refresh_to_thirty_minutes(tmp_path: Path, monkeypatch) -> None:
+def test_api_config_does_not_apply_removed_community_relay_throttle(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
     storage_config.save_config(AppConfig(source="real", refresh_seconds=3600))
     monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
@@ -1657,8 +1722,8 @@ def test_api_config_coerces_community_relay_refresh_to_thirty_minutes(tmp_path: 
         BackgroundTasks(),
     )
 
-    assert result["refresh_seconds"] == 1800
-    assert storage_config.load_config().refresh_seconds == 1800
+    assert result["refresh_seconds"] == 900
+    assert storage_config.load_config().refresh_seconds == 900
 
 
 def test_api_config_noop_emits_no_event_or_restart(tmp_path: Path, monkeypatch) -> None:
@@ -1675,23 +1740,24 @@ def test_api_config_noop_emits_no_event_or_restart(tmp_path: Path, monkeypatch) 
     assert background.tasks == []
 
 
-def test_api_config_keeps_byok_and_virtual_fast_refresh(tmp_path: Path, monkeypatch) -> None:
+def test_api_config_keeps_byok_fast_refresh_and_blocks_route_bypass(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
-    storage_config.save_config(AppConfig(source="real", refresh_seconds=3600))
+    storage_config.save_config(AppConfig(source="real", data_route="byok", refresh_seconds=3600))
     monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: True)
     monkeypatch.setattr(aviationstack_client, "_has_enabled_aerodatabox_byok_key", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: False)
 
     byok = ui_api.api_patch_config(ui_api.ConfigPatch(refresh_seconds=900), BackgroundTasks())
-    virtual = ui_api.api_patch_config(
-        ui_api.ConfigPatch(source="virtual", refresh_seconds=900),
-        BackgroundTasks(),
-    )
+    with pytest.raises(HTTPException) as exc_info:
+        ui_api.api_patch_config(
+            ui_api.ConfigPatch(source="virtual", refresh_seconds=900),
+            BackgroundTasks(),
+        )
 
     assert byok["refresh_seconds"] == 900
-    assert virtual["source"] == "virtual"
-    assert virtual["refresh_seconds"] == 900
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "data_route_requires_setup"
 
 
 def test_api_config_keeps_aerodatabox_byok_fast_refresh(tmp_path: Path, monkeypatch) -> None:
@@ -1952,7 +2018,7 @@ def test_provider_status_treats_dotenv_provider_keys_as_authoritative(tmp_path: 
     monkeypatch.setenv("LOCALFLIGHT_AVIATIONSTACK_ENABLED", "1")
     monkeypatch.setenv("LOCALFLIGHT_GUI_MODE", "browser")
     monkeypatch.setattr(provider_keys, "env_path", lambda: env_file)
-    monkeypatch.setattr(provider_keys, "load_config", lambda: AppConfig(source="real"))
+    monkeypatch.setattr(provider_keys, "load_config", lambda: AppConfig(source="real", data_route="byok"))
 
     status = provider_keys.provider_status()
     dumped = json.dumps(status)
@@ -1974,7 +2040,7 @@ def test_provider_status_treats_dotenv_provider_keys_as_authoritative(tmp_path: 
     assert "file-relay-token" not in dumped
 
 
-def test_setup_complete_community_clears_stale_direct_provider_env(tmp_path: Path, monkeypatch) -> None:
+def test_setup_complete_legacy_community_route_requires_relay_access(tmp_path: Path, monkeypatch) -> None:
     env_file = tmp_path / ".env"
     config_file = tmp_path / ".localflight" / "config.json"
     config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -2023,19 +2089,11 @@ def test_setup_complete_community_clears_stale_direct_provider_env(tmp_path: Pat
         },
     )
 
-    assert response.status_code == 200
-    values = ui_server.read_provider_env(env_file)
-    assert values["LOCALFLIGHT_RELAY_URL"] == "https://relay.beacontools.cc"
-    assert values["LOCALFLIGHT_AERODATABOX_ENABLED"] == "0"
-    assert values["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] == "0"
-    for key in ("AERODATABOX_API_KEY", "AVIATIONSTACK_API_KEY", "RAPIDAPI_KEY"):
-        assert key not in values
-        assert os.environ.get(key) is None
-    assert values["LOCALFLIGHT_ACTIVATION_TOKEN"] == "lfm-community-token"
-    assert os.environ["LOCALFLIGHT_RELAY_URL"] == "https://relay.beacontools.cc"
+    assert response.status_code == 403
+    assert response.json()["status"] == "relay_license_required"
 
 
-def test_setup_complete_community_preserves_fields_when_relay_link_fails(tmp_path: Path, monkeypatch) -> None:
+def test_setup_complete_legacy_community_route_cannot_bypass_access(tmp_path: Path, monkeypatch) -> None:
     config_file = tmp_path / ".localflight" / "config.json"
     env_file = tmp_path / ".env"
     monkeypatch.setattr(storage_config, "config_path", lambda: config_file)
@@ -2062,16 +2120,15 @@ def test_setup_complete_community_preserves_fields_when_relay_link_fails(tmp_pat
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 403
     payload = response.json()
     assert payload["ok"] is False
-    assert payload["status"] == "relay_unreachable"
-    assert [choice["mode"] for choice in payload["choices"]] == ["retry", "virtual", "byok"]
+    assert payload["status"] == "relay_license_required"
     assert not config_file.exists()
     assert not env_file.exists()
 
 
-def test_setup_complete_managed_clears_direct_keys_and_keeps_activation(tmp_path: Path, monkeypatch) -> None:
+def test_setup_complete_legacy_managed_route_rejects_non_lfra_token(tmp_path: Path, monkeypatch) -> None:
     env_file = tmp_path / ".env"
     config_file = tmp_path / ".localflight" / "config.json"
     config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -2111,18 +2168,9 @@ def test_setup_complete_managed_clears_direct_keys_and_keeps_activation(tmp_path
         },
     )
 
-    assert response.status_code == 200
-    values = ui_server.read_provider_env(env_file)
-    assert values["LOCALFLIGHT_ACTIVATION_TOKEN"] == "managed-token"
-    assert values["LOCALFLIGHT_RELAY_URL"] == "https://relay.beacontools.cc"
-    assert values["LOCALFLIGHT_AERODATABOX_ENABLED"] == "0"
-    assert values["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] == "0"
-    assert "AERODATABOX_API_KEY" not in values
-    assert "AVIATIONSTACK_API_KEY" not in values
-    assert os.environ.get("AERODATABOX_API_KEY") is None
-    assert os.environ.get("AVIATIONSTACK_API_KEY") is None
-    assert os.environ["LOCALFLIGHT_ACTIVATION_TOKEN"] == "managed-token"
-    assert saved_tokens == ["managed-token"]
+    assert response.status_code == 403
+    assert response.json()["status"] == "relay_license_required"
+    assert saved_tokens == []
 
 
 def test_lan_settings_hides_provider_keys_for_relay_and_virtual_modes(tmp_path: Path, monkeypatch) -> None:
@@ -2136,7 +2184,7 @@ def test_lan_settings_hides_provider_keys_for_relay_and_virtual_modes(tmp_path: 
 
     client = TestClient(app)
 
-    storage_config.save_config(AppConfig(source="real", airport_iata="ZRH", airport_icao="LSZH"))
+    storage_config.save_config(AppConfig(source="real", data_route="relay", airport_iata="ZRH", airport_icao="LSZH"))
     env_file.write_text(
         "LOCALFLIGHT_ACTIVATION_TOKEN=relay-token\nLOCALFLIGHT_RELAY_URL=https://relay.example\n",
         encoding="utf-8",
@@ -2157,7 +2205,7 @@ def test_lan_settings_hides_provider_keys_for_relay_and_virtual_modes(tmp_path: 
     assert "Provider Keys &amp; Privacy" not in virtual_response.text
     assert "providerAdbKey" not in virtual_response.text
 
-    storage_config.save_config(AppConfig(source="real", airport_iata="ZRH", airport_icao="LSZH"))
+    storage_config.save_config(AppConfig(source="real", data_route="byok", airport_iata="ZRH", airport_icao="LSZH"))
     env_file.write_text("AERODATABOX_API_KEY=adb-direct\nLOCALFLIGHT_AERODATABOX_ENABLED=1\n", encoding="utf-8")
     provider_keys.reload_provider_env(env_file)
     direct_response = client.get("/")
@@ -2245,7 +2293,7 @@ def test_provider_secrets_do_not_leak_to_status_config_html_or_logs(tmp_path: Pa
     assert "[redacted]" in responses[-1].text
 
 
-def test_admin_budget_exposes_schedule_policy(tmp_path: Path, monkeypatch) -> None:
+def test_admin_budget_exposes_licensed_relay_schedule_policy(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(storage_config, "config_path", lambda: tmp_path / "config.json")
     storage_config.save_config(AppConfig(source="real", refresh_seconds=3600))
     monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
@@ -2273,10 +2321,11 @@ def test_admin_budget_exposes_schedule_policy(tmp_path: Path, monkeypatch) -> No
 
     payload = ui_api.api_admin_budget()
 
-    assert payload["schedule_policy"]["community_shared"] is True
-    assert payload["schedule_policy"]["min_refresh_seconds"] == 1800
-    assert payload["schedule_policy"]["allowed_refresh_seconds"][0] == 1800
-    assert payload["aviationstack"]["schedule_policy"]["community_shared"] is True
+    assert payload["schedule_policy"]["shared_relay"] is True
+    assert payload["schedule_policy"]["community_shared"] is False
+    assert payload["schedule_policy"]["min_refresh_seconds"] == 900
+    assert payload["schedule_policy"]["allowed_refresh_seconds"][0] == 900
+    assert payload["aviationstack"]["schedule_policy"]["community_shared"] is False
     assert payload["shared_schedule_budget"]["remaining"] == 9992
     assert payload["schedule_access_budget"]["remaining"] == 48
     assert payload["client_polling_policy"]["mode"] == "event_first"
@@ -2284,15 +2333,10 @@ def test_admin_budget_exposes_schedule_policy(tmp_path: Path, monkeypatch) -> No
     assert payload["client_polling_policy"]["mobile_min_fallback_seconds"] == 300
 
 
-def test_community_relay_cooldown_suppresses_repeated_schedule_requests(monkeypatch) -> None:
-    usage: dict[str, object] = {}
+def test_unlicensed_relay_schedule_fails_closed_before_network(monkeypatch) -> None:
     calls: list[str] = []
 
-    monkeypatch.setattr(aviationstack_client, "_load_usage", lambda: dict(usage))
-    monkeypatch.setattr(aviationstack_client, "_save_usage", lambda data: usage.clear() or usage.update(data))
-    monkeypatch.setattr(aviationstack_client, "_increment_community_budget", lambda limit, n_calls=1: None)
     monkeypatch.setattr(aviationstack_client, "_get_activation_token", lambda: "")
-    monkeypatch.setattr(aviationstack_client, "_get_relay_limit", lambda: 50)
     monkeypatch.setattr(storage_install, "get_install_id", lambda: "00000000-0000-0000-0000-000000000555")
 
     def fake_get(url, *, params, headers, timeout):
@@ -2311,21 +2355,8 @@ def test_community_relay_cooldown_suppresses_repeated_schedule_requests(monkeypa
             timezone_name="Europe/Zurich",
             return_meta=True,
         )
-    with pytest.raises(aviationstack_client.AviationstackRelayCooldown) as second:
-        aviationstack_client.fetch_relay_schedule_records(
-            airport_iata="ZRH",
-            timezone_name="Europe/Zurich",
-            return_meta=True,
-        )
-
-    assert first.value.retry_after_s == 120
-    assert second.value.retry_after_s is not None and second.value.retry_after_s > 0
-    assert len(calls) == 1
-    assert "relay_cooldown" in usage
-    assert "community" in usage["relay_cooldowns"]
-
-    monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: True)
-    aviationstack_client._raise_if_relay_cooling_down()
+    assert first.value.status_code == 403
+    assert calls == []
 
 
 def test_scheduler_restart_coalesces_repeated_background_requests(monkeypatch) -> None:
@@ -2473,15 +2504,14 @@ def test_aviationstack_usage_stats_report_separate_buckets(monkeypatch) -> None:
         ),
     )
 
-    community_stats = aviationstack_client.get_usage_stats("real")
-    assert community_stats["active_mode"] == "community"
-    assert community_stats["shared_relay"] is True
-    assert community_stats["community"]["calls_this_month"] == 12
-    assert community_stats["community"]["monthly_limit"] == 50
-    assert community_stats["shared_snapshot"]["shared_stats"]["upstream_pulls"] == 4
-    assert community_stats["byok"]["calls_this_month"] == 34
-    assert community_stats["byok"]["monthly_limit"] == 90
-    assert community_stats["byok"]["ui_monthly_max"] == 100
+    relay_stats = aviationstack_client.get_usage_stats("real")
+    assert relay_stats["active_mode"] == "relay_unlicensed"
+    assert relay_stats["shared_relay"] is True
+    assert relay_stats["calls_this_month"] == 0
+    assert relay_stats["community"]["calls_this_month"] == 12
+    assert relay_stats["shared_snapshot"]["shared_stats"]["upstream_pulls"] == 4
+    assert relay_stats["byok"]["calls_this_month"] == 34
+    assert relay_stats["byok"]["monthly_limit"] == 90
 
     virtual_stats = aviationstack_client.get_usage_stats("virtual")
     assert virtual_stats["active_mode"] == "virtual"
@@ -2754,9 +2784,10 @@ def test_virtual_mode_does_not_clear_community_budget_memory(monkeypatch) -> Non
 
     assert virtual_stats["active_mode"] == "virtual"
     assert virtual_stats["calls_this_month"] == 0
-    assert community_stats["active_mode"] == "community"
-    assert community_stats["calls_this_month"] == 17
-    assert community_stats["remaining"] == 33
+    assert community_stats["active_mode"] == "relay_unlicensed"
+    assert community_stats["calls_this_month"] == 0
+    assert community_stats["community"]["calls_this_month"] == 17
+    assert community_stats["community"]["remaining"] == 33
 
 
 def test_api_radar_virtual_uses_vatsim_only(monkeypatch) -> None:
@@ -6072,6 +6103,91 @@ def test_bug_reporter_forwards_to_relay_without_direct_linear(monkeypatch) -> No
     assert "api.linear.app/graphql" not in Path(bug_reporter.__file__).read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize(
+    "secret",
+    (
+        "LFRA-0000-0000-0000-0000-0000-0000-000",
+        "LFRA000000000000000000000000000",
+        "lfr_device-credential_fixture",
+        "lfrs_result-secret_fixture",
+        "lfrclaim_delivery-claim_fixture",
+        "lfrws_websocket-ticket_fixture",
+        "lfrm_move-token_fixture",
+        "lfrml_management-link_fixture",
+        "lfrhs_management-session_fixture",
+        "lfrag_activation-grant_fixture",
+    ),
+)
+def test_report_redaction_covers_every_relay_access_secret_family(secret: str) -> None:
+    from localflight.core.redaction import redact_sensitive
+    from localflight.sources.web import linear_client
+
+    value = f"safe-before {secret} safe-after"
+    for sanitizer in (redact_sensitive, bug_reporter._redact_sensitive, linear_client._redact_sensitive):
+        redacted = sanitizer(value)
+        assert secret not in redacted
+        assert "safe-before" in redacted
+        assert "safe-after" in redacted
+
+
+def test_bug_report_transport_moves_portable_credential_to_authorization(monkeypatch) -> None:
+    import requests
+
+    captured: dict[str, object] = {}
+
+    def _post(_url, **kwargs):
+        captured.update(kwargs)
+        return types.SimpleNamespace(status_code=200, json=lambda: {"ok": True})
+
+    monkeypatch.setattr(requests, "post", _post)
+    result = bug_reporter._post_relay_report(
+        {
+            "report_type": "manual",
+            "activation_token": "lfr_report_secret",
+            "message": "hello lfrhs_embedded-report-secret",
+        }
+    )
+
+    assert result["ok"] is True
+    assert captured["headers"]["Authorization"] == "Bearer lfr_report_secret"
+    assert "activation_token" not in captured["json"]
+    assert "lfrhs_embedded-report-secret" not in captured["json"]["message"]
+
+
+def test_linear_client_redacts_relay_secrets_at_its_network_boundary(monkeypatch) -> None:
+    import requests
+    from localflight.sources.web import linear_client
+
+    captured: dict[str, object] = {}
+
+    def _post(_url, **kwargs):
+        captured.update(kwargs)
+        return types.SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {
+                "data": {
+                    "issueCreate": {
+                        "success": True,
+                        "issue": {"url": "https://linear.test/redacted"},
+                    }
+                }
+            },
+        )
+
+    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_transport_auth")
+    monkeypatch.setenv("LINEAR_TEAM_ID", "team-test")
+    monkeypatch.setattr(requests, "post", _post)
+    title_secret = "lfrws_title-secret"
+    body_secret = "LFRA-0000-0000-0000-0000-0000-0000-000"
+
+    result = linear_client._post_issue(title_secret, f"body {body_secret}")
+
+    assert result == "https://linear.test/redacted"
+    variables = captured["json"]["variables"]
+    assert title_secret not in variables["title"]
+    assert body_secret not in variables["description"]
+
+
 def test_bug_reporter_routes_native_gui_reports_to_desktop(monkeypatch) -> None:
     submitted: list[dict] = []
     monkeypatch.setattr(bug_reporter, "_auto_diagnostics_mode", lambda: "auto")
@@ -6370,7 +6486,7 @@ def test_client_settings_explain_refresh_cadence_and_relay_policy() -> None:
         assert "15, 30, 45, and 60 minutes" in text
     assert "schedule_policy" in web_settings
     for text in (native_settings, mobile_settings):
-        assert "Community Relay" in text
+        assert "Beacon Relay" in text
         assert "hourly" in text or "hourly-or-slower" in text or "schedule_policy" in text
 
 
@@ -6385,7 +6501,7 @@ def test_lan_settings_matches_native_settings_folder_contract() -> None:
         "Pair Mobile",
         "Advanced board timing",
         "Maintenance",
-        "Relay details",
+        "<strong>Relay Access</strong>",
         "Diagnostics &amp; Docs",
     ]
     positions = [web_settings.index(text) for text in expected_order]
@@ -6474,14 +6590,18 @@ def test_mobile_help_screen_refreshes_from_dashboard_summary() -> None:
 def test_mobile_setup_copy_matches_companion_and_standalone_product() -> None:
     root = Path(__file__).resolve().parents[1]
     mobile_screens = (root / "mobile" / "src" / "screens" / "AppScreens.tsx").read_text(encoding="utf-8")
+    mobile_copy = (root / "mobile" / "src" / "content" / "en.ts").read_text(encoding="utf-8")
+    product_copy = mobile_screens + mobile_copy
 
-    assert "LAN Mobile" not in mobile_screens
-    assert "full local-server experience" not in mobile_screens
-    assert "Checking /api/health on the Local Flight server" not in mobile_screens
-    assert "Local Flight Mobile will save this pairing locally" not in mobile_screens
-    assert "Connect to a Local Flight host" in mobile_screens
-    assert "This connection is called Companion" in mobile_screens
-    assert "same Wi-Fi" in mobile_screens
+    assert "LAN Mobile" not in product_copy
+    assert "full local-server experience" not in product_copy
+    assert "Checking /api/health on the Local Flight server" not in product_copy
+    assert "Local Flight Mobile will save this pairing locally" not in product_copy
+    assert "Connect to a Local Flight host" in product_copy
+    assert "Connect to your Local Flight host" in product_copy
+    assert "does not use the Relay Access included with the app" in product_copy
+    assert "Companion uses your desktop host" in product_copy
+    assert "same Wi-Fi" in product_copy
 
 
 def test_setup_copy_uses_friendlier_relay_and_launch_terms() -> None:
@@ -6497,10 +6617,10 @@ def test_setup_copy_uses_friendlier_relay_and_launch_terms() -> None:
     assert "Connect this install" not in template
     assert "Verify relay path" not in template
     assert "Launch Local Flight" not in template
-    assert "Local Flight Relay" in guidance
+    assert "Beacon Relay" in guidance
     assert "Review & Launch" in guidance
     assert "Device code" in template
-    assert "Test relay access" in template
+    assert "Test access" in template
     assert "Open Local Flight" in template
 
 
@@ -6587,10 +6707,12 @@ def test_beacon_tools_site_uses_current_brand_assets() -> None:
     assert 'src="/assets/store-badges/download-on-app-store.svg" alt="Download on the App Store"' in mobile
     assert 'src="/assets/store-badges/get-it-on-google-play.png" alt="Get it on Google Play"' in mobile
     assert 'href="/assets/store-badges/' not in mobile
-    assert 'role="link" aria-disabled="true" aria-label="Download on the App Store"' in mobile
-    assert 'role="link" aria-disabled="true" aria-label="Get it on Google Play"' in mobile
-    assert "Future App Store URL requires the App Store app ID" in mobile
-    assert "https://play.google.com/store/apps/details?id=cc.beacontools.localflight" in mobile
+    assert 'data-mobile-store="apple_app" aria-disabled="true"' in mobile
+    assert 'data-mobile-store="google_play" aria-disabled="true"' in mobile
+    assert "/v1/access/catalog" in mobile
+    assert "source?.store_url" in mobile
+    assert "source?.testing_url" in mobile
+    assert "https://play.google.com/store/apps/details?id=cc.beacontools.localflight" not in mobile
     assert "Android is a trademark of Google LLC" in mobile
     assert "Apple, the Apple logo, iPhone, and iPad are trademarks of Apple Inc." in mobile
     assert "Google Play and the Google Play logo are trademarks of Google LLC." in mobile

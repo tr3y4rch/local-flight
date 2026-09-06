@@ -6,7 +6,7 @@ from concurrent.futures import Future
 from typing import Any, Callable
 
 from localflight.native.api_client import LocalApiClient
-from localflight.native.async_tools import API_EXECUTOR
+from localflight.native.async_tools import API_EXECUTOR, AsyncFetchMixin
 from localflight.native.design import (
     apply_qt_appearance,
     colors_for,
@@ -40,6 +40,7 @@ from localflight.ui.setup_guidance import (
 
 
 DEFAULT_RELAY_URL = "https://relay.beacontools.cc"
+RELAY_ACCESS_URL = "https://beacontools.cc/local-flight/relay-access/"
 PROVIDER_LINKS: tuple[tuple[str, str], ...] = tuple((item["label"], item["url"]) for item in SETUP_PROVIDER_LINKS)
 
 
@@ -102,7 +103,7 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
         return _Window()
 
 
-class SetupScreen:  # pragma: no cover - optional Qt runtime
+class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def __init__(
         self,
         QtCore: Any,
@@ -127,7 +128,11 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self._airport_search_future: Future[Any] | None = None
         self._last_airport_query = ""
         self._stored_activation = False
+        self._pending_move_token = ""
+        self._catalog_available = False
+        self._saved_provider_state: dict[str, bool] = {}
         self._mode_initialized = False
+        self._diagnostics_initialized = False
         screen = self.QtWidgets.QApplication.primaryScreen()
         available = screen.availableGeometry() if screen is not None else None
         available_width = available.width() if available is not None else 1200
@@ -142,6 +147,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.provider_link_buttons: dict[str, Any] = {}
 
         self.widget = QtWidgets.QWidget()
+        self._init_async(QtCore, self.widget)
         self.widget.setMinimumWidth(0)
         root_layout = QtWidgets.QVBoxLayout(self.widget)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -361,6 +367,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         card.setMinimumHeight(122)
         if click is not None:
             card.setCursor(self.QtCore.Qt.PointingHandCursor)
+            card.setFocusPolicy(self.QtCore.Qt.StrongFocus)
+            card.setAccessibleName(title)
         card.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
         layout = self.QtWidgets.QVBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 12)
@@ -376,10 +384,19 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         layout.addWidget(label(self.QtWidgets, body, "SetupCardBody", wrap=True), 1)
         if click is not None:
             card.mousePressEvent = lambda _event, fn=click: fn()
+            def _activate_from_keyboard(event: Any, fn: Callable[[], None] = click) -> None:
+                if event.key() in {self.QtCore.Qt.Key_Return, self.QtCore.Qt.Key_Enter, self.QtCore.Qt.Key_Space}:
+                    fn()
+                    event.accept()
+                    return
+                self.QtWidgets.QFrame.keyPressEvent(card, event)
+
+            card.keyPressEvent = _activate_from_keyboard
         return card
 
     def _set_card_selected(self, card: Any, selected: bool) -> None:
         card.setProperty("selected", bool(selected))
+        card.setAccessibleDescription("Selected" if selected else "Not selected")
         self._repolish(card)
 
     def _summary_card(self, title: str, value: str, *, tone: str = "muted") -> Any:
@@ -480,6 +497,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.airport_search_status = self._status_chip("Type at least two characters to search the built-in airport database.", "muted")
         self.airport_selected = self._status_chip("Selected: ZRH / LSZH | Europe/Zurich", "good")
         self.display_name = self.QtWidgets.QLineEdit("Local Flight")
+        self.display_name.textChanged.connect(lambda _text: self._activation_details_changed())
         self.airport_iata = self.QtWidgets.QLineEdit("ZRH")
         self.airport_icao = self.QtWidgets.QLineEdit("LSZH")
         self.timezone = self.QtWidgets.QLineEdit("Europe/Zurich")
@@ -524,7 +542,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _build_source_page(self) -> None:
         _page, layout = self._page(
             "Choose Flight Data",
-            "Pick the path you actually want. Community Relay stays simple, BYOK is for direct provider accounts, and VATSIM is the no-key virtual path.",
+            "Choose Beacon Relay, bring your own provider keys, or use VATSIM virtual traffic.",
         )
         self.setup_mode = self.QtWidgets.QComboBox()
         for option in SOURCE_OPTIONS:
@@ -550,13 +568,15 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
         self.relay_box, relay_layout = panel(self.QtWidgets, "Relay Access")
         self.relay_url = self.QtWidgets.QLineEdit(DEFAULT_RELAY_URL)
-        self.relay_url.setPlaceholderText(DEFAULT_RELAY_URL)
+        self.relay_url.setReadOnly(True)
+        self.relay_url.setToolTip("Beacon Relay uses the hosted Beacon Tools endpoint.")
         self.activation_token = self.QtWidgets.QLineEdit()
         self.activation_token.setEchoMode(self.QtWidgets.QLineEdit.Password)
-        self.activation_token.setPlaceholderText("Paste activation token only if one was given to you")
-        self.token_toggle = self.QtWidgets.QPushButton("Show token")
+        self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+        self.activation_token.textChanged.connect(lambda _text: self._activation_details_changed())
+        self.token_toggle = self.QtWidgets.QPushButton("Show key")
         self.token_toggle.setObjectName("Quiet")
-        self.token_toggle.clicked.connect(lambda: self._toggle_secret(self.activation_token, self.token_toggle, "token"))
+        self.token_toggle.clicked.connect(lambda: self._toggle_secret(self.activation_token, self.token_toggle, "key"))
         token_row = self.QtWidgets.QHBoxLayout()
         token_row.addWidget(self.activation_token, 1)
         token_row.addWidget(self.token_toggle)
@@ -569,27 +589,48 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         token_box_layout = self.QtWidgets.QVBoxLayout(self.token_box)
         token_box_layout.setContentsMargins(12, 10, 12, 10)
         token_box_layout.setSpacing(7)
-        token_box_layout.addWidget(label(self.QtWidgets, "Manual token", "Kicker", wrap=True))
-        token_box_layout.addWidget(label(self.QtWidgets, "Only paste a token here if the relay operator gave you one. Stored relay links stay local and do not need to be pasted again.", "SetupMuted", wrap=True))
+        token_box_layout.addWidget(label(self.QtWidgets, "Relay Access license key or activation code", "Kicker", wrap=True))
+        token_box_layout.addWidget(label(self.QtWidgets, "Local Flight exchanges this for access on this device and does not save the license key.", "SetupMuted", wrap=True))
         token_box_layout.addLayout(token_row)
         relay_layout.addWidget(self.token_box)
         relay_actions = self.QtWidgets.QHBoxLayout()
-        self.request_activation_btn = self.QtWidgets.QPushButton("\U0001F4E8  Request activation")
-        self.check_relay_status_btn = self.QtWidgets.QPushButton("\U0001F504  Check relay status")
-        self.test_token_btn = self.QtWidgets.QPushButton("\U0001F9EA  Test token")
-        self.request_activation_btn.clicked.connect(self.request_activation)
+        self.buy_relay_access_btn = self.QtWidgets.QPushButton("Get Relay Access")
+        self.request_activation_btn = self.QtWidgets.QPushButton("Activate this desktop")
+        self.check_relay_status_btn = self.QtWidgets.QPushButton("Check access")
+        self.test_token_btn = self.QtWidgets.QPushButton("Test access")
+        self.buy_relay_access_btn.clicked.connect(lambda: webbrowser.open(RELAY_ACCESS_URL))
+        self.request_activation_btn.clicked.connect(lambda _checked=False: self.request_activation())
         self.check_relay_status_btn.clicked.connect(self.check_activation_status)
         self.test_token_btn.clicked.connect(self.test_activation)
-        for idx, button in enumerate((self.request_activation_btn, self.check_relay_status_btn, self.test_token_btn)):
-            button.setMinimumHeight(34)
+        for idx, button in enumerate((self.buy_relay_access_btn, self.request_activation_btn, self.check_relay_status_btn, self.test_token_btn)):
+            button.setMinimumHeight(44)
             relay_actions.addWidget(button)
         relay_actions.addStretch(1)
-        self.relay_status = self._status_chip("Relay is the beginner path. Token values stay hidden.", "muted")
+        self.relay_status = self._status_chip("Relay Access can be active on one desktop or one phone in Standalone mode.", "muted")
         self.relay_action_status = self._status_chip("", "muted")
         self.relay_action_status.hide()
         relay_layout.addLayout(relay_actions)
         relay_layout.addWidget(self.relay_status)
         relay_layout.addWidget(self.relay_action_status)
+        self.move_warning = self.QtWidgets.QFrame()
+        self.move_warning.setObjectName("PreviewCard")
+        move_layout = self.QtWidgets.QVBoxLayout(self.move_warning)
+        move_layout.setContentsMargins(12, 10, 12, 10)
+        self.move_warning_text = self._status_chip("", "warn")
+        move_layout.addWidget(self.move_warning_text)
+        move_actions = self.QtWidgets.QHBoxLayout()
+        self.keep_relay_there_btn = self.QtWidgets.QPushButton("Keep it there")
+        self.move_relay_here_btn = self.QtWidgets.QPushButton("Move to this desktop")
+        self.keep_relay_there_btn.clicked.connect(self.keep_relay_there)
+        self.move_relay_here_btn.clicked.connect(self.move_relay_here)
+        self.keep_relay_there_btn.setMinimumHeight(44)
+        self.move_relay_here_btn.setMinimumHeight(44)
+        move_actions.addWidget(self.keep_relay_there_btn)
+        move_actions.addWidget(self.move_relay_here_btn)
+        move_actions.addStretch(1)
+        move_layout.addLayout(move_actions)
+        self.move_warning.hide()
+        relay_layout.addWidget(self.move_warning)
         layout.addWidget(self.relay_box)
         layout.addStretch(1)
 
@@ -598,7 +639,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             "Direct Provider Keys",
             "BYOK keeps schedule and radar calls on this server install. Use AeroDataBox or AviationStack for schedules, ADS-B Exchange on RapidAPI for radar, and OpenSky only as optional fallback.",
         )
-        self.keys_hint = self._status_chip("Community Relay and VATSIM can skip this page.", "muted")
+        self.keys_hint = self._status_chip("Beacon Relay and VATSIM can skip this page.", "muted")
         self.provider_path_hint = self._status_chip(
             "Schedules: AeroDataBox primary, AviationStack fill/fallback. Radar: ADS-B Exchange via RapidAPI.",
             "muted",
@@ -713,7 +754,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             cards.addWidget(card, index // self.card_columns, index % self.card_columns)
         layout.addLayout(cards)
         self.diagnostics_help = self._status_chip(
-            "Privacy rule: no provider keys, activation tokens, raw install IDs, pilot identities, or internal secrets are shown here or sent from the client UI.",
+            "Privacy rule: no provider keys, Relay Access credentials, raw install IDs, pilot identities, or internal secrets are shown here or sent from the client UI.",
             "muted",
         )
         layout.addWidget(self.diagnostics_help)
@@ -731,8 +772,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.finish_cards: dict[str, Any] = {
             "airport": self._summary_card("Airport", "ZRH / LSZH"),
             "timezone": self._summary_card("Timezone", "Europe/Zurich"),
-            "source": self._summary_card("Flight data", "Community Relay", tone="good"),
-            "relay": self._summary_card("Relay access", "Token needed or pending"),
+            "source": self._summary_card("Flight data", "Beacon Relay", tone="good"),
+            "relay": self._summary_card("Relay access", "License activation required"),
             "keys": self._summary_card("Provider keys", "No provider keys saved"),
             "diagnostics": self._summary_card("Diagnostics", "Manual reports only"),
         }
@@ -742,7 +783,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.finish_summary = label(self.QtWidgets, "", "Muted", wrap=True)
         self.finish_summary.hide()
         self.diagnostics_note = self._status_chip(
-            "Diagnostics can be changed later in Settings. Provider keys and tokens are never displayed in this summary.",
+            "Diagnostics can be changed later in Settings. Provider keys and Relay Access credentials are never displayed in this summary.",
             "muted",
         )
         layout.addWidget(self.diagnostics_note)
@@ -843,7 +884,15 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             current_page.update()
         self._sync_current_page_geometry()
         try:
-            self.QtCore.QTimer.singleShot(0, lambda: self.scroll_area.verticalScrollBar().setValue(0))
+            def _reset_scroll_position() -> None:
+                try:
+                    self.scroll_area.verticalScrollBar().setValue(0)
+                except RuntimeError:
+                    # The setup window may have closed before this deferred UI
+                    # update runs.
+                    pass
+
+            self.QtCore.QTimer.singleShot(0, _reset_scroll_position)
         except Exception:
             pass
         is_first = index == 0
@@ -856,30 +905,34 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def _next_step(self) -> None:
         index = self.tabs.currentIndex()
-        if index == 2 and self._current_mode() in {"community", "virtual"}:
+        if index == 2 and self._current_mode() in {"relay", "vatsim"}:
             self._set_step(4)
             return
         self._set_step(index + 1)
 
     def _previous_step(self) -> None:
         index = self.tabs.currentIndex()
-        if index == 4 and self._current_mode() in {"community", "virtual"}:
+        if index == 4 and self._current_mode() in {"relay", "vatsim"}:
             self._set_step(2)
             return
         self._set_step(index - 1)
 
     def _current_mode(self) -> str:
-        return str(self.setup_mode.currentData() or "community")
+        return str(self.setup_mode.currentData() or "relay")
 
     def _current_diagnostics_mode(self) -> str:
         return str(self.diagnostics_mode.currentData() or "manual")
 
     def _set_mode(self, mode: str) -> None:
+        previous_mode = self._current_mode() if hasattr(self, "setup_mode") else ""
         idx = self.setup_mode.findData(mode)
-        self.setup_mode.setCurrentIndex(idx if idx >= 0 else self.setup_mode.findData("community"))
+        self.setup_mode.setCurrentIndex(idx if idx >= 0 else self.setup_mode.findData("relay"))
         active_mode = self._current_mode()
+        if previous_mode and active_mode != previous_mode:
+            self._invalidate_pending_move()
         for key, card in self.source_buttons.items():
             self._set_card_selected(card, key == active_mode)
+        self._mode_initialized = True
         self._sync_mode_ui()
         self._update_finish_summary()
 
@@ -889,19 +942,50 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         active_mode = self._current_diagnostics_mode()
         for key, card in self.diagnostics_buttons.items():
             self._set_card_selected(card, key == active_mode)
+        self._diagnostics_initialized = True
         self._set_chip(self.diagnostics_help, diagnostics_option(active_mode)["note"], "good" if active_mode == "manual" else "warn")
         self._update_finish_summary()
 
     def _sync_mode_ui(self) -> None:
         mode = self._current_mode()
-        self.relay_box.setVisible(mode == "community")
+        self.relay_box.setVisible(mode == "relay")
         self.mode_help.setText(source_option(mode)["note"])
-        if mode == "community":
-            self._set_chip(self.keys_hint, "Community Relay mode skips provider keys. You can add your own keys later in Settings.", "good")
+        if mode == "relay":
+            self._set_chip(self.keys_hint, "Beacon Relay skips provider keys. Relay Access is activated on the previous page.", "good")
         elif mode == "byok":
             self._set_chip(self.keys_hint, "Paste an AeroDataBox or AviationStack schedule key. ADS-B Exchange on RapidAPI lives on this same page as the optional radar key.", "warn")
         else:
-            self._set_chip(self.keys_hint, "VATSIM needs no provider keys. This setup saves source=virtual.", "good")
+            self._set_chip(self.keys_hint, "VATSIM needs no provider keys. Virtual traffic will be used for this route.", "good")
+
+    def _invalidate_pending_move(self) -> None:
+        self._pending_move_token = ""
+        if hasattr(self, "move_warning"):
+            self.move_warning.hide()
+
+    def _activation_details_changed(self) -> None:
+        if self._pending_move_token:
+            self._invalidate_pending_move()
+            if hasattr(self, "relay_action_status"):
+                self._set_relay_action_status(
+                    "Activation details changed. Check the current main device again before moving access.",
+                    "StatusWarn",
+                )
+
+    def keep_relay_there(self) -> None:
+        self._invalidate_pending_move()
+        self._set_relay_action_status(
+            "Relay Access remains on its current main device. Choose BYOK or VATSIM to finish without moving it.",
+            "StatusWarn",
+        )
+
+    def move_relay_here(self) -> None:
+        if not self._pending_move_token:
+            self._set_relay_action_status(
+                "The move confirmation expired. Activate again to check the current main device.",
+                "StatusWarn",
+            )
+            return
+        self.request_activation(confirm_move=True)
 
     def _mode_label(self, mode: str) -> str:
         return source_option(mode)["title"]
@@ -914,14 +998,20 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _update_finish_summary(self) -> None:
         if not hasattr(self, "finish_summary"):
             return
-        mode = self._current_mode() if hasattr(self, "setup_mode") else "community"
-        source = "virtual" if mode == "virtual" else "real"
-        relay_state = "connected" if self._stored_activation else "token needed or pending"
-        if mode != "community":
+        mode = self._current_mode() if hasattr(self, "setup_mode") else "relay"
+        source = "virtual" if mode == "vatsim" else "real"
+        relay_state = "active on this desktop" if self._stored_activation else "license activation required"
+        if mode != "relay":
             relay_state = "not used"
-        has_adb = mode == "byok" and bool(self.aerodatabox_key.text().strip())
-        has_as = mode == "byok" and bool(self.aviationstack_key.text().strip())
-        has_adsb = mode == "byok" and bool(self.rapidapi_key.text().strip())
+        has_adb = mode == "byok" and bool(
+            self.aerodatabox_key.text().strip() or self._saved_provider_state.get("aerodatabox_configured")
+        )
+        has_as = mode == "byok" and bool(
+            self.aviationstack_key.text().strip() or self._saved_provider_state.get("aviationstack_configured")
+        )
+        has_adsb = mode == "byok" and bool(
+            self.rapidapi_key.text().strip() or self._saved_provider_state.get("adsbexchange_configured")
+        )
         radar_note = " + ADS-B Exchange radar" if has_adsb else ""
         if has_adb and has_as:
             key_state = f"AeroDataBox primary + AviationStack fill{radar_note}"
@@ -945,8 +1035,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
                 card = self.finish_cards.get(key)
                 if card is not None:
                     card.value_label.setText(value)
-            self.finish_cards["source"].setProperty("tone", "good" if mode in {"community", "virtual"} else "warn")
-            self.finish_cards["relay"].setProperty("tone", "good" if relay_state == "connected" else "muted")
+            self.finish_cards["source"].setProperty("tone", "good" if mode in {"relay", "vatsim"} else "warn")
+            self.finish_cards["relay"].setProperty("tone", "good" if relay_state == "active on this desktop" else "muted")
             self.finish_cards["keys"].setProperty("tone", "warn" if mode == "byok" and key_state != "no provider keys saved" else "muted")
             self.finish_cards["diagnostics"].setProperty("tone", "good" if diagnostics == "manual" else "warn")
             for card in self.finish_cards.values():
@@ -968,30 +1058,86 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def refresh(self) -> None:
         self._set_status("Checking setup...", busy=True)
-        try:
-            info = self.service.setup_client_info()
-        except Exception:
-            self._set_status("Setup information is temporarily unavailable.", "StatusBad")
-            self._set_mode("community")
-            return
+        self._run_async(
+            lambda: {
+                "info": self.service.setup_client_info(),
+                "catalog": self.service.setup_access_catalog(relay_url=self._clean_relay_display(self.relay_url.text())),
+            },
+            self._apply_refresh,
+            self._refresh_failed,
+            label="Setup refresh",
+            debounce_ms=0,
+        )
+
+    def _refresh_failed(self, _exc: Exception) -> None:
+        self._set_status("Setup information is temporarily unavailable.", "StatusBad")
+        if not self._mode_initialized:
+            self._set_mode("relay")
+
+    def _apply_refresh(self, result: Any) -> None:
+        result = result if isinstance(result, dict) else {}
+        info = result.get("info") if isinstance(result.get("info"), dict) else {}
+        catalog = result.get("catalog") if isinstance(result.get("catalog"), dict) else {}
+        provider_state = info.get("provider_keys") if isinstance(info.get("provider_keys"), dict) else {}
+        self._saved_provider_state = {str(key): bool(value) for key, value in provider_state.items()}
+        if self._saved_provider_state.get("aerodatabox_configured"):
+            self.aerodatabox_key.setPlaceholderText("Saved key available; paste to replace")
+        if self._saved_provider_state.get("aviationstack_configured"):
+            self.aviationstack_key.setPlaceholderText("Saved key available; paste to replace")
+        if self._saved_provider_state.get("adsbexchange_configured"):
+            self.rapidapi_key.setPlaceholderText("Saved key available; paste to replace")
         if info.get("relay_url"):
             self.relay_url.setText(self._clean_relay_display(str(info.get("relay_url"))))
+        cfg = info.get("config") if isinstance(info.get("config"), dict) else {}
+        self.display_name.setText(str(cfg.get("display_name") or self.display_name.text() or "Local Flight"))
+        self.airport_iata.setText(str(cfg.get("airport_iata") or self.airport_iata.text() or "ZRH"))
+        self.airport_icao.setText(str(cfg.get("airport_icao") or self.airport_icao.text() or "LSZH"))
+        self.timezone.setText(str(cfg.get("timezone") or self.timezone.text() or "Europe/Zurich"))
+        if not self._diagnostics_initialized:
+            self._set_diagnostics_mode(str(cfg.get("diagnostics_mode") or "manual"))
         prefix = str(info.get("activation_token_prefix") or "")
-        self._stored_activation = bool(info.get("activation_token_present") or info.get("has_activation_token") or prefix)
-        if self._stored_activation:
+        relay_state = str(info.get("relay_state") or "none")
+        access_state = str(info.get("access_state") or "")
+        cached_active = prefix.startswith("lfr_") and relay_state == "active" and access_state == "active"
+        self._stored_activation = False
+        if cached_active:
             self.activation_token.clear()
-            self.activation_token.setPlaceholderText(f"Stored token linked ({prefix or 'hidden'}...)")
-            self._set_chip(self.relay_status, "Relay access is connected. You can finish Community Relay setup without pasting a token.", "good")
+            self.activation_token.setPlaceholderText(f"Device credential stored ({prefix or 'hidden'}...)")
+            self._set_chip(self.relay_status, "Checking that Relay Access is still active on this desktop...", "warn")
             self.token_box.hide()
-        else:
-            self.activation_token.setPlaceholderText("Paste activation token only if one was given to you")
-            self._set_chip(self.relay_status, "Relay access is not linked yet. Request or test a token, or choose VATSIM to continue without one.", "warn")
+        elif relay_state == "release_pending":
+            self.activation_token.clear()
+            self.activation_token.setPlaceholderText(f"Device credential retained ({prefix or 'hidden'}...)")
+            self._set_chip(
+                self.relay_status,
+                "Relay Access release is pending. This desktop will not use Relay until release or an explicit status check succeeds.",
+                "warn",
+            )
+            self.token_box.hide()
+        elif prefix.startswith("lfr_"):
+            self.activation_token.clear()
+            self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+            self._set_chip(self.relay_status, "The saved credential is not active. Check access or enter a replacement key or activation code.", "warn")
             self.token_box.show()
+        else:
+            self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+            self._set_chip(self.relay_status, "Get Relay Access or enter an existing key or one-time activation code.", "warn")
+            self.token_box.show()
+        self._catalog_available = bool(catalog.get("ok") and catalog.get("sales_available"))
+        self.buy_relay_access_btn.setVisible(self._catalog_available)
+        if not self._catalog_available:
+            self._set_relay_action_status(
+                str(catalog.get("error") or "New purchases are temporarily unavailable. Existing keys and activation codes can still be used."),
+                "StatusWarn",
+                footer_text="",
+            )
+        route = str(cfg.get("data_route") or ("vatsim" if cfg.get("source") == "virtual" else "relay"))
         if not self._mode_initialized:
-            self._set_mode("community")
-            self._mode_initialized = True
+            self._set_mode(route)
         self._set_status("Setup ready.", "StatusGood")
         self._update_finish_summary()
+        if cached_active and route == "relay":
+            self.check_activation_status()
 
     def _clean_relay_display(self, value: str) -> str:
         clean = (value or "").strip().rstrip("/")
@@ -1046,21 +1192,25 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         }.get(role, "muted")
 
     def _friendly_relay_text(self, result: Any, *, default: str = "Relay response received.") -> str:
-        raw = ""
+        code = str(result.get("status") or "") if isinstance(result, dict) else ""
+        messages = {
+            "invalid_license_key": "That Relay Access key or activation code was not accepted. Check it and try again.",
+            "credential_not_found": "This desktop's saved Relay Access credential is no longer recognized. Activate access again.",
+            "license_inactive": "Relay Access is not active. Open Relay Access details for the current status.",
+            "suspended": "Relay Access is suspended. Open Relay Access details for the current status.",
+            "refunded": "Relay Access was refunded and cannot be used on this desktop.",
+            "revoked": "Relay Access was revoked and cannot be used on this desktop.",
+            "stale_move_token": "That move confirmation expired because the activation details changed. Start the move again.",
+            "rate_limited": "The relay is cooling down checks. Try again shortly.",
+            "relay_unavailable": "The relay could not be reached right now. Your local setup is unchanged.",
+            "relay_unreachable": "The relay could not be reached right now. Your local setup is unchanged.",
+            "license_key_local_only": "For safety, open native setup on this desktop or use a one-time activation code.",
+        }
+        if code in messages:
+            return messages[code]
         if isinstance(result, dict):
-            raw = str(result.get("error") or result.get("message") or result.get("status") or "")
-        elif result is not None:
-            raw = format_value(result)
-        text = format_value(raw).strip() if raw else default
-        lowered = text.casefold()
-        if "activation token already bound" in lowered or "already bound to another install" in lowered:
-            return (
-                "That activation token is already linked to another install. "
-                "Use the token already stored here, request a fresh activation, or switch to VATSIM."
-            )
-        if "invalid activation token" in lowered or "token invalid" in lowered:
-            return "That activation token was not accepted. Check the token or request a fresh activation."
-        return text or default
+            return str(result.get("error") or result.get("message") or code or default)
+        return format_value(result).strip() if result is not None else default
 
     def _relay_role_for_result(self, result: Any, status_text: str = "") -> str:
         if isinstance(result, dict):
@@ -1108,7 +1258,14 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             self.loading_indicator.setVisible(bool(busy))
 
     def _set_relay_buttons_enabled(self, enabled: bool) -> None:
-        for button in (self.request_activation_btn, self.check_relay_status_btn, self.test_token_btn):
+        for button in (
+            self.buy_relay_access_btn,
+            self.request_activation_btn,
+            self.check_relay_status_btn,
+            self.test_token_btn,
+            self.keep_relay_there_btn,
+            self.move_relay_here_btn,
+        ):
             button.setEnabled(enabled)
 
     def _set_provider_action_status(self, text: str, role: str = "Muted", *, busy: bool = False) -> None:
@@ -1146,10 +1303,10 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self._airport_search_future = None
         try:
             payload = future.result()
-        except Exception as exc:
+        except Exception:
             self.airport_results.clear()
-            self.airport_results.addItem(f"Search failed: {exc}")
-            self._set_airport_status(f"Search failed: {exc}", "StatusBad")
+            self.airport_results.addItem("Airport search could not be completed.")
+            self._set_airport_status("Airport search could not be completed. Check the connection and try again.", "StatusBad")
             return
         self.airport_results.clear()
         rows = list_payload(payload)
@@ -1194,31 +1351,83 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _activation_payload(self) -> dict[str, Any]:
         return {
             "relay_url": self._clean_relay_display(self.relay_url.text()),
-            "activation_token": self.activation_token.text().strip(),
+            "activation_token": "",
+            "license_key": self.activation_token.text().strip(),
+            "confirm_move_token": self._pending_move_token,
             "airport_iata": self.airport_iata.text().strip().upper(),
             "airport_icao": self.airport_icao.text().strip().upper(),
             "display_name": self.display_name.text().strip(),
             "requested_mode": self._current_mode(),
         }
 
-    def request_activation(self) -> None:
-        self._set_relay_action_status("Requesting relay access...", "Muted", busy=True)
-        self._set_relay_buttons_enabled(False)
-        try:
-            result = self.service.setup_activate(self._activation_payload())
-        except Exception as exc:
-            self._set_relay_action_status(f"Activation request failed: {exc}", "StatusBad")
-            self._set_relay_buttons_enabled(True)
+    def request_activation(self, *, confirm_move: bool = False) -> None:
+        if not self.activation_token.text().strip():
+            self._set_relay_action_status("Enter a Relay Access key or one-time activation code first.", "StatusWarn")
             return
+        if self._pending_move_token and not confirm_move:
+            self.move_warning.show()
+            self._set_relay_action_status("Confirm the named move or keep Relay Access on its current main device.", "StatusWarn")
+            return
+        self._set_relay_action_status(
+            "Moving Relay Access to this desktop..." if confirm_move else "Activating Relay Access...",
+            "Muted",
+            busy=True,
+        )
+        self._set_relay_buttons_enabled(False)
+        payload = self._activation_payload()
+        if not confirm_move:
+            payload["confirm_move_token"] = ""
+        self._run_async(
+            lambda: self.service.setup_activate(payload),
+            self._apply_activation_result,
+            self._relay_action_failed,
+            label="Relay activation",
+            debounce_ms=0,
+        )
+
+    def _relay_action_failed(self, _exc: Exception) -> None:
+        self._stored_activation = False
+        self._pending_move_token = ""
+        self.move_warning.hide()
+        self.activation_token.clear()
+        self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+        self.token_box.show()
+        self._set_relay_buttons_enabled(True)
+        self._set_setup_buttons_enabled(True)
+        self._set_relay_action_status("The relay could not be reached right now. Your local setup is unchanged.", "StatusBad")
+        self._update_finish_summary()
+
+    def _apply_activation_result(self, result: Any) -> None:
+        result = result if isinstance(result, dict) else {}
         self._set_relay_buttons_enabled(True)
         if result.get("activation_token_prefix"):
             self._stored_activation = True
+            self._pending_move_token = ""
+            self.move_warning.hide()
             self.activation_token.clear()
-            self.activation_token.setPlaceholderText(f"Stored token linked ({result.get('activation_token_prefix')}...)")
-            self._set_chip(self.relay_status, "Relay access is connected. Token stored locally.", "good")
+            self.activation_token.setPlaceholderText(f"Device credential stored ({result.get('activation_token_prefix')}...)")
+            self._set_chip(self.relay_status, "Relay Access is active. The license key was discarded after activation.", "good")
             self.token_box.hide()
-            self._set_relay_action_status("Relay access is connected. Token stored locally.", "StatusGood")
+            self._set_relay_action_status("Relay Access is active on this desktop.", "StatusGood")
+            # A fresh status check makes the hosted service, not a local flag,
+            # authoritative before Finish becomes useful.
+            self.test_activation()
+        elif result.get("status") == "seat_in_use" and result.get("move_token"):
+            self._pending_move_token = str(result.get("move_token"))
+            receiver = result.get("current_receiver") if isinstance(result.get("current_receiver"), dict) else {}
+            receiver_name = str(result.get("current_main_device_description") or receiver.get("device_name") or receiver.get("device_kind") or "another main device")
+            self.move_warning_text.setText(
+                f"Relay Access is currently used by {receiver_name}. Moving it here will stop direct Relay use there."
+            )
+            self.move_warning.show()
+            self._set_relay_action_status(
+                "Choose whether to keep Relay Access there or move it to this desktop.",
+                "StatusWarn",
+            )
         elif result.get("ok") is False:
+            if result.get("status") == "stale_move_token":
+                self._pending_move_token = ""
+                self.move_warning.hide()
             self._set_relay_action_status(self._friendly_relay_text(result), "StatusBad")
         else:
             self._set_relay_action_status(self._friendly_relay_text(result), self._relay_role_for_result(result))
@@ -1227,31 +1436,61 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def check_activation_status(self) -> None:
         self._set_relay_action_status("Checking relay status...", "Muted", busy=True)
         self._set_relay_buttons_enabled(False)
-        try:
-            result = self.service.setup_client_status(self._activation_payload())
-        except Exception as exc:
-            self._set_relay_action_status(f"Status check failed: {exc}", "StatusBad")
-            self._set_relay_buttons_enabled(True)
-            return
+        payload = self._activation_payload()
+        self._run_async(
+            lambda: self.service.setup_client_status(payload),
+            self._apply_status_result,
+            self._relay_action_failed,
+            label="Relay status",
+            debounce_ms=0,
+        )
+
+    def _apply_status_result(self, result: Any) -> None:
+        result = result if isinstance(result, dict) else {}
         self._set_relay_buttons_enabled(True)
         status_text = self._friendly_relay_text(result, default="Relay status received.")
         role = self._relay_role_for_result(result, status_text)
+        self._stored_activation = bool(result.get("ok") and str(result.get("status") or "") == "active")
+        if self._stored_activation:
+            self.token_box.hide()
+        else:
+            self._pending_move_token = ""
+            self.move_warning.hide()
+            self.activation_token.clear()
+            self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+            self.token_box.show()
         self._set_relay_action_status(status_text, role)
+        self._update_finish_summary()
 
     def test_activation(self) -> None:
-        self._set_relay_action_status("Testing activation token...", "Muted", busy=True)
+        self._set_relay_action_status("Testing Relay Access...", "Muted", busy=True)
         self._set_relay_buttons_enabled(False)
-        try:
-            result = self.service.setup_test_activation(self._activation_payload())
-        except Exception as exc:
-            self._set_relay_action_status(f"Token test failed: {exc}", "StatusBad")
-            self._set_relay_buttons_enabled(True)
-            return
+        payload = self._activation_payload()
+        self._run_async(
+            lambda: self.service.setup_test_activation(payload),
+            self._apply_test_result,
+            self._relay_action_failed,
+            label="Relay verification",
+            debounce_ms=0,
+        )
+
+    def _apply_test_result(self, result: Any) -> None:
+        result = result if isinstance(result, dict) else {}
         self._set_relay_buttons_enabled(True)
         if result.get("ok"):
-            self._set_relay_action_status("Relay token works. You can finish Community Relay setup.", "StatusGood")
+            self._stored_activation = True
+            self.token_box.hide()
+            self._set_relay_action_status("Relay Access works. You can finish setup.", "StatusGood")
+            self._update_finish_summary()
             return
+        self._stored_activation = False
+        self._pending_move_token = ""
+        self.move_warning.hide()
+        self.activation_token.clear()
+        self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+        self.token_box.show()
         self._set_relay_action_status(self._friendly_relay_text(result), "StatusBad")
+        self._update_finish_summary()
 
     def test_aviationstack(self) -> None:
         key = self.aviationstack_key.text().strip()
@@ -1315,12 +1554,13 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             "airport_iata": self.airport_iata.text().strip().upper() or "ZRH",
             "airport_icao": self.airport_icao.text().strip().upper() or "LSZH",
             "timezone": self.timezone.text().strip() or "Europe/Zurich",
-            "source": "virtual" if mode == "virtual" else "real",
+            "source": "virtual" if mode == "vatsim" else "real",
+            "data_route": mode,
             "setup_mode": mode,
             "display_name": self.display_name.text().strip() or "Local Flight",
             "diagnostics_mode": self._current_diagnostics_mode(),
-            "relay_url": self._clean_relay_display(self.relay_url.text()) if mode == "community" else "",
-            "activation_token": self.activation_token.text().strip() if mode == "community" else "",
+            "relay_url": self._clean_relay_display(self.relay_url.text()) if mode == "relay" else "",
+            "activation_token": "",
             "aerodatabox_key": self.aerodatabox_key.text().strip() if mode == "byok" else "",
             "aerodatabox_marketplace": self.aerodatabox_marketplace.currentData() if mode == "byok" else "apimarket",
             "aerodatabox_monthly_units_limit": int(self.aerodatabox_monthly_limit.value()) if mode == "byok" else 24000,
@@ -1331,12 +1571,20 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         }
         self._set_setup_buttons_enabled(False)
         self._set_status("Saving setup...", busy=True)
-        try:
-            result = self.service.setup_complete(payload)
-        except Exception as exc:
-            self._set_status(f"Setup failed: {exc}", "StatusBad")
-            self._set_setup_buttons_enabled(True)
-            return
+        self._run_async(
+            lambda: self.service.setup_complete(payload),
+            self._apply_finish_result,
+            self._finish_failed,
+            label="Setup completion",
+            debounce_ms=0,
+        )
+
+    def _finish_failed(self, _exc: Exception) -> None:
+        self._set_status("Setup could not be completed. Review the selected route and try again.", "StatusBad")
+        self._set_setup_buttons_enabled(True)
+
+    def _apply_finish_result(self, result: Any) -> None:
+        result = result if isinstance(result, dict) else {}
         setup_ok = bool(result.get("ok"))
         if setup_ok:
             self._set_status(str(result.get("message") or "Setup saved. Preparing your first board..."), "StatusGood")

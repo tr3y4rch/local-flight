@@ -5,6 +5,10 @@ const routes = [
   "/",
   "/local-flight/",
   "/local-flight/mobile/",
+  "/local-flight/relay-access/",
+  "/local-flight/relay-access/success/",
+  "/local-flight/relay-access/manage/",
+  "/local-flight/relay-access/terms/",
   "/network/",
   "/privacy/",
   "/privacy/choices/",
@@ -15,6 +19,22 @@ const routes = [
 for (const route of routes) {
   test(`${route} renders with accessible structure`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.route("https://relay.beacontools.cc/v1/access/catalog", (request) => request.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        product: {
+          product_code: "beacon_relay_lifetime_v1",
+          independent_receivers: 1,
+          purchase_sources: {
+            stripe: { available: false },
+            apple_app: { available: false, included_with_paid_app: true },
+            google_play: { available: false, included_with_paid_app: false, acquisition_model: "free_download_in_app_purchase", free_modes: ["companion", "vatsim"] },
+          },
+        },
+        capabilities: { sales: false, schedule: false, radar: false, remote_companion: false },
+      }),
+    }));
     await page.goto(route);
     await expect(page.locator("h1")).toHaveCount(1);
     await expect(page.locator("main")).toBeVisible();
@@ -42,7 +62,7 @@ test("mobile navigation opens, closes, and exposes every destination", async ({ 
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator("[data-site-nav] a")).toHaveCount(6);
+  await expect(page.locator("[data-site-nav] a")).toHaveCount(7);
   await page.keyboard.press("Escape");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
 });
@@ -56,6 +76,56 @@ test("mobile mode switcher is keyboard operable", async ({ page }) => {
   await page.keyboard.press("ArrowRight");
   await expect(standalone).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#panel-standalone")).toBeVisible();
+});
+
+test("mobile store links follow unavailable, testing, and available catalog states", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop");
+  const catalogUrl = "https://relay.beacontools.cc/v1/access/catalog";
+  const product = (apple: Record<string, unknown>, google: Record<string, unknown>) => ({
+    ok: true,
+    product: {
+      product_code: "beacon_relay_lifetime_v1",
+      independent_receivers: 1,
+      purchase_sources: { stripe: { available: false }, apple_app: apple, google_play: google },
+    },
+    capabilities: { sales: false, schedule: false, radar: false, remote_companion: false },
+  });
+
+  await page.route(catalogUrl, (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify(product(
+      { state: "available", available: false, store_url: "https://apps.apple.com/app/id123456789" },
+      { state: "available", available: false, store_url: "https://play.google.com/store/apps/details?id=cc.beacontools.localflight" },
+    )),
+  }));
+  await page.goto("/local-flight/mobile/#availability");
+  await expect(page.locator("#mobileAvailabilityTitle")).toHaveText("Mobile purchase routes are not open yet.");
+  await expect(page.locator('[data-mobile-store="apple_app"]')).toHaveAttribute("aria-disabled", "true");
+
+  await page.unroute(catalogUrl);
+  await page.route(catalogUrl, (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify(product(
+      { state: "testing", verification_ready: true, testing_available: true, testing_url: "https://testflight.apple.com/join/example" },
+      { state: "testing", verification_ready: true, testing_available: true, testing_url: "https://play.google.com/apps/testing/cc.beacontools.localflight" },
+    )),
+  }));
+  await page.reload();
+  await expect(page.locator("#mobileAvailabilityTitle")).toHaveText("The mobile apps are currently in testing.");
+  await expect(page.locator('[data-mobile-store="apple_app"]')).toHaveAttribute("href", "https://testflight.apple.com/join/example");
+
+  await page.unroute(catalogUrl);
+  await page.route(catalogUrl, (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify(product(
+      { state: "available", available: true, store_url: "https://apps.apple.com/app/id123456789" },
+      { state: "available", available: true, store_url: "https://play.google.com/store/apps/details?id=cc.beacontools.localflight" },
+    )),
+  }));
+  await page.reload();
+  await expect(page.locator("#mobileAvailabilityTitle")).toHaveText("The mobile apps are available.");
+  await expect(page.locator('[data-mobile-store="google_play"]')).toHaveAttribute("href", "https://play.google.com/store/apps/details?id=cc.beacontools.localflight");
+  await expect(page.locator('[data-mobile-store="google_play"]')).not.toHaveAttribute("aria-disabled", "true");
 });
 
 test("responsive product media preserves its intrinsic proportions", async ({ page }) => {
@@ -162,4 +232,173 @@ test("support bug report preserves the multipart endpoint contract", async ({ pa
   expect(submittedBody).toContain('name="website_context"');
   expect(submittedBody).toContain("/support/");
   expect(submittedBody).toContain("Testing bug report contract");
+});
+
+const relayCatalog = (available: boolean) => ({
+  ok: true,
+  product: {
+    name: "Beacon Relay Access",
+    product_code: "beacon_relay_lifetime_v1",
+    independent_receivers: 1,
+    purchase_sources: {
+      stripe: { available },
+      apple_app: { available, included_with_paid_app: true },
+      google_play: { available, included_with_paid_app: false, acquisition_model: "free_download_in_app_purchase", free_modes: ["companion", "vatsim"] },
+    },
+  },
+  capabilities: {
+    sales: available,
+    schedule: available,
+    radar: available,
+    remote_companion: available,
+  },
+});
+
+test("Relay Access catalog fails closed and enables checkout only when every gate is ready", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop");
+  await page.route("https://relay.beacontools.cc/v1/access/catalog", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify(relayCatalog(false)),
+  }));
+  await page.goto("/local-flight/relay-access/");
+  await expect(page.locator("#relayCheckout")).toBeDisabled();
+  await expect(page.locator("#accessCatalogStatus")).toContainText("not open yet");
+
+  await page.unroute("https://relay.beacontools.cc/v1/access/catalog");
+  const availableCatalog = relayCatalog(true);
+  availableCatalog.capabilities.schedule = false;
+  await page.route("https://relay.beacontools.cc/v1/access/catalog", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify(availableCatalog),
+  }));
+  await page.reload();
+  await expect(page.locator("#relayCheckout")).toBeEnabled();
+  await expect(page.locator("#accessCatalogStatus")).toContainText("ready");
+});
+
+test("checkout result covers pending, successful one-time reveal, and failed states", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop");
+  await page.goto("/");
+  await page.evaluate(() => sessionStorage.setItem("beacon.relay.checkout.checkout_pending", "secret_pending_value_123456789"));
+  await page.route("https://relay.beacontools.cc/v1/access/stripe/result", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ ok: true, state: "pending" }),
+  }));
+  await page.goto("/local-flight/relay-access/success/?checkout_ref=checkout_pending");
+  await expect(page.locator("#resultStatus")).toContainText("waiting for signed confirmation");
+
+  await page.unroute("https://relay.beacontools.cc/v1/access/stripe/result");
+  await page.evaluate(() => sessionStorage.setItem("beacon.relay.checkout.checkout_success", "secret_success_value_123456789"));
+  await page.route("https://relay.beacontools.cc/v1/access/stripe/result", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ ok: true, state: "active", license_key: "LFRA-AAAA-BBBB-CCCC-DDDD" }),
+  }));
+  await page.goto("/local-flight/relay-access/success/?checkout_ref=checkout_success");
+  await expect(page.locator("#licenseKey")).toHaveValue("LFRA-AAAA-BBBB-CCCC-DDDD");
+  await expect(page.locator("#licenseResult")).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem("beacon.relay.checkout.checkout_success"))).toBeNull();
+
+  await page.unroute("https://relay.beacontools.cc/v1/access/stripe/result");
+  await page.evaluate(() => sessionStorage.setItem("beacon.relay.checkout.checkout_failed", "secret_failed_value_123456789"));
+  await page.route("https://relay.beacontools.cc/v1/access/stripe/result", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ ok: true, state: "failed" }),
+  }));
+  await page.goto("/local-flight/relay-access/success/?checkout_ref=checkout_failed");
+  await expect(page.locator("#resultStatus")).toContainText("did not complete");
+  await expect(page.locator("#licenseResult")).toBeHidden();
+});
+
+test("fragment email confirmation reveals one existing key and lists separate licenses", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop");
+  await page.route("https://relay.beacontools.cc/v1/access/magic-links/exchange", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ token: "lfrm_test_email_confirmation_token" });
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        holder_session: "lfrhs_verified_holder_session",
+        key_delivery: { license_key: "LFRA-MOBILE-EXISTING-KEY1", one_time: true },
+        licenses: [
+          {
+            license_ref: "license_mobile_1",
+            product_name: "Beacon Relay Access",
+            purchase_source: "apple_app",
+            status: "active",
+            key_ref: "LFRA-MOBILE…KEY1",
+            created_at: "2026-09-01T12:00:00Z",
+            receiver: { device_kind: "mobile_standalone", device_name: "Philipp’s iPhone" },
+            key_delivery: { state: "revealed" },
+          },
+          {
+            license_ref: "license_web_2",
+            product_name: "Beacon Relay Access",
+            purchase_source: "stripe",
+            status: "active",
+            key_ref: "LFRA-WEB…KEY2",
+            created_at: "2026-09-02T12:00:00Z",
+            receiver: null,
+            key_delivery: { state: "sent" },
+          },
+        ],
+      }),
+    });
+  });
+  await page.goto("/local-flight/relay-access/manage/#token=lfrm_test_email_confirmation_token");
+  await expect(page).toHaveURL(/\/local-flight\/relay-access\/manage\/$/);
+  await expect(page.locator(".relay-license")).toHaveCount(2);
+  await expect(page.locator("#managementLicenseKey")).toHaveValue("LFRA-MOBILE-EXISTING-KEY1");
+  await expect(page.getByText("IOS / APP STORE")).toBeVisible();
+  await expect(page.getByText("WEB / STRIPE")).toBeVisible();
+  await expect(page.getByText("Mobile Standalone · Philipp’s iPhone")).toBeVisible();
+});
+
+test("management grants require the target flow and receiver actions return fresh state", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop");
+  const activeLicense = {
+    license_ref: "license_web_1",
+    purchase_source: "stripe",
+    status: "active",
+    key_ref: "LFRA-WEB…0001",
+    created_at: "2026-09-01T12:00:00Z",
+    receiver: { device_kind: "desktop", device_name: "Office display" },
+  };
+  await page.route("https://relay.beacontools.cc/v1/access/magic-links/exchange", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ ok: true, holder_session: "lfrhs_verified_holder_session", licenses: [activeLicense] }),
+  }));
+  await page.route("https://relay.beacontools.cc/v1/access/activation-grants", async (route) => {
+    expect(route.request().headers().authorization).toBe("Bearer lfrhs_verified_holder_session");
+    expect(route.request().postDataJSON()).toEqual({ license_id: "license_web_1" });
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, activation_grant: "lfrag_one_use_transfer_grant", expires_in: 600 }) });
+  });
+  await page.goto("/local-flight/relay-access/manage/#token=lfrm_action_test_token_value");
+  const card = page.locator(".relay-license");
+  await card.getByRole("button", { name: "Create mobile handoff" }).click();
+  await expect(card.getByText("Fresh iOS entitlement or Android official-app proof is still required on the receiving device.")).toBeVisible();
+  await expect(card.getByRole("link", { name: "Open in Local Flight Mobile" })).toHaveAttribute("href", "localflight://relay-access#grant=lfrag_one_use_transfer_grant");
+
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.route("https://relay.beacontools.cc/v1/access/licenses/action", async (route) => {
+    const body = route.request().postDataJSON() as { action: string };
+    if (body.action === "revoke_receiver") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, licenses: [{ ...activeLicense, receiver: null }] }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        license_key: "LFRA-ROTATED-SAVE-0002",
+        licenses: [{ ...activeLicense, receiver: null, key_ref: "LFRA-ROTATED…0002" }],
+      }),
+    });
+  });
+  await card.getByRole("button", { name: "Release current main device" }).click();
+  await expect(page.getByText("Available — no active main device")).toBeVisible();
+  await page.locator(".relay-license").getByRole("button", { name: "Rotate a lost key" }).click();
+  await expect(page.locator("#managementLicenseKey")).toHaveValue("LFRA-ROTATED-SAVE-0002");
 });

@@ -1535,11 +1535,11 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _build_source_page(self) -> None:
         _page, layout = self._page(
             "Choose Data Source",
-            "Community Relay is easiest for beta testing. BYOK keeps AviationStack direct on this device. VATSIM is the virtual-network mode.",
+            "Beacon Relay uses your Relay Access license. Bring Your Own Keys stays direct on this device. VATSIM is the virtual-network mode.",
         )
         self.setup_mode = self.QtWidgets.QComboBox()
         for label_text, mode in (
-            ("Community relay", "community"),
+            ("Beacon Relay", "community"),
             ("Bring your own AviationStack key", "byok"),
             ("Virtual / VATSIM", "virtual"),
         ):
@@ -1550,7 +1550,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         cards.setVerticalSpacing(10)
         for col, (mode, title, body, glyph) in enumerate(
             (
-                ("community", "Community Relay", "Shared airport snapshots through the hosted community relay.", "\U0001F4E1"),
+                ("community", "Beacon Relay", "Licensed shared airport snapshots through the hosted Beacon Relay.", "\U0001F4E1"),
                 ("byok", "BYOK AviationStack", "Use your own API key and keep provider calls local.", "\U0001F511"),
                 ("virtual", "Virtual / VATSIM", "No paid schedule key. Uses live VATSIM flight-network data.", "\U0001F6E9"),
             )
@@ -1567,15 +1567,15 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.mode_help = label(self.QtWidgets, "", "Muted", wrap=True)
         layout.addWidget(self.mode_help)
 
-        relay_box, relay_layout = panel(self.QtWidgets, "Community Relay")
+        relay_box, relay_layout = panel(self.QtWidgets, "Beacon Relay")
         self.relay_url = self.QtWidgets.QLineEdit("https://relay.beacontools.cc")
         self.relay_url.setPlaceholderText("https://relay.beacontools.cc")
         self.relay_url.setMaximumWidth(540)
         self.activation_token = self.QtWidgets.QLineEdit()
         self.activation_token.setEchoMode(self.QtWidgets.QLineEdit.Password)
-        self.activation_token.setPlaceholderText("Only needed when a token is not already stored")
+        self.activation_token.setPlaceholderText("Paste the Relay Access license key sent by Beacon Tools")
         self.activation_token.setMaximumWidth(420)
-        token_toggle = self.QtWidgets.QPushButton("Show token")
+        token_toggle = self.QtWidgets.QPushButton("Show key")
         token_toggle.setObjectName("Quiet")
         token_toggle.clicked.connect(lambda: self._toggle_secret(self.activation_token, token_toggle, "token"))
         token_row = self.QtWidgets.QHBoxLayout()
@@ -1583,12 +1583,12 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         token_row.addWidget(token_toggle)
         relay_form = self.QtWidgets.QFormLayout()
         relay_form.addRow("Relay host", self.relay_url)
-        relay_form.addRow("Activation token", token_row)
+        relay_form.addRow("Relay Access license key", token_row)
         relay_layout.addLayout(relay_form)
         relay_actions = self.QtWidgets.QHBoxLayout()
-        request = self.QtWidgets.QPushButton("Request activation")
-        status = self.QtWidgets.QPushButton("Check relay status")
-        test = self.QtWidgets.QPushButton("Test token")
+        request = self.QtWidgets.QPushButton("Activate Relay Access")
+        status = self.QtWidgets.QPushButton("Check Relay Access")
+        test = self.QtWidgets.QPushButton("Test access")
         request.clicked.connect(self.request_activation)
         status.clicked.connect(self.check_activation_status)
         test.clicked.connect(self.test_activation)
@@ -1596,7 +1596,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         relay_actions.addWidget(status)
         relay_actions.addWidget(test)
         relay_actions.addStretch(1)
-        self.relay_status = label(self.QtWidgets, "Relay URL is auto-filled. Stored tokens are reused without exposing them.", "Muted", wrap=True)
+        self.relay_status = label(self.QtWidgets, "Relay URL is auto-filled. The license key is exchanged for a revocable device credential and then discarded.", "Muted", wrap=True)
         relay_layout.addLayout(relay_actions)
         relay_layout.addWidget(self.relay_status)
         layout.addWidget(relay_box)
@@ -1607,7 +1607,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
             "Optional Provider Keys",
             "Only BYOK needs AviationStack. ADS-B Exchange and OpenSky are optional enrichment paths.",
         )
-        self.keys_hint = label(self.QtWidgets, "Community and VATSIM can skip this page.", "Muted", wrap=True)
+        self.keys_hint = label(self.QtWidgets, "Beacon Relay and VATSIM can skip this page.", "Muted", wrap=True)
         layout.addWidget(self.keys_hint)
         self.aviationstack_key = self.QtWidgets.QLineEdit()
         self.rapidapi_key = self.QtWidgets.QLineEdit()
@@ -1682,7 +1682,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         layout.addLayout(cards)
         self.diagnostics_help = label(
             self.QtWidgets,
-            "Privacy rule: no Linear keys, activation tokens, raw provider keys, pilot identities, or personal account data are shown here or sent from the client UI.",
+            "Privacy rule: no Linear keys, Relay Access credentials, raw provider keys, pilot identities, or personal account data are shown here or sent from the client UI.",
             "Muted",
             wrap=True,
         )
@@ -1783,7 +1783,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self.relay_box.setVisible(mode == "community")
         if mode == "community":
             self.mode_help.setText("Recommended beta path. One hosted relay setup, shared airport snapshots, no provider key pasted into this client.")
-            self.keys_hint.setText("Community relay mode skips provider keys. You can add enrichment keys later in Settings if needed.")
+            self.keys_hint.setText("Beacon Relay skips provider keys. You can add enrichment keys later in Settings if needed.")
         elif mode == "byok":
             self.mode_help.setText("Direct local AviationStack mode. You own the provider quota and the app talks to AviationStack from this machine.")
             self.keys_hint.setText("Paste an AviationStack key here. RapidAPI/OpenSky are optional enrichment helpers.")
@@ -1815,7 +1815,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
 
     def _mode_label(self, mode: str) -> str:
         return {
-            "community": "Community Relay",
+            "community": "Beacon Relay",
             "byok": "BYOK AviationStack",
             "virtual": "Virtual / VATSIM",
         }.get(mode, mode)
@@ -1831,8 +1831,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def refresh(self) -> None:
         try:
             info = self.service.setup_client_info()
-        except NativeApiError as exc:
-            self.status.setText(f"Setup info unavailable: {exc}")
+        except NativeApiError:
+            self.status.setText("Setup information is temporarily unavailable.")
             self._set_mode("virtual")
             return
         if info.get("relay_url"):
@@ -1841,7 +1841,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self._stored_activation = bool(info.get("activation_token_present") or info.get("has_activation_token") or prefix)
         if self._stored_activation:
             self.activation_token.setPlaceholderText(f"Stored token linked ({prefix or 'hidden'}...)")
-            self.relay_status.setText("Relay token is already stored on this install. You can finish Community setup without pasting it again.")
+            self.relay_status.setText("Relay credential is already stored on this install. You can finish Beacon Relay setup without pasting it again.")
         if not self._mode_initialized:
             self._set_mode("community" if self._stored_activation else "virtual")
             self._mode_initialized = True
@@ -1884,9 +1884,9 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         self._airport_search_future = None
         try:
             payload = future.result()
-        except Exception as exc:
+        except Exception:
             self.airport_results.clear()
-            self.airport_results.addItem(f"Search failed: {exc}")
+            self.airport_results.addItem("Airport search could not be completed.")
             return
         self.airport_results.clear()
         rows = list_payload(payload)
@@ -1925,32 +1925,32 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def request_activation(self) -> None:
         try:
             result = self.service.setup_activate(self._activation_payload())
-        except NativeApiError as exc:
-            self.status.setText(f"Activation request failed: {exc}")
+        except NativeApiError:
+            self.status.setText("Activation could not be completed. Check the relay address and try again.")
             return
         if result.get("activation_token_prefix"):
             self._stored_activation = True
             self.activation_token.clear()
-            self.activation_token.setPlaceholderText(f"Stored token linked ({result.get('activation_token_prefix')}...)")
-            self.relay_status.setText("Relay token received and stored locally. You can finish setup now.")
+            self.activation_token.setPlaceholderText(f"Stored device credential ({result.get('activation_token_prefix')}...)")
+            self.relay_status.setText("Relay Access is active. The master license key is not stored here.")
         self.status.setText(format_value(result.get("message") or result.get("status") or result))
         self._update_finish_summary()
 
     def check_activation_status(self) -> None:
         try:
             result = self.service.setup_client_status(self._activation_payload())
-        except NativeApiError as exc:
-            self.status.setText(f"Status check failed: {exc}")
+        except NativeApiError:
+            self.status.setText("Relay status could not be checked. Check the connection and try again.")
             return
         self.status.setText(format_value(result.get("status") or result))
 
     def test_activation(self) -> None:
         try:
             result = self.service.setup_test_activation(self._activation_payload())
-        except NativeApiError as exc:
-            self.status.setText(f"Token test failed: {exc}")
+        except NativeApiError:
+            self.status.setText("Relay Access could not be tested. Check the connection and try again.")
             return
-        self.status.setText("Activation token OK." if result.get("ok") else format_value(result))
+        self.status.setText("Relay Access works on this desktop." if result.get("ok") else format_value(result))
 
     def test_aviationstack(self) -> None:
         key = self.aviationstack_key.text().strip()
@@ -1969,8 +1969,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _test_key(self, path: str, key: str, label_text: str) -> None:
         try:
             result = self.service.setup_test_provider_key(path, key)
-        except NativeApiError as exc:
-            self.status.setText(f"{label_text} test failed: {exc}")
+        except NativeApiError:
+            self.status.setText(f"{label_text} could not be tested. Check the connection and try again.")
             return
         self.status.setText(f"{label_text} key OK." if result.get("ok") else f"{label_text} rejected: {result.get('error') or result}")
 
@@ -1993,8 +1993,8 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         }
         try:
             result = self.service.setup_complete(payload)
-        except NativeApiError as exc:
-            self.status.setText(f"Setup failed: {exc}")
+        except NativeApiError:
+            self.status.setText("Setup could not be completed. Review the selected route and try again.")
             return
         self.status.setText("Setup complete. Opening the native display..." if result.get("ok", True) else format_value(result))
         if result.get("ok", True):
@@ -5405,7 +5405,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
             ("Used this window", _budget_label(bucket)),
             ("Remaining", _budget_remaining_label(bucket)),
             ("Counter resets", bucket.get("reset_at") or bucket.get("period_end") or "-"),
-            ("Scope", bucket.get("scope_label") or ("Shared by all community relay real-data users" if is_shared else "This install")),
+            ("Scope", bucket.get("scope_label") or ("Shared by all Beacon Relay real-data users" if is_shared else "This install")),
         ]
         if access_bucket:
             rows.append(("Your install", _budget_label(access_bucket)))
@@ -6155,7 +6155,7 @@ class FeedbackScreen:  # pragma: no cover - optional Qt runtime
             emoji="\U0001F4AC",
             title="Report an Issue",
             subtitle="Your report is sanitized locally, forwarded through the hosted relay reporting gateway, and filed into the developer issue inbox.",
-            info_text="Provider keys, activation tokens, raw install IDs, and other secrets are never included in reports.",
+            info_text="Provider keys, Relay Access credentials, raw install IDs, and other secrets are never included in reports.",
             actions=(),
             show_last_refreshed=False,
         )

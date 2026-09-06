@@ -174,6 +174,16 @@ def _has_activation_token() -> bool:
     return bool(_get_activation_token())
 
 
+def _relay_auth(token: str) -> tuple[Dict[str, str], Dict[str, str]]:
+    """Return headers/query authentication while legacy tokens remain readable."""
+    clean = (token or "").strip()
+    headers = {"User-Agent": user_agent(), "Accept": "application/json"}
+    if clean.startswith("lfr_"):
+        headers["Authorization"] = f"Bearer {clean}"
+        return headers, {}
+    return headers, {"activation_token": clean} if clean else {}
+
+
 def _usage_path() -> Path:
     from localflight.storage.config import config_path
 
@@ -397,7 +407,7 @@ def _increment_community_budget(limit: int, n_calls: int = 1) -> None:
 
     if current + n_calls > effective_limit:
         raise AviationstackBudgetExceeded(
-            f"Community relay quota exceeded: {current}/{effective_limit} calls used "
+            f"Beacon Relay quota exceeded: {current}/{effective_limit} calls used "
             f"in the current {_COMMUNITY_WINDOW_DAYS}-day window. Add AVIATIONSTACK_API_KEY "
             f"to your .env for your own subscription."
         )
@@ -441,7 +451,7 @@ def _increment_budget(bucket: str, limit: int, n_calls: int = 1) -> None:
     if current + n_calls > limit:
         if bucket == "relay":
             raise AviationstackBudgetExceeded(
-                f"Community relay quota exceeded: {current}/{limit} calls used "
+                f"Beacon Relay quota exceeded: {current}/{limit} calls used "
                 f"this month ({month}). Add AVIATIONSTACK_API_KEY to your .env "
                 f"for your own subscription."
             )
@@ -567,21 +577,33 @@ def _relay_schedule_url() -> str:
     return relay_schedule_url(_get_relay_url())
 
 
-def _relay_uses_shared_schedule(source: Optional[str] = None) -> bool:
+def _selected_data_route(source: Optional[str] = None, data_route: Optional[str] = None) -> str:
+    explicit = str(data_route or "").strip().lower()
+    if explicit in {"relay", "byok", "vatsim"}:
+        return explicit
     source_name = (source or "real").strip().lower() or "real"
     if source_name == "virtual":
-        return False
-    if _has_enabled_byok_key() or _has_enabled_aerodatabox_byok_key():
-        return False
-    if _has_activation_token():
-        return True
-    return not _has_community_api_key()
+        return "vatsim"
+    try:
+        from localflight.storage.route_transition import runtime_route
+
+        route = runtime_route()
+        if route in {"relay", "byok", "vatsim"}:
+            return route
+    except Exception:
+        pass
+    # Compatibility fallback is only reachable when config cannot be loaded.
+    return "byok" if (_has_enabled_byok_key() or _has_enabled_aerodatabox_byok_key()) else "relay"
 
 
-def schedule_policy(source: Optional[str] = None) -> Dict[str, Any]:
+def _relay_uses_shared_schedule(source: Optional[str] = None, *, data_route: Optional[str] = None) -> bool:
+    return _selected_data_route(source, data_route) == "relay"
+
+
+def schedule_policy(source: Optional[str] = None, *, data_route: Optional[str] = None) -> Dict[str, Any]:
     source_name = (source or "real").strip().lower() or "real"
-    shared_relay = _relay_uses_shared_schedule(source_name)
-    active_mode = _active_mode(source_name)
+    shared_relay = _relay_uses_shared_schedule(source_name, data_route=data_route)
+    active_mode = _active_mode(source_name, data_route=data_route)
     community_shared = bool(shared_relay and active_mode == "community")
     allowed = [
         900,
@@ -603,7 +625,7 @@ def schedule_policy(source: Optional[str] = None) -> Dict[str, Any]:
         "min_refresh_seconds": _COMMUNITY_RELAY_MIN_REFRESH_SECONDS if community_shared else 900,
         "allowed_refresh_seconds": allowed,
         "reason": (
-            "Community Relay shares schedule snapshots every 30 minutes or slower to protect upstream providers."
+            "Beacon Relay shares schedule snapshots every 30 minutes or slower to protect upstream providers."
             if community_shared
             else "Current schedule mode can use the standard local refresh choices."
         ),
@@ -653,7 +675,7 @@ def _fetch_relay_status(timeout_s: int = 8, *, require_token: bool = False) -> D
 
     token = _get_activation_token()
     if require_token and not token:
-        return {"ok": False, "error": "No activation token configured"}
+        return {"ok": False, "error": "No Relay Access device credential configured"}
 
     now_ts = datetime.now(timezone.utc).timestamp()
     cached = _managed_status_cache
@@ -669,12 +691,12 @@ def _fetch_relay_status(timeout_s: int = 8, *, require_token: bool = False) -> D
 
     try:
         params = {"install_id": get_install_id(), **relay_client_metadata()}
-        if token:
-            params["activation_token"] = token
+        headers, auth_params = _relay_auth(token)
+        params.update(auth_params)
         response = requests.get(
             _client_status_url(),
             params=params,
-            headers={"Accept": "application/json", "User-Agent": user_agent()},
+            headers=headers,
             timeout=timeout_s,
         )
     except requests.RequestException as exc:
@@ -706,13 +728,13 @@ def _fetch_managed_status(timeout_s: int = 8) -> Dict[str, Any]:
     return _fetch_relay_status(timeout_s=timeout_s, require_token=True)
 
 
-def _active_mode(source: Optional[str]) -> str:
-    source_name = (source or "real").strip().lower() or "real"
-    if source_name == "virtual":
+def _active_mode(source: Optional[str], *, data_route: Optional[str] = None) -> str:
+    route = _selected_data_route(source, data_route)
+    if route == "vatsim":
         return "virtual"
-    if _has_enabled_byok_key() or _has_enabled_aerodatabox_byok_key():
+    if route == "byok":
         return "byok"
-    if _has_activation_token():
+    if route == "relay" and _has_activation_token():
         try:
             from localflight.storage.install import get_relay_access_mode
 
@@ -721,7 +743,7 @@ def _active_mode(source: Optional[str]) -> str:
         except Exception:
             pass
         return "managed"
-    return "community"
+    return "relay_unlicensed"
 
 
 def _request_json(
@@ -749,7 +771,7 @@ def _request_json(
     if response.status_code == 429:
         retry_after = _parse_retry_after(response.headers.get("Retry-After") if response.headers else None)
         raise AviationstackBudgetExceeded(
-            "Community relay quota exceeded." if relay_response else "AviationStack quota exceeded.",
+            "Beacon Relay quota exceeded." if relay_response else "AviationStack quota exceeded.",
             retry_after_s=retry_after,
             status_code=response.status_code,
         )
@@ -759,7 +781,7 @@ def _request_json(
             default_s=60,
         )
         raise AviationstackBudgetExceeded(
-            "Community relay temporarily unavailable.",
+            "Beacon Relay temporarily unavailable.",
             retry_after_s=retry_after,
             status_code=response.status_code,
         )
@@ -923,16 +945,28 @@ def _fetch_relay(
     params["install_id"] = get_install_id()
     params.update(relay_client_metadata())
     activation_token = _get_activation_token()
+    if not activation_token:
+        raise AviationstackBudgetExceeded(
+            "Beacon Relay requires an active Relay Access device credential.",
+            status_code=403,
+        )
     lane = "managed" if activation_token else "community"
+    relay_headers, auth_params = _relay_auth(activation_token)
     if activation_token:
-        params["activation_token"] = activation_token
+        params.update(auth_params)
         _raise_if_relay_cooling_down(lane)
     else:
         _raise_if_relay_cooling_down(lane)
         _increment_community_budget(_get_relay_limit())
 
     try:
-        result = _request_json(_get_relay_url(), params=params, timeout_s=timeout_s, relay_response=True)
+        result = _request_json(
+            _get_relay_url(),
+            params=params,
+            headers=relay_headers,
+            timeout_s=timeout_s,
+            relay_response=True,
+        )
     except AviationstackBudgetExceeded as exc:
         if not activation_token or exc.status_code in {401, 403, 429, 503}:
             _record_relay_cooldown(
@@ -944,7 +978,7 @@ def _fetch_relay(
     _sync_relay_quota_from_headers(result["headers"])
     data = result["data"]
     if not isinstance(data, dict) or "data" not in data:
-        raise AviationstackError("Community relay response missing 'data' field")
+        raise AviationstackError("Beacon Relay response missing 'data' field")
     return data
 
 
@@ -971,16 +1005,28 @@ def fetch_relay_schedule_records(
     }
     params.update(relay_client_metadata())
     activation_token = _get_activation_token()
+    if not activation_token:
+        raise AviationstackBudgetExceeded(
+            "Beacon Relay requires an active Relay Access device credential.",
+            status_code=403,
+        )
     lane = "managed" if activation_token else "community"
+    relay_headers, auth_params = _relay_auth(activation_token)
     if activation_token:
-        params["activation_token"] = activation_token
+        params.update(auth_params)
         _raise_if_relay_cooling_down(lane)
     else:
         _raise_if_relay_cooling_down(lane)
         _increment_community_budget(_get_relay_limit())
 
     try:
-        result = _request_json(_relay_schedule_url(), params=params, timeout_s=timeout_s, relay_response=True)
+        result = _request_json(
+            _relay_schedule_url(),
+            params=params,
+            headers=relay_headers,
+            timeout_s=timeout_s,
+            relay_response=True,
+        )
     except AviationstackBudgetExceeded as exc:
         if not activation_token or exc.status_code in {401, 403, 429, 503}:
             _record_relay_cooldown(
@@ -992,10 +1038,10 @@ def fetch_relay_schedule_records(
     _sync_relay_quota_from_headers(result["headers"])
     data = result["data"]
     if not isinstance(data, dict):
-        raise AviationstackError("Community relay schedule response was invalid")
+        raise AviationstackError("Beacon Relay schedule response was invalid")
     records = data.get("records")
     if not isinstance(records, list):
-        raise AviationstackError("Community relay schedule response missing canonical records")
+        raise AviationstackError("Beacon Relay schedule response missing canonical records")
     _sync_relay_schedule_snapshot(
         data,
         airport_iata=airport_iata,
@@ -1027,13 +1073,11 @@ def fetch_flights_once(
     """
     Fetch one page of flight data.
 
-    Routing:
-      - Enabled AVIATIONSTACK_API_KEY -> direct BYOK
-      - Activation token present      -> managed relay
-      - Local community key present   -> local community direct
-      - Otherwise                     -> community relay
+    Routing is selected by the persisted data route. Stale keys and credentials
+    are deliberately ignored when they belong to a different route.
     """
-    if _has_enabled_byok_key():
+    route = _selected_data_route("real")
+    if route == "byok":
         return _fetch_byok(
             airport_iata=airport_iata,
             limit=limit,
@@ -1044,7 +1088,7 @@ def fetch_flights_once(
             offset=offset,
             timeout_s=timeout_s,
         )
-    if _has_activation_token():
+    if route == "relay":
         return _fetch_relay(
             airport_iata=airport_iata,
             limit=limit,
@@ -1055,27 +1099,7 @@ def fetch_flights_once(
             offset=offset,
             timeout_s=timeout_s,
         )
-    if _has_community_api_key():
-        return _fetch_community_direct(
-            airport_iata=airport_iata,
-            limit=limit,
-            mode=mode,
-            dep_iata=dep_iata,
-            arr_iata=arr_iata,
-            flight_date=flight_date,
-            offset=offset,
-            timeout_s=timeout_s,
-        )
-    return _fetch_relay(
-        airport_iata=airport_iata,
-        limit=limit,
-        mode=mode,
-        dep_iata=dep_iata,
-        arr_iata=arr_iata,
-        flight_date=flight_date,
-        offset=offset,
-        timeout_s=timeout_s,
-    )
+    raise AviationstackError("VATSIM does not use the real-flight schedule client")
 
 
 def _page_rows(payload: Dict[str, Any]) -> list[Dict[str, Any]]:
@@ -1786,7 +1810,7 @@ def get_usage_stats(source: Optional[str] = None) -> Dict[str, Any]:
             "remaining": None,
             "reset_at": "",
             "period_label": "Shared provider window",
-            "scope_label": "Shared by all community relay real-data users",
+            "scope_label": "Shared by all Beacon Relay real-data users",
             "error": relay_status.get("error") or "Shared budget unavailable",
         }
 

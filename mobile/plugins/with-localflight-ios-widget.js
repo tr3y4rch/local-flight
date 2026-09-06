@@ -10,6 +10,7 @@ const {
 const APP_GROUP_ID = "group.cc.beacontools.localflight";
 const WIDGET_TARGET = "LocalFlightWidget";
 const WIDGET_BUNDLE_ID = "cc.beacontools.localflight.widget";
+const IOS_DEPLOYMENT_TARGET = "16.0";
 
 const widgetSwiftSources = [
   "WidgetSnapshot.swift",
@@ -176,13 +177,13 @@ function ensureWidgetTarget(project, config) {
   }
 
   const version = config.version || "0.5.2";
-  const buildNumber = config.ios?.buildNumber || "11";
+  const buildNumber = config.ios?.buildNumber || "12";
   updateBuildSettings(project, targetUuid, {
     APPLICATION_EXTENSION_API_ONLY: "YES",
     CODE_SIGN_ENTITLEMENTS: `${WIDGET_TARGET}/${WIDGET_TARGET}.entitlements`,
     CURRENT_PROJECT_VERSION: buildNumber,
     INFOPLIST_FILE: `${WIDGET_TARGET}/${WIDGET_TARGET}-Info.plist`,
-    IPHONEOS_DEPLOYMENT_TARGET: "15.1",
+    IPHONEOS_DEPLOYMENT_TARGET: IOS_DEPLOYMENT_TARGET,
     MARKETING_VERSION: version,
     PRODUCT_BUNDLE_IDENTIFIER: WIDGET_BUNDLE_ID,
     PRODUCT_NAME: `"${WIDGET_TARGET}"`,
@@ -194,6 +195,7 @@ function ensureWidgetTarget(project, config) {
   const appTarget = project.getFirstTarget();
   ensureTargetDependency(project, appTarget.uuid, targetUuid);
   updateBuildSettings(project, appTarget.uuid, {
+    IPHONEOS_DEPLOYMENT_TARGET: IOS_DEPLOYMENT_TARGET,
     PRODUCT_BUNDLE_IDENTIFIER: config.ios?.bundleIdentifier || "cc.beacontools.localflight",
   });
 

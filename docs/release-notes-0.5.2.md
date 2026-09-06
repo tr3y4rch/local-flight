@@ -155,9 +155,28 @@ Google Play internal testing.
 
 - Connects directly to the public Local Flight service for a simpler phone-only
   board, radar, history, and settings experience.
+- VATSIM works without Relay Access. Real airline data requires one portable
+  Relay license on the phone.
 - Uses conservative board and radar refresh timing.
 - Stores deduplicated movement history on the phone.
 - Does not include server-control tools because there is no paired host.
+
+### Mobile Store And Relay Access Model
+
+- The iOS app remains a paid download and includes one portable Relay Access
+  license after App Store ownership is verified. A distinct verified Family
+  Sharing identity receives its own license; an authoritative refund and later
+  repurchase for the same stable app-transaction identity restores that license.
+- The Android app is a free download. Companion and VATSIM work without buying
+  Relay Access; real-flight Standalone uses a one-time, non-consumable Google
+  Play product.
+- A verified Stripe, iOS, or Android purchase creates the same license type for
+  one main device. Purchases remain separate rather than merging.
+- An existing universal license can move to the official Android app through a
+  short-lived activation grant plus fresh Play Integrity proof, without another
+  Google purchase. Mobile accepts and displays no raw license key.
+- A move is committed only after the receiving app securely stores its pending
+  credential, so the previous main device remains active if storage fails.
 
 ### Widgets And Optional Support
 
@@ -197,6 +216,10 @@ The relay now has a production health check, and the release workflow runs the
 full Python suite, mobile contracts and accessibility checks, dependency audits,
 credential/package safety checks, relay-container smoke tests, download-manifest
 contracts, and architecture-specific package verification before publication.
+Licensed production remains gated on provider permission, healthy Stripe/Apple/
+Google verification and reconciliation adapters, encrypted database backups and
+a completed restore drill, and physical TestFlight/Play purchase and movement
+tests against an isolated staging database.
 
 ## Upgrading
 

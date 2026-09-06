@@ -1,0 +1,13 @@
+{
+  "name": "localflight-paid-app",
+  "version": "0.5.2",
+  "description": "Local Flight native Relay Access proof bridge.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "private": true,
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

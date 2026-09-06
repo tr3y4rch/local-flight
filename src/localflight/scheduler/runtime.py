@@ -46,10 +46,17 @@ def _notice_code_for_exception(exc: Exception) -> str:
 def _repair_relay_link_if_needed(exc: Exception) -> bool:
     status_code = getattr(exc, "status_code", None)
     message = str(exc).casefold()
-    if status_code not in {401, 403} and "activation token" not in message and "relay link" not in message:
+    if status_code not in {401, 403} and "activation token" not in message and "device credential" not in message and "relay link" not in message:
         return False
     try:
-        from localflight.sources.web.relay_activation import ensure_relay_link
+        from localflight.sources.web.relay_activation import ensure_relay_link, legacy_relay_compat_enabled
+        from localflight.storage.config import load_config
+        from localflight.storage.install import get_stored_activation_token
+
+        if load_config().data_route != "relay":
+            return False
+        if get_stored_activation_token().startswith("lfr_") or not legacy_relay_compat_enabled():
+            return False
 
         result = ensure_relay_link(force=False)
         return bool(result.get("linked"))
@@ -221,6 +228,7 @@ def run_multi_airport(
             display_name=ap.get("display_name", base_cfg.display_name),
             theme=base_cfg.theme,
             source=base_cfg.source,
+            data_route=base_cfg.data_route,
             timezone=ap.get("timezone", base_cfg.timezone),
             skin=base_cfg.skin,
             display_outputs=base_cfg.display_outputs,

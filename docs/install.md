@@ -14,7 +14,7 @@ The website [Downloads section](https://beacontools.cc/local-flight#downloads) r
 
 - Local Flight is meant for your own trusted LAN, not the open internet.
 - First launch opens a six-step guided setup wizard before the normal app.
-- You can choose **Local Flight Relay**, **Use your own keys**, or **VATSIM**.
+- Desktop offers exactly **Beacon Relay**, **Bring Your Own Keys**, and **VATSIM**.
 - The official hosted relay is `https://relay.beacontools.cc`.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
 - The current release is `0.5.2` across desktop, Linux server, Raspberry Pi, relay compatibility, and mobile store-testing builds.
@@ -226,7 +226,7 @@ lf update
 
 ## Mobile App
 
-The mobile app is aligned to `0.5.2` using iOS build 12 and Android versionCode 15 for testing. Public availability is published at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development.
+The mobile app is aligned to `0.5.2` using iOS build 12 and Android versionCode 15 for testing. The paid iOS app includes Relay Access. Android is a free download: Companion and VATSIM work before purchase, while real-flight Standalone uses an optional one-time Relay Access product. Public availability is published at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development.
 
 Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or Android device.
 
@@ -278,7 +278,7 @@ After pairing, the mobile connection panel shows whether Remote backup is verifi
 
 ### Standalone
 
-Choose **Standalone** if the phone should use the hosted Beacon Tools relay directly without your own Local Flight host.
+Choose **Standalone** if the phone should work without your own Local Flight host. Select VATSIM for free virtual traffic, or real airline data through Beacon Relay. The paid iOS app includes Relay Access; Android offers it as a one-time, non-consumable purchase. An existing universal license can also move to the official Android app through a verified activation grant without another Google purchase.
 
 Standalone is intentionally simpler and rate-limited:
 
@@ -289,7 +289,7 @@ Standalone is intentionally simpler and rate-limited:
 - No Matrix, Admin, scheduler restart, LAN server controls, or WebSocket connection.
 - History is stored locally on the phone for 30 days or 1,000 deduped movements.
 
-The app creates a mobile relay install ID, receives an activation token, stores both locally with Expo SecureStore, and keeps the selected airport on the device.
+VATSIM needs no Relay credential. For real airline data, the app creates a mobile relay install ID and verifies the App Store entitlement or Google Play Relay product. The service prepares a short-lived per-device credential, the app stores it in SecureStore, and activation is committed only after that write succeeds. Mobile never accepts, displays, or stores the portable `LFRA-…` master key. The selected airport and recent movement history stay on the device.
 
 ---
 
@@ -306,11 +306,11 @@ Setup asks for:
 
 ### Data Access Choices
 
-- **Local Flight Relay**: recommended first path. Uses `https://relay.beacontools.cc` and shared hosted schedule snapshots so you do not need a paid schedule key on day one. The relay is cache-first and may combine compatible real schedule providers behind the scenes, currently AeroDataBox primary schedule data plus AviationStack sparse fill/fallback where configured, to keep boards populated.
-- **Use your own keys**: use your own AeroDataBox schedule key (API.Market by default, RapidAPI if selected by env), AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
+- **Beacon Relay**: optional hosted path requiring active Relay Access. Uses `https://relay.beacontools.cc` and shared schedule snapshots. Paste a purchased `LFRA-…` key or a one-time activation code on the computer running Local Flight; the app exchanges it for a device credential and then discards the key. Which real-data capabilities can be sold remains controlled separately by provider permission.
+- **Bring Your Own Keys**: use your own AeroDataBox schedule key (API.Market by default, RapidAPI if selected by env), AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
 - **VATSIM**: no real-world schedule key. Uses virtual network data.
 
-Local Flight Relay protects shared provider usage, so real schedule refresh choices are 30 minutes or slower when the app is using the hosted shared relay. Setup verifies the install's relay link before it finishes, which also prepares Remote Companion pairing. If the first board update is interrupted, Local Flight retries with a bounded delay; after a board has loaded, provider or relay failures keep the latest safe cached board instead of replacing it with an empty refresh.
+Beacon Relay protects shared provider usage, so real schedule refresh choices are 30 minutes or slower when the app is using the hosted shared relay. Setup cannot finish that route until the stored credential is committed and active. Bring Your Own Keys and VATSIM bypass every licensing endpoint. If the first board update is interrupted, Local Flight retries with a bounded delay; after a board has loaded, provider or relay failures keep the latest safe cached board instead of replacing it with an empty refresh.
 
 ---
 
@@ -360,8 +360,8 @@ documented separately in [release-process.md](release-process.md).
 
 - If Companion cannot connect on LAN, confirm the phone and server are on the same WiFi and use the server LAN IP shown in Settings. Use `http://localflight.local:8000` only when you have one Local Flight server on that LAN.
 - If Remote Companion shows offline away from LAN, run **Test Remote** from the mobile connection panel. If it reports host offline, open Local Flight on the host. If it reports grant revoked or key mismatch, pair the phone again from that host. If it reports rate limited, wait before trying again.
-- If Standalone mobile cannot load, check internet access first. It does not need your own Local Flight host to be online.
-- If Standalone FIDS looks stale, remember that it is deliberately limited to a 3-hour auto-refresh cadence. Pull to refresh only when you intentionally need a fresh check.
+- If Standalone mobile cannot load, check internet access first. It does not need your own Local Flight host to be online. Android Companion and VATSIM remain usable without a Relay purchase; only real-flight Standalone needs active access.
+- If Standalone FIDS looks stale, remember that new shared airline-schedule data is deliberately limited to an hourly-or-slower cadence. Pull to refresh only when you intentionally need a fresh check.
 - If Standalone Radar refuses a range, use `1`, `3`, `5`, or `10` NM.
 - If `localflight.local` resolves to the wrong server, use the LAN IP address or re-scan the fingerprint-bound QR from the server you want.
 - If a Pi display stays blank, confirm whether you installed `--native-kiosk`, `--kiosk`, or `--headless`.

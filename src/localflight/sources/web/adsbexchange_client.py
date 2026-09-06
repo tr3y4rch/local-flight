@@ -52,6 +52,29 @@ def _get_activation_token() -> str:
         return ""
 
 
+def _selected_data_route() -> str:
+    try:
+        from localflight.storage.config import config_path
+        from localflight.storage.route_transition import runtime_route
+
+        if config_path().exists():
+            return runtime_route()
+    except Exception:
+        pass
+    # Isolated tools and pre-migration installs retain legacy inference until a
+    # config with the explicit route has been written.
+    return "byok" if os.getenv("RAPIDAPI_KEY", "").strip() else "relay"
+
+
+def _relay_auth(token: str) -> tuple[Dict[str, str], Dict[str, str]]:
+    clean = (token or "").strip()
+    headers = {"Accept": "application/json", "User-Agent": user_agent()}
+    if clean.startswith("lfr_"):
+        headers["Authorization"] = f"Bearer {clean}"
+        return headers, {}
+    return headers, {"activation_token": clean} if clean else {}
+
+
 def _get_monthly_limit() -> int:
     try:
         return int(os.getenv("LOCALFLIGHT_RAPIDAPI_MONTHLY_LIMIT", str(_DEFAULT_MONTHLY_LIMIT)))
@@ -134,8 +157,9 @@ def _sync_relay_quota_from_headers(headers: Any) -> None:
 def get_usage_stats() -> Dict[str, Any]:
     usage = _load_usage()
     month = _month_key()
-    direct_available = bool(os.getenv("RAPIDAPI_KEY", "").strip())
-    managed_available = bool(_get_activation_token())
+    route = _selected_data_route()
+    direct_available = route == "byok" and bool(os.getenv("RAPIDAPI_KEY", "").strip())
+    managed_available = route == "relay" and bool(_get_activation_token())
     mode = "byok" if direct_available else ("managed_relay" if managed_available else "none")
     bucket = "rapidapi" if direct_available else "rapidapi_relay"
     limit_map_key = "rapidapi_relay_limits" if bucket == "rapidapi_relay" else ""
@@ -186,19 +210,21 @@ def _fetch_managed_relay(lat: float, lon: float, dist_nm: int, timeout_s: int) -
     from localflight.storage.install import get_install_id
     from localflight.sources.web.relay_heartbeat import relay_client_metadata
 
+    activation_token = _get_activation_token()
+    headers, auth_params = _relay_auth(activation_token)
     params = {
         "install_id": get_install_id(),
         "lat": lat,
         "lon": lon,
         "radius_nm": dist_nm,
-        "activation_token": _get_activation_token(),
     }
+    params.update(auth_params)
     params.update(relay_client_metadata())
     try:
         r = requests.get(
             _get_relay_url(),
             params=params,
-            headers={"Accept": "application/json", "User-Agent": user_agent()},
+            headers=headers,
             timeout=timeout_s,
         )
     except requests.RequestException as exc:
@@ -233,12 +259,13 @@ def fetch_aircraft(
 ) -> List[Dict[str, Any]]:
     dist_nm = max(5, int(math.ceil(radius_nm / 5) * 5))
 
-    if os.getenv("RAPIDAPI_KEY", "").strip():
+    route = _selected_data_route()
+    if route == "byok" and os.getenv("RAPIDAPI_KEY", "").strip():
         aircraft = _fetch_direct(lat, lon, dist_nm, timeout_s)
-    elif _get_activation_token():
+    elif route == "relay" and _get_activation_token():
         aircraft = _fetch_managed_relay(lat, lon, dist_nm, timeout_s)
     else:
-        raise ADSBExchangeError("No ADS-B relay or RAPIDAPI_KEY configured")
+        raise ADSBExchangeError(f"No ADS-B provider is available for the {route} data route")
 
     log.info(
         "ADS-B Exchange: %d aircraft within %dnm of (%.4f, %.4f)",
@@ -389,4 +416,9 @@ def enrich_flights_with_adsbexchange(
 
 
 def is_available() -> bool:
-    return bool(os.getenv("RAPIDAPI_KEY", "").strip() or _get_activation_token())
+    route = _selected_data_route()
+    if route == "byok":
+        return bool(os.getenv("RAPIDAPI_KEY", "").strip())
+    if route == "relay":
+        return bool(_get_activation_token())
+    return False

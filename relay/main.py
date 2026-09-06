@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import requests as _req
 import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -36,7 +37,39 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from localflight.core.notices import attach_notices, make_notice, sanitize_client_payload
+from localflight.core.redaction import redact_sensitive as _redact_sensitive
 from localflight.version import app_version as runtime_app_version, user_agent as runtime_user_agent
+from relay.access import (
+    AccessConfigurationError,
+    AccessRateLimited,
+    InvalidChallenge,
+    InvalidLicenseKey,
+    LicenseInactive,
+    LicenseNotFound,
+    LicenseService,
+    PurchaseCatalog,
+    PurchaseFulfillmentService,
+    ProviderAccessPolicy,
+    VerifiedPurchase,
+    ensure_access_schema,
+)
+from relay.access.adapters import (
+    AppleAppTransactionAdapter,
+    GooglePlayDeveloperAdapter,
+    GooglePlayIntegrityAdapter,
+    SmtpLicenseMailer,
+    StripeAdapter,
+)
+from relay.access.backup import AccessBackupManager
+from relay.access.mobile_verifiers import (
+    ApplePaidAppVerifier,
+    GooglePlayIntegrityVerifier,
+    GooglePlayProductVerifier,
+    PAID_APP_PRODUCT_ID,
+    PaidAppVerificationError,
+    apple_root_certificates,
+)
+from relay.access.schema import ACCESS_SCHEMA_VERSION, access_schema_version
 
 AVIATIONSTACK_URL = "https://api.aviationstack.com/v1/flights"
 AERODATABOX_RAPIDAPI_URL = "https://aerodatabox.p.rapidapi.com"
@@ -311,20 +344,6 @@ _REPORT_TEAM_ENV = {
     "relay": "LINEAR_TEAM_RELAY_ID",
     "default": "LINEAR_TEAM_DEFAULT_ID",
 }
-_SECRET_PATTERNS = (
-    (re.compile(r"(AVIATIONSTACK_API_KEY|AERODATABOX_API_KEY|RAPIDAPI_KEY|OPENSKY_CLIENT_SECRET|LINEAR_API_KEY|LINEAR_REPORTER_API_KEY)=\S+", re.I), r"\1=[redacted]"),
-    (re.compile(r"(access_key=)[^&\s]+", re.I), r"\1[redacted]"),
-    (re.compile(r"(X-RapidAPI-Key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
-    (re.compile(r"(x-magicapi-key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
-    (re.compile(r"lin_api_[A-Za-z0-9_]+", re.I), "[redacted-linear-token]"),
-    (re.compile(r"lfm_[A-Za-z0-9._-]+", re.I), "[redacted-activation-token]"),
-    (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I), "[redacted-uuid]"),
-    (re.compile(r"\b10\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b"), r"10.\1.\2.x"),
-    (re.compile(r"\b192\.168\.(\d{1,3})\.(\d{1,3})\b"), r"192.168.\1.x"),
-    (re.compile(r"\b172\.(1[6-9]|2\d|3[01])\.(\d{1,3})\.(\d{1,3})\b"), r"172.\1.\2.x"),
-)
-
-
 class UpstreamBudgetExceeded(HTTPException):
     def __init__(
         self,
@@ -644,6 +663,7 @@ def _db_path() -> Path:
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(str(_db_path()))
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -1143,6 +1163,7 @@ def _ensure_schema() -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_iap_transactions_verified ON iap_transactions (verified_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_iap_events_install ON iap_verification_events (install_fingerprint, ts DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_iap_events_network ON iap_verification_events (network_tag, ts DESC)")
+    ensure_access_schema(conn)
     interrupted_at = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """
@@ -1297,6 +1318,547 @@ def _network_secret(conn: Optional[sqlite3.Connection] = None) -> str:
     if own_conn:
         conn.close()
     return value
+
+
+def _enabled_env(key: str, default: bool = False) -> bool:
+    fallback = "1" if default else "0"
+    return _env(key, fallback).lower() in {"1", "true", "yes", "on"}
+
+
+def _optional_enabled_env(key: str) -> Optional[bool]:
+    """Return an explicit boolean override, or None to inherit its capability."""
+    value = _env(key)
+    if not value:
+        return None
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _access_mode() -> str:
+    selected = _env("RELAY_ACCESS_MODE", "legacy").strip().lower()
+    if selected not in {"legacy", "licensed"}:
+        raise AccessConfigurationError("RELAY_ACCESS_MODE must be legacy or licensed")
+    return selected
+
+
+def _access_deployment_environment() -> str:
+    """Return the commerce-proof boundary for this relay deployment.
+
+    Defaulting to production is intentionally fail-closed: a missing setting
+    can never make TestFlight, Stripe test-mode, or Play test ownership valid
+    against the production license database.
+    """
+    selected = _env("RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT", "production").strip().lower()
+    if selected not in {"production", "staging"}:
+        raise AccessConfigurationError(
+            "RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT must be production or staging"
+        )
+    return selected
+
+
+def _accepted_purchase_environments() -> frozenset[str]:
+    return (
+        frozenset({"production"})
+        if _access_deployment_environment() == "production"
+        else frozenset({"sandbox", "test"})
+    )
+
+
+def _mobile_ownership_enabled() -> bool:
+    return _enabled_env("RELAY_ACCESS_MOBILE_OWNERSHIP_ENABLED")
+
+
+def _mobile_platform_state(platform: str) -> str:
+    key = {
+        "ios": "RELAY_ACCESS_IOS_STATE",
+        "android": "RELAY_ACCESS_ANDROID_STATE",
+    }.get(platform.strip().lower())
+    if not key:
+        return "unavailable"
+    value = _env(key, "unavailable").lower()
+    return value if value in {"unavailable", "testing", "available"} else "unavailable"
+
+
+def _mobile_platform_preflight_errors(platform: str) -> list[str]:
+    """Validate verifier identity and key material without inspecting a purchase."""
+    selected = platform.strip().lower()
+    errors: list[str] = []
+    if selected == "ios":
+        if _env("APPLE_IAP_BUNDLE_ID") != _IAP_BUNDLE_ID:
+            errors.append("apple_bundle_id")
+        raw_app_id = _env("APPLE_APP_ID")
+        try:
+            if int(raw_app_id) <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append("apple_app_id")
+        try:
+            roots = apple_root_certificates(_env("APPLE_ROOT_CERTIFICATES_B64_JSON"))
+            if not roots:
+                raise ValueError
+            from cryptography import x509
+
+            for root in roots:
+                x509.load_der_x509_certificate(root)
+        except Exception:
+            errors.append("apple_root_certificates")
+        return errors
+    if selected == "android":
+        if _env("GOOGLE_PLAY_PACKAGE_NAME") != _IAP_BUNDLE_ID:
+            errors.append("google_package_name")
+        environment = _env("GOOGLE_PLAY_PURCHASE_ENVIRONMENT")
+        expected_environment = (
+            "production" if _access_deployment_environment() == "production" else "test"
+        )
+        if environment != expected_environment:
+            errors.append("google_environment")
+        if not _env("GOOGLE_RELAY_ACCESS_PRODUCT_ID"):
+            errors.append("google_product_id")
+        if not _google_play_developer_adapter().configured():
+            errors.append("google_developer_api")
+        return errors
+    return ["mobile_platform"]
+
+
+def _mobile_platform_verification_ready(platform: str) -> bool:
+    return bool(
+        _mobile_ownership_enabled()
+        and _mobile_platform_state(platform) in {"testing", "available"}
+        and not _access_preflight_errors()
+        and not _mobile_platform_preflight_errors(platform)
+    )
+
+
+def _mobile_license_delivery_ready() -> bool:
+    """Return whether protected cross-platform key delivery is configured.
+
+    Ownership verification intentionally remains independent from SMTP so an
+    existing mobile purchaser can restore or activate during an email outage.
+    Public acquisition, however, must stay unavailable until the portable-key
+    promise can be fulfilled.
+    """
+    return not _access_preflight_errors(mail=True)
+
+
+def _mobile_reconciliation_ready(platform: str) -> bool:
+    selected = platform.strip().lower()
+    if selected == "ios":
+        try:
+            return bool(
+                _apple_app_transaction_adapter().configured()
+                and _env("APPLE_APP_ID")
+                and apple_root_certificates(_env("APPLE_ROOT_CERTIFICATES_B64_JSON"))
+            )
+        except AccessConfigurationError:
+            return False
+    if selected == "android":
+        return bool(
+            _google_play_developer_adapter().configured()
+            and _env("GOOGLE_RTDN_AUDIENCE")
+            and _env("GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL")
+        )
+    return False
+
+
+def _require_mobile_platform_verification(platform: str) -> str:
+    selected = platform.strip().lower()
+    if selected not in {"ios", "android"}:
+        raise InvalidChallenge("Platform must be ios or android")
+    if _mobile_platform_state(selected) not in {"testing", "available"}:
+        raise AccessConfigurationError(f"{selected} Relay purchase verification is not available")
+    errors = _mobile_platform_preflight_errors(selected)
+    if errors:
+        raise AccessConfigurationError(
+            f"{selected} Relay purchase verification is not configured"
+        )
+    return selected
+
+
+def _access_requires_production_secrets() -> bool:
+    return (
+        _access_mode() == "licensed"
+        or _enabled_env("RELAY_ACCESS_SALES_ENABLED")
+        or _mobile_ownership_enabled()
+    )
+
+
+def _access_preflight_errors(*, stripe: bool = False, mail: bool = False) -> list[str]:
+    errors: list[str] = []
+    try:
+        _access_deployment_environment()
+    except AccessConfigurationError:
+        errors.append("deployment_environment")
+    hash_secret = _env("RELAY_ACCESS_HASH_SECRET")
+    key_secret = _env("RELAY_ACCESS_KEY_SECRET")
+    encryption_secret = _env("RELAY_ACCESS_ENCRYPTION_SECRET")
+    if len(hash_secret) < 24:
+        errors.append("hash_secret")
+    if len(key_secret) < 24:
+        errors.append("key_secret")
+    if len(encryption_secret) < 24:
+        errors.append("encryption_secret")
+    configured_secrets = [value for value in (hash_secret, key_secret, encryption_secret) if value]
+    if len(configured_secrets) != len(set(configured_secrets)):
+        errors.append("secrets_must_differ")
+    if not _env("RELAY_ACCESS_KEY_SECRET_ID", "v1"):
+        errors.append("key_secret_id")
+    if not _env("RELAY_ACCESS_HASH_SECRET_ID", "v1"):
+        errors.append("hash_secret_id")
+    if not _env("RELAY_ACCESS_ENCRYPTION_SECRET_ID", "v1"):
+        errors.append("encryption_secret_id")
+    for env_key in (
+        "RELAY_ACCESS_HISTORICAL_HASH_SECRETS_JSON",
+        "RELAY_ACCESS_HISTORICAL_KEY_SECRETS_JSON",
+        "RELAY_ACCESS_HISTORICAL_ENCRYPTION_SECRETS_JSON",
+    ):
+        try:
+            _access_historical_secrets(env_key)
+        except AccessConfigurationError:
+            errors.append(env_key.lower())
+    backup_required = (
+        _access_mode() == "licensed"
+        and _access_deployment_environment() == "production"
+    )
+    if backup_required or _enabled_env("RELAY_ACCESS_BACKUP_ENABLED"):
+        backup_secret = _env("RELAY_ACCESS_BACKUP_SECRET")
+        if not _enabled_env("RELAY_ACCESS_BACKUP_ENABLED"):
+            errors.append("backup_disabled")
+        if len(backup_secret) < 24:
+            errors.append("backup_secret")
+        if backup_secret and backup_secret in {hash_secret, key_secret, encryption_secret}:
+            errors.append("backup_secret_must_differ")
+        if not _env("RELAY_ACCESS_BACKUP_KEY_ID", "v1"):
+            errors.append("backup_key_id")
+        try:
+            _access_historical_secrets("RELAY_ACCESS_HISTORICAL_BACKUP_SECRETS_JSON")
+        except AccessConfigurationError:
+            errors.append("relay_access_historical_backup_secrets_json")
+    try:
+        _access_site_url("")
+    except AccessConfigurationError:
+        errors.append("site_url")
+    if stripe and not _stripe_adapter().configured():
+        errors.append("stripe")
+    if mail and not _license_mailer().configured():
+        errors.append("mail")
+    return errors
+
+
+def _require_access_preflight(*, stripe: bool = False, mail: bool = False) -> None:
+    errors = _access_preflight_errors(stripe=stripe, mail=mail)
+    if errors:
+        raise AccessConfigurationError(
+            "Relay Access deployment configuration is incomplete: " + ", ".join(errors)
+        )
+
+
+def _access_secret(env_key: str, purpose: str) -> str:
+    configured = _env(env_key)
+    if configured:
+        return configured
+    if _access_requires_production_secrets():
+        raise AccessConfigurationError(f"{env_key} must be explicitly configured")
+    return hmac.new(
+        _network_secret().encode("utf-8"),
+        f"relay-access:{purpose}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _access_historical_secrets(env_key: str) -> dict[str, str]:
+    raw = _env(env_key)
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise AccessConfigurationError(f"{env_key} must be a JSON object") from exc
+    if not isinstance(parsed, dict):
+        raise AccessConfigurationError(f"{env_key} must be a JSON object")
+    result: dict[str, str] = {}
+    for secret_id, secret in parsed.items():
+        clean_id = str(secret_id or "").strip()
+        clean_secret = str(secret or "").strip()
+        if not clean_id or len(clean_id) > 32 or len(clean_secret) < 24:
+            raise AccessConfigurationError(f"{env_key} contains an invalid key entry")
+        result[clean_id] = clean_secret
+    return result
+
+
+def _license_service() -> LicenseService:
+    if _access_requires_production_secrets():
+        _require_access_preflight()
+    return LicenseService(
+        _connect,
+        hash_secret=_access_secret("RELAY_ACCESS_HASH_SECRET", "hash"),
+        key_secret=_access_secret("RELAY_ACCESS_KEY_SECRET", "key"),
+        encryption_secret=_access_secret("RELAY_ACCESS_ENCRYPTION_SECRET", "encryption"),
+        product_code=_env("RELAY_ACCESS_PRODUCT_CODE", "beacon_relay_lifetime_v1"),
+        key_secret_id=_env("RELAY_ACCESS_KEY_SECRET_ID", "v1"),
+        hash_secret_id=_env("RELAY_ACCESS_HASH_SECRET_ID", "v1"),
+        encryption_secret_id=_env("RELAY_ACCESS_ENCRYPTION_SECRET_ID", "v1"),
+        historical_hash_secrets=_access_historical_secrets(
+            "RELAY_ACCESS_HISTORICAL_HASH_SECRETS_JSON"
+        ),
+        historical_key_secrets=_access_historical_secrets(
+            "RELAY_ACCESS_HISTORICAL_KEY_SECRETS_JSON"
+        ),
+        historical_encryption_secrets=_access_historical_secrets(
+            "RELAY_ACCESS_HISTORICAL_ENCRYPTION_SECRETS_JSON"
+        ),
+    )
+
+
+def _access_backup_manager() -> AccessBackupManager:
+    if not _enabled_env("RELAY_ACCESS_BACKUP_ENABLED"):
+        raise AccessConfigurationError("Relay Access encrypted backups are not enabled")
+    return AccessBackupManager(
+        database_path=_db_path(),
+        backup_directory=Path(
+            _env(
+                "RELAY_ACCESS_BACKUP_DIRECTORY",
+                str(_db_path().parent / "relay-access-backups"),
+            )
+        ),
+        active_key_id=_env("RELAY_ACCESS_BACKUP_KEY_ID", "v1"),
+        active_secret=_env("RELAY_ACCESS_BACKUP_SECRET"),
+        historical_secrets=_access_historical_secrets(
+            "RELAY_ACCESS_HISTORICAL_BACKUP_SECRETS_JSON"
+        ),
+    )
+
+
+def _access_backup_health() -> Dict[str, Any]:
+    if not _enabled_env("RELAY_ACCESS_BACKUP_ENABLED"):
+        return {"configured": False, "healthy": False, "last_backup_at": ""}
+    try:
+        manager = _access_backup_manager()
+        latest = manager.latest_backup()
+        if latest is None:
+            return {"configured": True, "healthy": False, "last_backup_at": ""}
+        inspection = manager.inspect(latest, verify_database=True)
+        created_at = datetime.fromisoformat(inspection.created_at.replace("Z", "+00:00"))
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        age_seconds = max(0, int((datetime.now(timezone.utc) - created_at).total_seconds()))
+        # Backups are hourly. A decryptable but stale snapshot must not keep
+        # launch diagnostics green indefinitely after the scheduler stops.
+        healthy = age_seconds <= 2 * 60 * 60
+        return {
+            "configured": True,
+            "healthy": healthy,
+            "last_backup_at": inspection.created_at,
+            "key_id": inspection.key_id,
+            "age_seconds": age_seconds,
+            "detail_code": "" if healthy else "backup_stale",
+        }
+    except Exception as exc:
+        return {
+            "configured": True,
+            "healthy": False,
+            "last_backup_at": "",
+            "detail_code": exc.__class__.__name__,
+        }
+
+
+_ACCESS_BACKUP_LOCK = threading.Lock()
+
+
+def _maybe_create_access_backup(*, force: bool = False) -> Dict[str, Any] | None:
+    if not _enabled_env("RELAY_ACCESS_BACKUP_ENABLED"):
+        return None
+    with _ACCESS_BACKUP_LOCK:
+        manager = _access_backup_manager()
+        if not force and not manager.backup_due():
+            return None
+        inspection = manager.create_backup()
+        return {
+            "created_at": inspection.created_at,
+            "key_id": inspection.key_id,
+            "database_sha256": inspection.database_sha256,
+            "plaintext_bytes": inspection.plaintext_bytes,
+        }
+
+
+def _purchase_catalog() -> PurchaseCatalog:
+    product_code = _env("RELAY_ACCESS_PRODUCT_CODE", "beacon_relay_lifetime_v1")
+    return PurchaseCatalog(
+        product_code=product_code,
+        stripe_price_id=_env("STRIPE_RELAY_ACCESS_PRICE_ID"),
+        apple_product_id=PAID_APP_PRODUCT_ID,
+        google_product_id=_env(
+            "GOOGLE_RELAY_ACCESS_PRODUCT_ID",
+            "cc.beacontools.localflight.relay_access",
+        ),
+        accepted_environments=_accepted_purchase_environments(),
+    )
+
+
+def _purchase_fulfillment(service: LicenseService | None = None) -> PurchaseFulfillmentService:
+    return PurchaseFulfillmentService(service or _license_service(), _purchase_catalog())
+
+
+def _provider_access_policy() -> ProviderAccessPolicy:
+    capabilities: Dict[str, bool] = {
+        "schedule": _enabled_env("RELAY_ACCESS_SCHEDULE_ENABLED"),
+        "radar": _enabled_env("RELAY_ACCESS_RADAR_ENABLED"),
+        "remote_companion": _enabled_env("RELAY_ACCESS_REMOTE_COMPANION_ENABLED"),
+    }
+    for capability, provider, env_key in (
+        ("schedule", "aerodatabox", "RELAY_ACCESS_AERODATABOX_ENABLED"),
+        ("schedule", "aviationstack", "RELAY_ACCESS_AVIATIONSTACK_ENABLED"),
+        ("radar", "adsbexchange", "RELAY_ACCESS_ADSBEXCHANGE_ENABLED"),
+        ("remote_companion", "relay", "RELAY_ACCESS_REMOTE_COMPANION_ENABLED"),
+    ):
+        override = _optional_enabled_env(env_key)
+        if override is not None:
+            capabilities[f"{capability}:{provider}"] = override
+    return ProviderAccessPolicy(
+        sales_enabled=_enabled_env("RELAY_ACCESS_SALES_ENABLED"),
+        capabilities=capabilities,
+    )
+
+
+def _licensed_provider_allowed(capability: str, provider: str) -> bool:
+    return _access_mode() != "licensed" or _provider_access_policy().allows(capability, provider)
+
+
+def _require_licensed_provider_allowed(capability: str, provider: str) -> None:
+    if _licensed_provider_allowed(capability, provider):
+        return
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "code": "relay_provider_unavailable",
+            "message": f"{provider} is not enabled for licensed Beacon Relay access.",
+        },
+    )
+
+
+def _licensed_schedule_snapshot_allowed(provider: str) -> bool:
+    if _access_mode() != "licensed":
+        return True
+    value = provider.strip().lower()
+    used = [name for name in ("aerodatabox", "aviationstack") if name in value]
+    return bool(used) and all(_licensed_provider_allowed("schedule", name) for name in used)
+
+
+def _relay_sales_policy_ready(policy: ProviderAccessPolicy | None = None) -> bool:
+    selected = policy or _provider_access_policy()
+    return bool(
+        selected.sales_enabled
+        and (selected.allows("schedule", "aerodatabox") or selected.allows("schedule", "aviationstack"))
+        and selected.allows("radar", "adsbexchange")
+        and selected.allows("remote_companion", "relay")
+    )
+
+
+def _stripe_adapter() -> StripeAdapter:
+    return StripeAdapter(
+        api_key=_env("STRIPE_SECRET_KEY"),
+        webhook_secret=_env("STRIPE_WEBHOOK_SECRET"),
+        price_id=_env("STRIPE_RELAY_ACCESS_PRICE_ID"),
+    )
+
+
+def _google_play_developer_adapter() -> GooglePlayDeveloperAdapter:
+    return GooglePlayDeveloperAdapter(
+        service_account_json_base64=_env("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64"),
+    )
+
+
+def _google_play_integrity_adapter() -> GooglePlayIntegrityAdapter:
+    return GooglePlayIntegrityAdapter(
+        service_account_json_base64=_env(
+            "GOOGLE_PLAY_INTEGRITY_SERVICE_ACCOUNT_JSON_B64",
+            _env("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64"),
+        ),
+    )
+
+
+def _apple_app_transaction_adapter() -> AppleAppTransactionAdapter:
+    return AppleAppTransactionAdapter(
+        issuer_id=_env("APPLE_APP_STORE_ISSUER_ID"),
+        key_id=_env("APPLE_APP_STORE_KEY_ID"),
+        private_key_base64=_env("APPLE_APP_STORE_PRIVATE_KEY_B64"),
+        bundle_id=_env("APPLE_IAP_BUNDLE_ID", _IAP_BUNDLE_ID),
+    )
+
+
+def _license_mailer() -> SmtpLicenseMailer:
+    try:
+        port = int(_contact_env("RELAY_LICENSE_SMTP_PORT", "RELAY_CONTACT_SMTP_PORT", "SMTP_PORT", default="587"))
+    except ValueError:
+        port = 587
+    security = _contact_env("RELAY_LICENSE_SMTP_SECURITY", "RELAY_CONTACT_SMTP_SECURITY", "SMTP_SECURITY")
+    if not security:
+        security = "ssl" if _enabled_env("RELAY_LICENSE_SMTP_SSL") or _enabled_env("RELAY_CONTACT_SMTP_SSL") else "starttls"
+    return SmtpLicenseMailer(
+        host=_contact_env("RELAY_LICENSE_SMTP_HOST", "RELAY_CONTACT_SMTP_HOST", "SMTP_HOST"),
+        port=port,
+        sender=_contact_env("RELAY_LICENSE_FROM", "RELAY_CONTACT_FROM", "MAIL_FROM"),
+        username=_contact_env("RELAY_LICENSE_SMTP_USERNAME", "RELAY_CONTACT_SMTP_USERNAME", "SMTP_USER"),
+        password=_contact_env("RELAY_LICENSE_SMTP_PASSWORD", "RELAY_CONTACT_SMTP_PASSWORD", "SMTP_PASSWORD"),
+        security=security,
+    )
+
+
+def _request_access_token(request: Request, legacy_token: str = "") -> str:
+    authorization = request.headers.get("authorization", "").strip()
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    fallback = (legacy_token or "").strip()
+    # Portable device credentials are long-lived secrets and must never be
+    # accepted from query strings or compatibility JSON fields. Only the old
+    # lfm_ token family may use those transports during the legacy cutover.
+    return "" if fallback.startswith("lfr_") else fallback
+
+
+def _masked_receiver_payload(receiver: Dict[str, Any]) -> Dict[str, str]:
+    name = str(receiver.get("device_name") or "Main device").strip()[:80]
+    if len(name) > 4:
+        name = f"{name[:2]}…{name[-2:]}"
+    elif name:
+        name = f"{name[:1]}…"
+    return {
+        "device_kind": str(receiver.get("device_kind") or "unknown")[:32],
+        "device_name": name,
+        "activated_at": str(receiver.get("activated_at") or "")[:40],
+    }
+
+
+def _access_exception(exc: Exception) -> HTTPException:
+    detail: Dict[str, Any] = {
+        "code": str(getattr(exc, "code", "access_error")),
+        "message": str(exc) if isinstance(
+            exc,
+            (AccessRateLimited, AccessConfigurationError, InvalidChallenge, InvalidLicenseKey, LicenseNotFound, LicenseInactive),
+        ) else "Relay Access could not complete the request",
+        "credential_state": str(getattr(exc, "credential_state", "unknown") or "unknown"),
+        "reason_code": str(getattr(exc, "reason_code", "access_error") or "access_error"),
+        "retryable": bool(getattr(exc, "retryable", False)),
+    }
+    access_state = getattr(exc, "access_state", None)
+    if access_state in {"active", "suspended", "refunded", "revoked"}:
+        detail["access_state"] = access_state
+    receiver = getattr(exc, "current_receiver", None)
+    if isinstance(receiver, dict):
+        detail["current_main_device"] = _masked_receiver_payload(receiver)
+    if isinstance(exc, AccessRateLimited):
+        return HTTPException(
+            status_code=429,
+            detail=detail,
+            headers={"Retry-After": str(exc.retry_after)},
+        )
+    if isinstance(exc, AccessConfigurationError):
+        detail["retryable"] = True
+        return HTTPException(status_code=503, detail=detail)
+    if isinstance(exc, (InvalidChallenge, InvalidLicenseKey)):
+        return HTTPException(status_code=422, detail=detail)
+    if isinstance(exc, LicenseNotFound):
+        return HTTPException(status_code=401, detail=detail)
+    if isinstance(exc, LicenseInactive):
+        return HTTPException(status_code=403, detail=detail)
+    return HTTPException(status_code=500, detail=detail)
 
 
 def _setting_delete_conn(conn: sqlite3.Connection, key: str) -> None:
@@ -1601,7 +2163,7 @@ def _shared_schedule_budget_payload(conn: Optional[sqlite3.Connection] = None) -
         "remaining": max(0, limit - used),
         "reset_at": _monthly_reset_at(month),
         "period_label": "Monthly shared provider window",
-        "scope_label": "Shared by all community relay real-data users",
+        "scope_label": "Shared by all Beacon Relay real-data users",
     }
     if limit <= 0:
         budget["error"] = "Shared provider budget unavailable"
@@ -2034,8 +2596,67 @@ def _resolve_access(
 ) -> Dict[str, Any]:
     _ensure_install_allowed(install_id)
 
-    activation_row = _load_activation(activation_token)
-    if activation_token and activation_row is None:
+    token = (activation_token or "").strip()
+    if service in {"vatsim_schedule", "vatsim_radar"}:
+        return {
+            "plan": "vatsim",
+            "limit": _int_env("RELAY_VATSIM_MONTHLY_LIMIT", 100_000, minimum=1),
+            "subject_key": f"vatsim:{hashlib.sha256(install_id.encode('utf-8')).hexdigest()[:24]}",
+            "activation_row": None,
+            "license_id": "",
+        }
+    if token.startswith("lfr_"):
+        is_schedule = service in {"aviationstack", "vatsim_schedule", "public_summary", "public_weather"}
+        capability = "schedule" if is_schedule else "radar"
+        provider_policy_required = not service.startswith(("vatsim_", "public_"))
+        if provider_policy_required and not _provider_access_policy().allows(capability):
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "relay_capability_unavailable",
+                    "message": "This hosted Relay capability is not available under the current provider policy.",
+                },
+            )
+        try:
+            credential_row = _license_service().resolve_credential(token, install_id=install_id)
+        except Exception as exc:
+            raise _access_exception(exc) from exc
+        purchase_environment = str(credential_row.get("purchase_environment") or "production").lower()
+        if purchase_environment != "production" and not _enabled_env("RELAY_ACCESS_ALLOW_TEST_LICENSES"):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "test_license_not_authorized",
+                    "message": "A test-store Relay Access license cannot authorize production hosted data.",
+                },
+            )
+        limit = _int_env(
+            "RELAY_LICENSED_SCHEDULE_LIMIT" if is_schedule else "RELAY_LICENSED_RADAR_LIMIT",
+            _managed_schedule_limit() if is_schedule else _managed_radar_limit(),
+            minimum=1,
+        )
+        return {
+            "plan": "licensed",
+            "limit": limit,
+            "subject_key": f"license:{credential_row['license_id']}",
+            "activation_row": credential_row,
+            "license_id": str(credential_row["license_id"]),
+        }
+
+    if _access_mode() == "licensed":
+        raise HTTPException(
+            status_code=401 if not token else 403,
+            detail={
+                "code": "relay_license_required",
+                "message": "Beacon Relay Access is required. Bring Your Own Keys and VATSIM remain available.",
+                "credential_state": "unknown",
+                "reason_code": "licensed_credential_required",
+                "retryable": False,
+            },
+        )
+
+    activation_row = _load_activation(token)
+    if token and activation_row is None:
         raise HTTPException(status_code=403, detail="Activation token invalid or revoked")
 
     if activation_row is not None:
@@ -2112,14 +2733,14 @@ def _check_and_increment_community_daily_limit(*, service: str, network_tag: str
             conn.rollback()
             raise HTTPException(
                 status_code=429,
-                detail=f"Community relay {service_label} network daily limit reached; try again tomorrow.",
+                detail=f"Beacon Relay {service_label} network daily limit reached; try again tomorrow.",
                 headers={"Retry-After": "86400"},
             )
         if global_current >= global_limit:
             conn.rollback()
             raise HTTPException(
                 status_code=429,
-                detail=f"Community relay {service_label} daily safety limit reached; try again tomorrow.",
+                detail=f"Beacon Relay {service_label} daily safety limit reached; try again tomorrow.",
                 headers={"Retry-After": "86400"},
             )
 
@@ -2310,13 +2931,6 @@ def _report_network_limit() -> int:
 
 def _linear_reporter_key() -> str:
     return _env("LINEAR_REPORTER_API_KEY")
-
-
-def _redact_sensitive(text: str) -> str:
-    redacted = text or ""
-    for pattern, repl in _SECRET_PATTERNS:
-        redacted = pattern.sub(repl, redacted)
-    return redacted
 
 
 def _collapse(value: str, *, limit: int) -> str:
@@ -3145,7 +3759,17 @@ def _record_report_event(
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (_utc_now(), install_fingerprint, network_tag, report_type, origin, context[:120], team, status, dedupe_key),
+        (
+            _utc_now(),
+            install_fingerprint,
+            network_tag,
+            report_type,
+            origin,
+            _redact_sensitive(context)[:120],
+            team,
+            status,
+            dedupe_key,
+        ),
     )
 
 
@@ -3222,8 +3846,8 @@ def _linear_issue_title(body: "ReportIn", *, team: str, origin: str) -> str:
     summary = _collapse(summary, limit=96)
     prefix = f"[{platform_label}][{app_mode_label}][{type_label}]" if app_mode_label else f"[{platform_label}][{type_label}]"
     if body.report_type == "crash" and context:
-        return f"{prefix} {context} - {summary}"[:200]
-    return f"{prefix} {summary}"[:200]
+        return _redact_sensitive(f"{prefix} {context} - {summary}")[:200]
+    return _redact_sensitive(f"{prefix} {summary}")[:200]
 
 
 def _linear_issue_body(body: "ReportIn", *, team: str, origin: str, install_fingerprint: str) -> str:
@@ -3258,7 +3882,7 @@ def _linear_issue_body(body: "ReportIn", *, team: str, origin: str, install_fing
             body_text += f"\n\n**Sanitized log excerpt**\n```\n{_redact_sensitive(body.description)[-1500:]}\n```"
     if body.client_context.strip():
         body_text += f"\n\n---\n**Client / reporter context**\n{_redact_sensitive(body.client_context.strip())[:1800]}"
-    return body_text[:4000]
+    return _redact_sensitive(body_text)[:4000]
 
 
 def _post_linear_issue(*, team_id: str, title: str, description: str) -> str:
@@ -4710,6 +5334,20 @@ def _fetch_shared_schedule_from_upstream(
     )
 
     mode = _schedule_provider_mode()
+    aerodatabox_allowed = _licensed_provider_allowed("schedule", "aerodatabox")
+    aviationstack_allowed = _licensed_provider_allowed("schedule", "aviationstack")
+    if mode == "aerodatabox" and not aerodatabox_allowed:
+        _require_licensed_provider_allowed("schedule", "aerodatabox")
+    if mode == "aviationstack" and not aviationstack_allowed:
+        _require_licensed_provider_allowed("schedule", "aviationstack")
+    if mode == "auto" and not (aerodatabox_allowed or aviationstack_allowed):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "relay_provider_unavailable",
+                "message": "No real schedule provider is enabled for licensed Beacon Relay access.",
+            },
+        )
     provider_errors: Dict[str, str] = {}
     budget_limited: list[str] = []
     source_cache_providers: list[str] = []
@@ -4788,7 +5426,7 @@ def _fetch_shared_schedule_from_upstream(
             raise HTTPException(status_code=503, detail="AviationStack schedule provider is unavailable") from exc
 
     primary: Optional[Dict[str, Any]] = None
-    if _has_aerodatabox_key():
+    if aerodatabox_allowed and _has_aerodatabox_key():
         try:
             primary = _fetch_aerodatabox_schedule_source_from_upstream(
                 airport_iata=airport_iata,
@@ -4822,7 +5460,7 @@ def _fetch_shared_schedule_from_upstream(
     if primary is not None:
         primary_records = list(primary.get("records") or [])
         fill_reason = "primary_sparse" if schedule_records_need_fill(primary_records) else "not_needed"
-        if mode == "auto" and fill_reason == "primary_sparse" and _has_aviationstack_key():
+        if mode == "auto" and fill_reason == "primary_sparse" and aviationstack_allowed and _has_aviationstack_key():
             try:
                 fill = _fetch_aviationstack_schedule_source_from_upstream(
                     airport_iata=airport_iata,
@@ -4892,6 +5530,8 @@ def _fetch_shared_schedule_from_upstream(
         return _finish(primary, provider="aerodatabox", extra_meta={"fill_reason": fill_reason})
 
     try:
+        if not aviationstack_allowed:
+            _require_licensed_provider_allowed("schedule", "aviationstack")
         if not _has_aviationstack_key():
             cached = _source_cache("aviationstack", "provider_not_configured")
             if cached is not None:
@@ -6082,6 +6722,7 @@ _radar_cache: Dict[str, tuple[float, bytes]] = {}
 
 
 def _fetch_adsbx_payload(lat: float, lon: float, radius_nm: float) -> bytes:
+    _require_licensed_provider_allowed("radar", "adsbexchange")
     dist_nm = max(5, int(radius_nm))
     cache_key = f"{round(lat, 4)}:{round(lon, 4)}:{dist_nm}"
     cached = _radar_cache.get(cache_key)
@@ -8561,7 +9202,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
                 lifecycle_bits.append(f"Last seen {_fmt_age(row.get('last_seen'))}")
             out.append(
                 "<tr>"
-                f"<td><div class='cell-title mono'>{html.escape(str(row['install_fingerprint'] or '-'))}</div><div class='cell-sub mono'>{html.escape(str(row['install_id'] or ''))[:12]}...</div></td>"
+                f"<td><div class='cell-title mono'>{html.escape(str(row['install_fingerprint'] or '-'))}</div><div class='cell-sub'>Support ID</div></td>"
                 f"<td><div class='cell-title mono'>{html.escape(str(row['network_tag'] or '-'))}</div><div class='cell-sub'>{_badge(source, 'slate')}</div></td>"
                 f"<td><div class='cell-title'>{html.escape(label)}</div><div class='cell-sub'>{_plan_badge(str(row.get('requested_mode') or 'community'))}</div></td>"
                 f"<td><div class='cell-title'>{_request_status_badge(status)}</div><div class='cell-sub'>{html.escape(str(row['token_prefix'] or '-') + ('...' if row['token_prefix'] else ''))}</div></td>"
@@ -9025,7 +9666,7 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
   <div class="hero">
     <div>
       <div class="eyebrow">Shared Schedule Relay</div>
-      <h1>Local Flight Community Relay Admin</h1>
+      <h1>Beacon Relay Admin</h1>
       <div class="sub">This surface is the operator view for shared airport snapshots, activation flow, managed exceptions, radar relay traffic, and upstream provider health. Community and managed installs share cached schedule windows here, while raw provider passthrough stays operator-only.</div>
     </div>
     <div class="hero-meta">
@@ -9417,15 +10058,25 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
 async def _lifespan(_app: FastAPI):
     _db_path().parent.mkdir(parents=True, exist_ok=True)
     _ensure_schema()
+    if _access_requires_production_secrets():
+        sales_enabled = _enabled_env("RELAY_ACCESS_SALES_ENABLED")
+        _require_access_preflight(stripe=sales_enabled, mail=sales_enabled)
+        _license_service().verify_keyring_references()
+        if _enabled_env("RELAY_ACCESS_BACKUP_ENABLED"):
+            _access_backup_manager().verify_keyring_references()
+            await asyncio.to_thread(_maybe_create_access_backup)
     warm_task = asyncio.create_task(_automatic_ground_warm_loop())
+    access_task = asyncio.create_task(_relay_access_maintenance_loop())
     try:
         yield
     finally:
-        warm_task.cancel()
-        try:
-            await warm_task
-        except asyncio.CancelledError:
-            pass
+        for task in (warm_task, access_task):
+            task.cancel()
+        for task in (warm_task, access_task):
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="Local Flight Network Admin", lifespan=_lifespan, docs_url=None, redoc_url=None)
@@ -9434,17 +10085,79 @@ app.add_middleware(_SiteBugReportBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://beacontools.cc", "https://www.beacontools.cc"],
-    allow_methods=["POST", "OPTIONS"],
-    allow_headers=["accept", "content-type"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["accept", "authorization", "content-type", "stripe-signature"],
 )
+
+
+@app.exception_handler(HTTPException)
+async def _structured_access_http_exception(request: Request, exc: HTTPException) -> Response:
+    if not request.url.path.startswith("/v1/access/"):
+        return await http_exception_handler(request, exc)
+    detail = dict(exc.detail) if isinstance(exc.detail, dict) else {
+        "code": "access_request_failed",
+        "message": str(exc.detail or "Relay Access request failed"),
+    }
+    detail.setdefault("code", "access_request_failed")
+    detail.setdefault("credential_state", "unknown")
+    detail.setdefault("reason_code", str(detail["code"]))
+    detail.setdefault("retryable", exc.status_code == 429 or exc.status_code >= 500)
+    return JSONResponse(
+        {"detail": detail},
+        status_code=exc.status_code,
+        headers=exc.headers,
+    )
 
 
 @app.middleware("http")
 async def _surface_gate(request: Request, call_next):
     surface = _request_surface(request)
-    if not _surface_allows_path(surface, request.url.path or "/"):
+    path = request.url.path or "/"
+    if not _surface_allows_path(surface, path):
         return JSONResponse({"detail": "Not found"}, status_code=404)
-    return await call_next(request)
+    is_admin_path = path == "/admin" or path.startswith("/admin/")
+    if is_admin_path and request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+        # Browser Basic Auth credentials are sent automatically, so every
+        # operator mutation also needs a same-origin boundary. Non-browser
+        # automation may omit Origin/Referer; an explicitly cross-site browser
+        # request is always rejected before it reaches an action handler.
+        fetch_site = request.headers.get("sec-fetch-site", "").strip().lower()
+        origin = request.headers.get("origin", "").strip()
+        referer = request.headers.get("referer", "").strip()
+        expected_host = request.headers.get("host", "").strip().lower()
+        source = origin or referer
+        source_host = (urlparse(source).netloc or "").lower() if source else ""
+        if fetch_site in {"cross-site", "none"} or (source and source_host != expected_host):
+            return JSONResponse(
+                {
+                    "detail": {
+                        "code": "admin_csrf_rejected",
+                        "message": "Operator action did not originate from this console.",
+                    }
+                },
+                status_code=403,
+            )
+    response = await call_next(request)
+    if path.startswith("/v1/access/") or is_admin_path:
+        # Purchase results, holder sessions, activation grants, device
+        # credentials, and operator state must never be retained by browsers or
+        # intermediary caches. Applying this to the catalog also prevents a
+        # stale sale/store availability state during a fail-closed cutover.
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Referrer-Policy"] = "no-referrer"
+    if is_admin_path:
+        # The operator shell embeds authenticated state and performs privileged
+        # mutations. Keep it out of browser/proxy caches and prevent another
+        # origin from framing or extending the inline, self-contained console.
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
+            "connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+        )
+        response.headers["Permissions-Policy"] = "camera=(), geolocation=(), microphone=()"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 
 @app.get("/")
@@ -9474,7 +10187,7 @@ def root(request: Request):
         return JSONResponse(
             {
                 "ok": True,
-                "service": "Local Flight Community Relay",
+                "service": "Beacon Relay",
                 "public_host": _public_host(),
                 "admin_host": _admin_host(),
                 "health": "/health",
@@ -9579,6 +10292,15 @@ class RemoteCompanionGrantIn(BaseModel):
         return _admin_text(value)
 
 
+class RemoteCompanionWsTicketIn(BaseModel):
+    install_id: str = Field(..., min_length=36, max_length=80)
+
+    @field_validator("install_id", mode="before")
+    @classmethod
+    def _coerce_install_id(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
 class RemoteCompanionRequestIn(BaseModel):
     install_ref: str = Field(..., min_length=8, max_length=32)
     grant_ref: str = Field(..., min_length=6, max_length=80)
@@ -9660,6 +10382,1470 @@ class MobileIapVerifyIn(BaseModel):
     @classmethod
     def _coerce_iap_text(cls, value: Any) -> str:
         return _admin_text(value)
+
+
+class AccessStripeCheckoutIn(BaseModel):
+    website_context: str = Field("desktop_setup", max_length=80)
+
+    @field_validator("website_context", mode="before")
+    @classmethod
+    def _coerce_context(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessStripeResultIn(BaseModel):
+    checkout_ref: str = Field(..., min_length=8, max_length=80)
+    result_secret: str = Field(..., min_length=20, max_length=160)
+
+    @field_validator("checkout_ref", "result_secret", mode="before")
+    @classmethod
+    def _coerce_result_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessActivateIn(BaseModel):
+    install_id: str = Field(..., min_length=36, max_length=80)
+    device_kind: str = Field("desktop", max_length=32)
+    device_name: str = Field("", max_length=80)
+    license_key: str = Field("", max_length=200)
+    activation_grant: str = Field("", max_length=200)
+    confirm_move_token: str = Field("", max_length=200)
+
+    @field_validator(
+        "install_id", "device_kind", "device_name", "license_key", "activation_grant", "confirm_move_token",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_activate_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessMobileChallengeIn(BaseModel):
+    platform: str = Field(..., min_length=3, max_length=12)
+    install_id: str = Field(..., min_length=36, max_length=80)
+    intent: str = Field("", max_length=24)
+
+    @field_validator("platform", "install_id", "intent", mode="before")
+    @classmethod
+    def _coerce_mobile_challenge_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessMobileVerifyIn(BaseModel):
+    platform: str = Field(..., min_length=3, max_length=12)
+    install_id: str = Field(..., min_length=36, max_length=80)
+    mode: str = Field("companion", max_length=24)
+    intent: str = Field("", max_length=24)
+    device_name: str = Field("Local Flight Mobile", max_length=80)
+    nonce: str = Field(..., min_length=1, max_length=160)
+    signed_app_transaction: str = Field("", max_length=32_768)
+    device_verification_id: str = Field("", max_length=64)
+    environment: str = Field("", max_length=24)
+    confirm_move_token: str = Field("", max_length=200)
+    activation_grant: str = Field("", max_length=200)
+    google_play_purchase_token: str = Field("", max_length=4096)
+    google_play_product_id: str = Field("", max_length=200)
+    play_integrity_token: str = Field("", max_length=32_768)
+
+    @field_validator(
+        "platform", "install_id", "mode", "intent", "device_name", "nonce", "signed_app_transaction",
+        "device_verification_id",
+        "environment", "confirm_move_token", "activation_grant",
+        "google_play_purchase_token", "google_play_product_id", "play_integrity_token",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_mobile_verify_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessMagicLinkRequestIn(BaseModel):
+    email: str = Field(..., min_length=3, max_length=240)
+    purpose: str = Field("recovery", max_length=32)
+
+    @field_validator("email", "purpose", mode="before")
+    @classmethod
+    def _coerce_magic_request_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessMagicLinkExchangeIn(BaseModel):
+    token: str = Field(..., min_length=20, max_length=200)
+
+    @field_validator("token", mode="before")
+    @classmethod
+    def _coerce_magic_token(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessActivationGrantIn(BaseModel):
+    license_id: str = Field(..., min_length=8, max_length=80)
+    install_id: str = Field("", max_length=80)
+
+    @field_validator("license_id", "install_id", mode="before")
+    @classmethod
+    def _coerce_grant_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessLicenseActionIn(BaseModel):
+    license_id: str = Field(..., min_length=8, max_length=80)
+    action: str = Field(..., min_length=3, max_length=32)
+
+    @field_validator("license_id", "action", mode="before")
+    @classmethod
+    def _coerce_license_action_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessDeactivateIn(BaseModel):
+    install_id: str = Field(..., min_length=36, max_length=80)
+
+    @field_validator("install_id", mode="before")
+    @classmethod
+    def _coerce_deactivate_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessActivationCommitIn(BaseModel):
+    install_id: str = Field(..., min_length=36, max_length=80)
+
+    @field_validator("install_id", mode="before")
+    @classmethod
+    def _coerce_commit_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessAdminActionIn(BaseModel):
+    action: str = Field(..., min_length=3, max_length=32)
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _coerce_admin_action_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessAdminSearchIn(BaseModel):
+    limit: int = Field(100, ge=1, le=200)
+    cursor: str = Field("", max_length=512)
+    q: str = Field("", max_length=240)
+    source: str = Field("", max_length=40)
+    state: str = Field("", max_length=40)
+
+    @field_validator("cursor", "q", "source", "state", mode="before")
+    @classmethod
+    def _coerce_admin_search_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+def _access_site_url(path: str) -> str:
+    base = _env("RELAY_ACCESS_SITE_URL", "https://beacontools.cc").rstrip("/")
+    parsed = urlparse(base)
+    if parsed.scheme != "https" or parsed.hostname not in _SITE_ALLOWED_ORIGIN_HOSTS:
+        raise AccessConfigurationError("Relay Access site URL is not configured safely")
+    return f"{base}/{path.lstrip('/')}"
+
+
+def _access_license_payload(record: Any) -> Dict[str, Any]:
+    access_state = str(record.status or "revoked").strip().lower()
+    if access_state not in {"active", "suspended", "refunded", "revoked"}:
+        access_state = "revoked"
+    reason_code = {
+        "active": "license_active",
+        "suspended": "purchase_suspended",
+        "refunded": "purchase_refunded",
+        "revoked": "purchase_revoked",
+    }[access_state]
+    return {
+        "license_ref": record.license_ref,
+        "product_code": record.product_code,
+        "purchase_source": record.purchase_source,
+        "status": record.status,
+        "access_state": access_state,
+        "reason_code": reason_code,
+        "key_ref": f"{record.key_prefix}…{record.key_last_four}",
+        "created_at": record.created_at,
+    }
+
+
+def _access_activation_payload(result: Any) -> Dict[str, Any]:
+    payload = {
+        "ok": True,
+        "activated": bool(result.activated),
+        "activation_state": str(result.activation_state or ("active" if result.activated else "unknown")),
+        "license": _access_license_payload(result.license),
+    }
+    if int(result.pending_expires_in or 0) > 0:
+        payload["pending_expires_in"] = int(result.pending_expires_in)
+    if result.credential is not None:
+        payload["credential"] = result.credential.credential
+        payload["credential_prefix"] = result.credential.credential_prefix
+        payload["receiver"] = {
+            "device_kind": result.credential.device_kind,
+            "device_name": result.credential.device_name,
+        }
+    if result.move_token:
+        payload.update({
+            "code": "seat_in_use",
+            "move_token": result.move_token,
+            "current_receiver": _masked_receiver_payload(dict(result.current_receiver or {})),
+        })
+    return payload
+
+
+def _send_receiver_move_notice(service: LicenseService, result: Any) -> None:
+    if not result.activated or not result.replaced_receiver or result.credential is None:
+        return
+    try:
+        service.queue_receiver_move_notification(
+            license_id=result.license.license_id,
+            activation_id=result.credential.activation_id,
+            device_name=result.credential.device_name,
+        )
+        _deliver_pending_notifications(limit=1)
+    except Exception:
+        # A mail outage must not leave a confirmed atomic seat move half-finished.
+        pass
+
+
+def _check_access_rate_limit(
+    request: Request,
+    *,
+    action: str,
+    limit: int,
+    window_seconds: int,
+    subject: str = "",
+) -> None:
+    network_tag = _network_tag(_client_ip(request))
+    service = _license_service()
+    service.check_rate_limit(
+        subject=f"network:{network_tag}",
+        action=action,
+        limit=limit,
+        window_seconds=window_seconds,
+    )
+    if subject:
+        service.check_rate_limit(
+            subject=f"subject:{subject}",
+            action=action,
+            limit=limit,
+            window_seconds=window_seconds,
+        )
+
+
+def _deliver_pending_license_emails(*, limit: int = 10) -> int:
+    mailer = _license_mailer()
+    if not mailer.configured():
+        return 0
+    service = _license_service()
+    delivered = 0
+    for item in service.claim_due_license_emails(limit=limit):
+        try:
+            mailer.send_license(
+                email=str(item["email"]),
+                license_key=str(item["license_key"]),
+                recovery_url=_access_site_url("local-flight/relay-access/manage/"),
+            )
+            service.finish_license_email(str(item["delivery_id"]), sent=True)
+            delivered += 1
+        except Exception as exc:
+            service.finish_license_email(
+                str(item["delivery_id"]),
+                sent=False,
+                detail_code=exc.__class__.__name__,
+            )
+    return delivered
+
+
+def _deliver_pending_notifications(*, limit: int = 10) -> int:
+    mailer = _license_mailer()
+    if not mailer.configured():
+        return 0
+    service = _license_service()
+    delivered = 0
+    for item in service.claim_due_notifications(limit=limit):
+        try:
+            purpose = str(item.get("purpose") or "")
+            payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+            if purpose.startswith("magic_link:"):
+                token = str(payload.get("token") or "")
+                if not token:
+                    raise InvalidChallenge("Magic-link notification has no delivery token")
+                mailer.send_magic_link(
+                    email=str(item["email"]),
+                    magic_url=_access_site_url(f"local-flight/relay-access/manage/#token={token}"),
+                    purpose=str(payload.get("request_purpose") or purpose.partition(":")[2]),
+                )
+            elif purpose == "receiver_move":
+                mailer.send_receiver_moved(
+                    email=str(item["email"]),
+                    device_name=str(payload.get("device_name") or "New main device"),
+                )
+            else:
+                raise InvalidChallenge("Notification purpose is not supported")
+            service.finish_notification(str(item["notification_id"]), sent=True)
+            delivered += 1
+        except Exception as exc:
+            service.finish_notification(
+                str(item["notification_id"]),
+                sent=False,
+                detail_code=exc.__class__.__name__,
+            )
+    return delivered
+
+
+def _apply_authoritative_purchase_state(
+    service: LicenseService,
+    verified: VerifiedPurchase,
+) -> str:
+    verified = _purchase_catalog().validate_identity(verified)
+    if verified.state in {"paid", "purchased"}:
+        license_record, _key, _created = _purchase_fulfillment(service).fulfill(verified)
+        if (
+            verified.provider == "google_play_product"
+            and verified.acknowledgement_state == "pending"
+        ):
+            service.queue_provider_operation(
+                license_id=license_record.license_id,
+                operation="acknowledge",
+            )
+        return license_record.license_id
+    target_state = "revoked" if verified.state == "revoked" else "suspended"
+    record = service.update_purchase_state(
+        verified.provider,
+        verified.external_id,
+        target_state,
+        reason=(
+            "store_entitlement_revoked"
+            if target_state == "revoked"
+            else "store_purchase_pending"
+        ),
+        evidence_hash=verified.evidence_hash,
+    )
+    return record.license_id
+
+
+def _process_provider_operations(*, limit: int = 10) -> int:
+    service = _license_service()
+    completed = 0
+    for item in service.claim_due_provider_operations(limit=limit):
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+        provider = str(payload.get("provider") or "").strip().lower()
+        purchase_id = str(payload.get("purchase_id") or "")
+        purpose = str(item.get("purpose") or "")
+        try:
+            if purpose == "google_play_product:acknowledge":
+                _google_play_developer_adapter().acknowledge_product_purchase(
+                    package_name=_env("GOOGLE_PLAY_PACKAGE_NAME", _IAP_BUNDLE_ID),
+                    product_id=str(payload.get("product_id") or ""),
+                    purchase_token=str(item.get("handle") or ""),
+                )
+                service.mark_purchase_acknowledged(purchase_id)
+            elif purpose == "google_play_product:reconcile":
+                verified = _google_play_product_verifier().verify(
+                    {
+                        "google_play_purchase_token": str(item.get("handle") or ""),
+                        "google_play_product_id": str(payload.get("product_id") or ""),
+                    }
+                )
+                _apply_authoritative_purchase_state(service, verified)
+            elif purpose == "apple_app:reconcile":
+                signed = _apple_app_transaction_adapter().get_app_transaction_info(
+                    str(item.get("handle") or ""),
+                    str(payload.get("environment") or "production"),
+                )
+                verified = _apple_paid_app_verifier().verify_server(signed)
+                _apply_authoritative_purchase_state(service, verified)
+            else:
+                raise InvalidChallenge("Provider operation is not supported")
+            service.finish_provider_operation(
+                str(item["notification_id"]),
+                sent=True,
+                provider=provider,
+                purchase_id=purchase_id,
+            )
+            completed += 1
+        except Exception as exc:
+            service.finish_provider_operation(
+                str(item["notification_id"]),
+                sent=False,
+                provider=provider or "unknown",
+                purchase_id=purchase_id,
+                detail_code=exc.__class__.__name__,
+            )
+    return completed
+
+
+def _reconcile_google_voided_purchases(*, max_pages: int = 4) -> int:
+    adapter = _google_play_developer_adapter()
+    if not adapter.configured():
+        return 0
+    package_name = _env("GOOGLE_PLAY_PACKAGE_NAME", _IAP_BUNDLE_ID)
+    # A seven-day overlap makes polling resilient to restarts and clock drift;
+    # purchase-event idempotency prevents repeated revocation work.
+    start_time_ms = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp() * 1000)
+    page_token = ""
+    reconciled = 0
+    service = _license_service()
+    for _page in range(max(1, min(int(max_pages), 20))):
+        payload = adapter.list_voided_purchases(
+            package_name=package_name,
+            start_time_ms=start_time_ms,
+            page_token=page_token,
+        )
+        entries = payload.get("voidedPurchases") or []
+        if not isinstance(entries, list):
+            raise AccessConfigurationError("Google Play voided-purchase response is invalid")
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            token = str(entry.get("purchaseToken") or "").strip()
+            voided_at = str(entry.get("voidedTimeMillis") or "")
+            if not token:
+                continue
+            event_id = f"voided:{token}:{voided_at}"
+            if not service.begin_purchase_event("google_play", event_id, "voided_purchase"):
+                continue
+            try:
+                record = service.update_purchase_state(
+                    "google_play_product",
+                    token,
+                    "refunded",
+                    reason="google_play_voided_purchase",
+                )
+                service.finish_purchase_event(
+                    "google_play",
+                    event_id,
+                    status="processed",
+                    license_id=record.license_id,
+                )
+                reconciled += 1
+            except LicenseNotFound:
+                service.finish_purchase_event(
+                    "google_play",
+                    event_id,
+                    status="reconciliation_required",
+                    detail_code="unlinked_voided_purchase",
+                )
+        pagination = payload.get("tokenPagination")
+        page_token = str(
+            pagination.get("nextPageToken") if isinstance(pagination, dict) else ""
+        ).strip()
+        if not page_token:
+            break
+    return reconciled
+
+
+_GOOGLE_VOIDED_LOCK = threading.Lock()
+_GOOGLE_VOIDED_NEXT_RUN = 0.0
+
+
+def _maybe_reconcile_google_voided_purchases() -> int:
+    global _GOOGLE_VOIDED_NEXT_RUN
+    current = time.monotonic()
+    with _GOOGLE_VOIDED_LOCK:
+        if current < _GOOGLE_VOIDED_NEXT_RUN:
+            return 0
+        # Claim the interval before the network call so concurrent maintenance
+        # loops cannot duplicate it. Failure retries after fifteen minutes.
+        _GOOGLE_VOIDED_NEXT_RUN = current + 900
+    try:
+        count = _reconcile_google_voided_purchases()
+    except Exception:
+        raise
+    else:
+        with _GOOGLE_VOIDED_LOCK:
+            _GOOGLE_VOIDED_NEXT_RUN = time.monotonic() + 21_600
+        return count
+
+
+async def _relay_access_maintenance_loop() -> None:
+    while True:
+        try:
+            if not _access_preflight_errors():
+                await asyncio.to_thread(_license_service().cleanup)
+                await asyncio.to_thread(_maybe_create_access_backup)
+                service = _license_service()
+                await asyncio.to_thread(service.queue_due_reconciliations, limit=20)
+                await asyncio.to_thread(_process_provider_operations, limit=20)
+                if _mobile_reconciliation_ready("android"):
+                    await asyncio.to_thread(_maybe_reconcile_google_voided_purchases)
+                if not _access_preflight_errors(mail=True):
+                    await asyncio.to_thread(_deliver_pending_license_emails, limit=20)
+                    await asyncio.to_thread(_deliver_pending_notifications, limit=20)
+        except Exception:
+            pass
+        await asyncio.sleep(60)
+
+
+@app.get("/v1/access/catalog")
+def access_catalog() -> Dict[str, Any]:
+    def public_link(key: str, *, allowed_hosts: set[str]) -> str:
+        value = _env(key)
+        parsed = urlparse(value)
+        hostname = (parsed.hostname or "").lower()
+        host_allowed = any(hostname == host or hostname.endswith(f".{host}") for host in allowed_hosts)
+        return (
+            value
+            if parsed.scheme == "https"
+            and host_allowed
+            and not parsed.username
+            and not parsed.password
+            else ""
+        )
+
+    policy = _provider_access_policy()
+    product = _purchase_catalog().public_product()
+    product["verification_environment"] = (
+        "production" if _access_deployment_environment() == "production" else "testing"
+    )
+    stripe_ready = _relay_sales_policy_ready(policy) and not _access_preflight_errors(stripe=True, mail=True)
+    ios_state = _mobile_platform_state("ios")
+    android_state = _mobile_platform_state("android")
+    ios_config_ready = not _mobile_platform_preflight_errors("ios")
+    android_config_ready = not _mobile_platform_preflight_errors("android")
+    ios_verification_ready = _mobile_platform_verification_ready("ios")
+    android_verification_ready = _mobile_platform_verification_ready("android")
+    delivery_ready = _mobile_license_delivery_ready()
+    ios_reconciliation_ready = _mobile_reconciliation_ready("ios")
+    android_reconciliation_ready = _mobile_reconciliation_ready("android")
+    ios_test_url = public_link(
+        "RELAY_ACCESS_IOS_TEST_URL",
+        allowed_hosts={"testflight.apple.com"},
+    )
+    ios_store_url = public_link(
+        "RELAY_ACCESS_IOS_STORE_URL",
+        allowed_hosts={"apps.apple.com"},
+    )
+    android_test_url = public_link(
+        "RELAY_ACCESS_ANDROID_TEST_URL",
+        allowed_hosts={"play.google.com"},
+    )
+    android_store_url = public_link(
+        "RELAY_ACCESS_ANDROID_STORE_URL",
+        allowed_hosts={"play.google.com"},
+    )
+    product["sales_available"] = stripe_ready
+    product["pricing"] = {
+        "kind": "one_time",
+        "display_label": _env("RELAY_ACCESS_DISPLAY_PRICE"),
+        "available": stripe_ready,
+    }
+    android_source = {
+        "available": bool(
+            android_verification_ready
+            and delivery_ready
+            and android_reconciliation_ready
+            and android_store_url
+            and android_state == "available"
+        ),
+        "testing_available": bool(
+            android_verification_ready
+            and delivery_ready
+            and android_test_url
+            and android_state == "testing"
+        ),
+        "verification_ready": android_verification_ready,
+        "delivery_ready": delivery_ready,
+        "reconciliation_ready": android_reconciliation_ready,
+        "configuration_ready": android_config_ready,
+        "acquisition_model": "free_download_in_app_purchase",
+        "included_with_paid_app": False,
+        "free_modes": ["companion", "vatsim"],
+        "standalone_requires_relay_access": True,
+        "state": android_state,
+        "testing_url": android_test_url,
+        "store_url": android_store_url,
+    }
+    product["purchase_sources"] = {
+        "stripe": {
+            "available": stripe_ready,
+            "acquisition_model": "web_one_time_purchase",
+        },
+        "apple_app": {
+            "available": bool(
+                ios_verification_ready
+                and delivery_ready
+                and ios_reconciliation_ready
+                and ios_store_url
+                and ios_state == "available"
+            ),
+            "testing_available": bool(
+                ios_verification_ready and delivery_ready and ios_test_url and ios_state == "testing"
+            ),
+            "verification_ready": ios_verification_ready,
+            "delivery_ready": delivery_ready,
+            "reconciliation_ready": ios_reconciliation_ready,
+            "configuration_ready": ios_config_ready,
+            "acquisition_model": "paid_download_included_license",
+            "included_with_paid_app": True,
+            "state": ios_state,
+            "testing_url": ios_test_url,
+            "store_url": ios_store_url,
+        },
+        "google_play": android_source,
+        # Compatibility alias for testing website builds. It intentionally
+        # describes the new IAP model and can be removed after the cutover.
+        "google_app": {**android_source, "deprecated_catalog_key": True},
+    }
+    product["platform_rules"] = {
+        "ios": {"download": "paid", "included_license": True},
+        "android": {
+            "download": "free",
+            "free_modes": ["companion", "vatsim"],
+            "relay_access_purchase": "one_time_non_consumable",
+            "activation_grants_supported": True,
+        },
+    }
+    return {
+        "ok": True,
+        "schema_version": ACCESS_SCHEMA_VERSION,
+        "product": product,
+        "capabilities": {
+            "sales": policy.sales_enabled,
+            "schedule": policy.allows("schedule"),
+            "radar": policy.allows("radar"),
+            "remote_companion": policy.allows("remote_companion", "relay"),
+        },
+    }
+
+
+@app.post("/v1/access/stripe/checkout")
+def access_stripe_checkout(_body: AccessStripeCheckoutIn, request: Request) -> Dict[str, Any]:
+    policy = _provider_access_policy()
+    stripe_adapter = _stripe_adapter()
+    if not _relay_sales_policy_ready(policy):
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "relay_access_sales_unavailable", "message": "Beacon Relay Access sales are not available yet."},
+        )
+    if not stripe_adapter.configured():
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "access_configuration_error", "message": "Stripe Checkout is not configured."},
+        )
+    if not _license_mailer().configured():
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "access_configuration_error", "message": "Relay Access delivery email is not configured."},
+        )
+    try:
+        _require_access_preflight(stripe=True, mail=True)
+        _check_access_rate_limit(
+            request,
+            action="stripe_checkout",
+            limit=_int_env("RELAY_ACCESS_CHECKOUT_HOURLY_LIMIT", 10, minimum=1),
+            window_seconds=3600,
+        )
+        service = _license_service()
+        checkout_ref, result_secret = service.create_checkout_claim(
+            product_id=_purchase_catalog().stripe_price_id,
+        )
+        success_url = _access_site_url(f"local-flight/relay-access/success/?checkout_ref={checkout_ref}")
+        cancel_url = _access_site_url("local-flight/relay-access/")
+        checkout = stripe_adapter.create_checkout(
+            checkout_ref=checkout_ref,
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+        service.bind_checkout_session(checkout_ref, checkout.session_id)
+        return {
+            "ok": True,
+            "checkout_url": checkout.url,
+            "checkout_ref": checkout_ref,
+            "result_secret": result_secret,
+        }
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+@app.post("/v1/access/stripe/result")
+def access_stripe_result(body: AccessStripeResultIn, request: Request) -> Dict[str, Any]:
+    try:
+        _check_access_rate_limit(
+            request,
+            action="stripe_result",
+            limit=_int_env("RELAY_ACCESS_RESULT_10M_LIMIT", 60, minimum=1),
+            window_seconds=600,
+            subject=body.checkout_ref,
+        )
+        result = _license_service().checkout_result(body.checkout_ref.strip(), body.result_secret.strip())
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+    payload: Dict[str, Any] = {
+        "ok": True,
+        "state": str(result.get("state") or "pending"),
+        "checkout_ref": body.checkout_ref.strip(),
+    }
+    if result.get("license") is not None:
+        payload["license"] = _access_license_payload(result["license"])
+    if result.get("license_key"):
+        payload["license_key"] = str(result["license_key"])
+    return payload
+
+
+def _stripe_object(event: Dict[str, Any]) -> Dict[str, Any]:
+    data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    value = data.get("object") if isinstance(data.get("object"), dict) else {}
+    return value
+
+
+def _stripe_checkout_email(session: Dict[str, Any]) -> str:
+    details = session.get("customer_details") if isinstance(session.get("customer_details"), dict) else {}
+    return str(details.get("email") or session.get("customer_email") or "").strip()
+
+
+def _stripe_checkout_ref(value: Dict[str, Any]) -> str:
+    metadata = value.get("metadata") if isinstance(value.get("metadata"), dict) else {}
+    return str(metadata.get("checkout_ref") or "").strip()
+
+
+@app.post("/v1/access/stripe/webhook")
+async def access_stripe_webhook(request: Request) -> Dict[str, Any]:
+    raw = await request.body()
+    signature = request.headers.get("stripe-signature", "")
+    try:
+        event = _stripe_adapter().parse_webhook(raw, signature)
+    except AccessConfigurationError as exc:
+        raise _access_exception(exc) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail={"code": "stripe_signature_invalid", "message": "Webhook signature is invalid"}) from exc
+
+    event_id = str(event.get("id") or "").strip()
+    event_type = str(event.get("type") or "").strip()
+    if not event_id or not event_type:
+        raise HTTPException(status_code=400, detail={"code": "stripe_event_invalid", "message": "Webhook event is incomplete"})
+    service = _license_service()
+    if not service.begin_purchase_event("stripe", event_id, event_type):
+        return {"ok": True, "duplicate": True}
+
+    value = _stripe_object(event)
+    detail_code = ""
+    linked_license_id = ""
+    try:
+        if event_type in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
+            checkout_ref = _stripe_checkout_ref(value)
+            checkout_session_id = str(value.get("id") or "").strip()
+            payment_status = str(value.get("payment_status") or "").lower()
+            if not checkout_ref:
+                raise InvalidChallenge("Stripe Checkout reference is missing")
+            checkout_product_id = service.validate_checkout_session(checkout_ref, checkout_session_id)
+            if payment_status not in {"paid", "no_payment_required"}:
+                service.finish_purchase_event("stripe", event_id, status="pending", detail_code="payment_pending")
+                return {"ok": True, "pending": True}
+            external_id = str(value.get("payment_intent") or value.get("id") or "").strip()
+            verified = VerifiedPurchase(
+                provider="stripe",
+                external_id=external_id,
+                product_id=checkout_product_id or _env("STRIPE_RELAY_ACCESS_PRICE_ID"),
+                environment="test" if not bool(value.get("livemode")) else "production",
+                state="paid",
+                email=_stripe_checkout_email(value),
+                evidence_hash=hashlib.sha256(raw).hexdigest(),
+            )
+            license_record, _license_key, created = _purchase_fulfillment(service).fulfill_checkout(checkout_ref, verified)
+            linked_license_id = license_record.license_id
+            if verified.email:
+                service.queue_license_email(license_record.license_id, purpose="stripe_purchase")
+                try:
+                    _deliver_pending_license_emails(limit=1)
+                except Exception as mail_exc:
+                    detail_code = f"mail_{mail_exc.__class__.__name__.lower()}"[:80]
+        elif event_type in {"checkout.session.async_payment_failed", "checkout.session.expired"}:
+            checkout_ref = _stripe_checkout_ref(value)
+            if checkout_ref:
+                service.validate_checkout_session(checkout_ref, str(value.get("id") or ""))
+                service.fail_checkout(checkout_ref, "failed" if "failed" in event_type else "expired")
+        elif event_type == "charge.refunded" and bool(value.get("refunded")):
+            payment_intent = str(value.get("payment_intent") or "").strip()
+            if payment_intent:
+                linked_license_id = service.update_purchase_state(
+                    "stripe", payment_intent, "refunded", reason="charge_refunded"
+                ).license_id
+        elif event_type == "charge.dispute.created":
+            payment_intent = str(value.get("payment_intent") or "").strip()
+            if payment_intent:
+                linked_license_id = service.update_purchase_state(
+                    "stripe", payment_intent, "disputed", reason="dispute_created"
+                ).license_id
+        elif event_type == "charge.dispute.closed":
+            payment_intent = str(value.get("payment_intent") or "").strip()
+            dispute_status = str(value.get("status") or "").lower()
+            if payment_intent and dispute_status in {"won", "lost"}:
+                linked_license_id = service.update_purchase_state(
+                    "stripe",
+                    payment_intent,
+                    "paid" if dispute_status == "won" else "revoked",
+                    reason=f"dispute_{dispute_status}",
+                ).license_id
+        service.finish_purchase_event(
+            "stripe",
+            event_id,
+            status="processed",
+            detail_code=detail_code,
+            license_id=linked_license_id,
+        )
+        return {"ok": True, "duplicate": False}
+    except LicenseNotFound as exc:
+        if event_type in {"charge.refunded", "charge.dispute.created", "charge.dispute.closed"}:
+            service.finish_purchase_event(
+                "stripe",
+                event_id,
+                status="reconciliation_required",
+                detail_code="unlinked_purchase_event",
+            )
+            return {"ok": True, "duplicate": False, "reconciliation_required": True}
+        service.finish_purchase_event("stripe", event_id, status="failed", detail_code=exc.code)
+        raise _access_exception(exc) from exc
+    except (InvalidChallenge, InvalidLicenseKey, LicenseInactive) as exc:
+        service.finish_purchase_event("stripe", event_id, status="failed", detail_code=exc.code)
+        raise _access_exception(exc) from exc
+    except Exception as exc:
+        service.finish_purchase_event("stripe", event_id, status="failed", detail_code=exc.__class__.__name__)
+        raise HTTPException(status_code=502, detail={"code": "stripe_fulfillment_failed", "message": "Purchase fulfillment is temporarily unavailable"}) from exc
+
+
+@app.post("/v1/access/activate")
+def access_activate(body: AccessActivateIn, request: Request) -> Response:
+    install_id = _validate_install_id(body.install_id.strip())
+    _ensure_install_allowed(install_id)
+    if body.device_kind.strip().lower() != "desktop":
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "receiver_type_invalid", "message": "This activation endpoint is for desktop receivers."},
+        )
+    try:
+        _check_access_rate_limit(
+            request,
+            action="desktop_activate",
+            limit=_int_env("RELAY_ACCESS_ACTIVATION_10M_LIMIT", 20, minimum=1),
+            window_seconds=600,
+            subject=install_id,
+        )
+        service = _license_service()
+        result = service.activate(
+            install_id=install_id,
+            device_kind=body.device_kind,
+            device_name=body.device_name,
+            license_key=body.license_key,
+            activation_grant=body.activation_grant,
+            confirm_move_token=body.confirm_move_token,
+            prepare_only=True,
+        )
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+    payload = _access_activation_payload(result)
+    return JSONResponse(payload, status_code=409 if result.move_token else 200)
+
+
+@app.post("/v1/access/activate/commit")
+def access_activate_commit(body: AccessActivationCommitIn, request: Request) -> Dict[str, Any]:
+    install_id = _validate_install_id(body.install_id.strip())
+    _ensure_install_allowed(install_id)
+    credential = _request_access_token(request)
+    if not credential.startswith("lfr_"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "relay_credential_required",
+                "message": "The prepared Relay Access credential is required",
+                "credential_state": "unknown",
+                "reason_code": "credential_missing",
+                "retryable": False,
+            },
+        )
+    try:
+        _check_access_rate_limit(
+            request,
+            action="activation_commit",
+            limit=_int_env("RELAY_ACCESS_ACTIVATION_COMMIT_10M_LIMIT", 20, minimum=1),
+            window_seconds=600,
+            subject=install_id,
+        )
+        service = _license_service()
+        result = service.commit_activation(credential, install_id=install_id)
+        _send_receiver_move_notice(service, result)
+        return _access_activation_payload(result)
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+@app.post("/v1/access/deactivate")
+def access_deactivate(body: AccessDeactivateIn, request: Request) -> Dict[str, Any]:
+    install_id = _validate_install_id(body.install_id.strip())
+    credential = _request_access_token(request)
+    if not credential.startswith("lfr_"):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "relay_credential_required", "message": "Relay Access credential is required"},
+        )
+    try:
+        _check_access_rate_limit(
+            request,
+            action="deactivate",
+            limit=_int_env("RELAY_ACCESS_DEACTIVATION_10M_LIMIT", 10, minimum=1),
+            window_seconds=600,
+            subject=install_id,
+        )
+        return {"ok": True, **_license_service().deactivate(credential, install_id=install_id)}
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+@app.post("/v1/access/mobile/attestation/challenge")
+def access_mobile_attestation_challenge(body: AccessMobileChallengeIn, request: Request) -> Dict[str, Any]:
+    if not _mobile_ownership_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "mobile_ownership_unavailable", "message": "Mobile Relay purchase verification is not enabled."},
+        )
+    install_id = _validate_install_id(body.install_id.strip())
+    try:
+        _require_access_preflight()
+        platform = _require_mobile_platform_verification(body.platform)
+        _check_access_rate_limit(
+            request,
+            action="mobile_attestation",
+            limit=_int_env("RELAY_ACCESS_ATTESTATION_10M_LIMIT", 30, minimum=1),
+            window_seconds=600,
+            subject=install_id,
+        )
+        intent = body.intent.strip().lower()
+        nonce = _license_service().create_attestation_challenge(
+            platform=platform,
+            install_id=install_id,
+            intent=intent,
+        )
+        return {
+            "ok": True,
+            "platform": platform,
+            "intent": intent,
+            "nonce": nonce,
+            "expires_in": 300,
+        }
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+def _apple_paid_app_verifier() -> ApplePaidAppVerifier:
+    app_id = _int_env("APPLE_APP_ID", 0)
+    return ApplePaidAppVerifier(
+        bundle_id=_env("APPLE_IAP_BUNDLE_ID", _IAP_BUNDLE_ID),
+        app_apple_id=app_id or None,
+        root_certificates=apple_root_certificates(_env("APPLE_ROOT_CERTIFICATES_B64_JSON")),
+        online_checks=_enabled_env("APPLE_APP_TRANSACTION_ONLINE_CHECKS", True),
+    )
+
+
+def _google_play_product_verifier() -> GooglePlayProductVerifier:
+    adapter = _google_play_developer_adapter()
+    return GooglePlayProductVerifier(
+        package_name=_env("GOOGLE_PLAY_PACKAGE_NAME", _IAP_BUNDLE_ID),
+        product_id=_env(
+            "GOOGLE_RELAY_ACCESS_PRODUCT_ID",
+            "cc.beacontools.localflight.relay_access",
+        ),
+        lookup=adapter.lookup_product_purchase,
+        environment=_env("GOOGLE_PLAY_PURCHASE_ENVIRONMENT", "test"),
+    )
+
+
+def _google_play_integrity_verifier() -> GooglePlayIntegrityVerifier:
+    adapter = _google_play_integrity_adapter()
+    return GooglePlayIntegrityVerifier(
+        package_name=_env("GOOGLE_PLAY_PACKAGE_NAME", _IAP_BUNDLE_ID),
+        decode=adapter.decode,
+    )
+
+
+def _verify_google_rtdn_request(request: Request) -> None:
+    authorization = request.headers.get("authorization", "").strip()
+    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+    audience = _env("GOOGLE_RTDN_AUDIENCE")
+    expected_email = _env("GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL").casefold()
+    if not token or not audience or not expected_email:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "google_rtdn_unauthorized",
+                "message": "Google purchase notification authentication failed",
+            },
+        )
+    try:
+        from google.auth.transport.requests import Request as GoogleAuthRequest
+        from google.oauth2 import id_token
+
+        claims = id_token.verify_oauth2_token(token, GoogleAuthRequest(), audience=audience)
+        issuer = str(claims.get("iss") or "")
+        email = str(claims.get("email") or "").casefold()
+        if issuer not in {"accounts.google.com", "https://accounts.google.com"}:
+            raise ValueError("issuer")
+        if email != expected_email or claims.get("email_verified") is not True:
+            raise ValueError("service account")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "google_rtdn_unauthorized",
+                "message": "Google purchase notification authentication failed",
+            },
+        ) from exc
+
+
+@app.post("/v1/access/google/rtdn")
+async def access_google_rtdn(request: Request) -> Response:
+    _verify_google_rtdn_request(request)
+    raw = await request.body()
+    if len(raw) > 65_536:
+        raise HTTPException(status_code=413, detail={"code": "google_rtdn_too_large"})
+    try:
+        envelope = json.loads(raw.decode("utf-8"))
+        message = envelope.get("message") if isinstance(envelope, dict) else None
+        if not isinstance(message, dict):
+            raise ValueError("message")
+        message_id = str(message.get("messageId") or message.get("message_id") or "").strip()
+        encoded = str(message.get("data") or "").strip()
+        if not message_id or not encoded:
+            raise ValueError("message identity")
+        decoded = base64.b64decode(encoded, validate=True)
+        notification = json.loads(decoded.decode("utf-8"))
+        if not isinstance(notification, dict):
+            raise ValueError("notification")
+    except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "google_rtdn_invalid", "message": "Google purchase notification is invalid"},
+        ) from exc
+
+    service = _license_service()
+    if not service.begin_purchase_event("google_play", message_id, "rtdn"):
+        return Response(status_code=204)
+    one_time = notification.get("oneTimeProductNotification")
+    if not isinstance(one_time, dict):
+        detail = "test_notification" if isinstance(notification.get("testNotification"), dict) else "unsupported_notification"
+        service.finish_purchase_event("google_play", message_id, status="processed", detail_code=detail)
+        return Response(status_code=204)
+    purchase_token = str(one_time.get("purchaseToken") or "").strip()
+    product_id = str(one_time.get("sku") or "").strip()
+    if not purchase_token or not product_id:
+        service.finish_purchase_event("google_play", message_id, status="failed", detail_code="notification_incomplete")
+        raise HTTPException(status_code=400, detail={"code": "google_rtdn_invalid"})
+    try:
+        verified = _google_play_product_verifier().verify(
+            {
+                "google_play_purchase_token": purchase_token,
+                "google_play_product_id": product_id,
+            }
+        )
+        license_id = _apply_authoritative_purchase_state(service, verified)
+        service.finish_purchase_event(
+            "google_play",
+            message_id,
+            status="processed",
+            license_id=license_id,
+        )
+        return Response(status_code=204)
+    except LicenseNotFound:
+        service.finish_purchase_event(
+            "google_play",
+            message_id,
+            status="reconciliation_required",
+            detail_code="unlinked_purchase_event",
+        )
+        return Response(status_code=204)
+    except (InvalidChallenge, InvalidLicenseKey, LicenseInactive) as exc:
+        service.finish_purchase_event(
+            "google_play",
+            message_id,
+            status="failed",
+            detail_code=exc.code,
+        )
+        raise _access_exception(exc) from exc
+    except Exception as exc:
+        service.finish_purchase_event(
+            "google_play",
+            message_id,
+            status="failed",
+            detail_code=exc.__class__.__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "google_reconciliation_unavailable",
+                "message": "Google purchase reconciliation is temporarily unavailable",
+            },
+        ) from exc
+
+
+@app.post("/v1/access/mobile/attestation/verify")
+def access_mobile_attestation_verify(body: AccessMobileVerifyIn, request: Request) -> Response:
+    if not _mobile_ownership_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "mobile_ownership_unavailable", "message": "Mobile Relay purchase verification is not enabled."},
+        )
+    install_id = _validate_install_id(body.install_id.strip())
+    platform = body.platform.strip().lower()
+    intent = (body.intent or body.mode).strip().lower()
+    if intent not in {"inspect", "companion", "standalone"}:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "intent_invalid", "message": "Intent must be inspect, companion, or standalone"},
+        )
+    proof = {
+        "signed_app_transaction": body.signed_app_transaction,
+        "device_verification_id": body.device_verification_id,
+        "nonce": body.nonce,
+        "environment": body.environment,
+        "google_play_purchase_token": body.google_play_purchase_token,
+        "google_play_product_id": body.google_play_product_id,
+        "play_integrity_token": body.play_integrity_token,
+    }
+    try:
+        _require_access_preflight()
+        platform = _require_mobile_platform_verification(platform)
+        _check_access_rate_limit(
+            request,
+            action="mobile_verify",
+            limit=_int_env("RELAY_ACCESS_VERIFICATION_10M_LIMIT", 15, minimum=1),
+            window_seconds=600,
+            subject=install_id,
+        )
+        service = _license_service()
+        if platform == "android" and body.activation_grant:
+            _google_play_integrity_verifier().verify_grant(
+                integrity_token=body.play_integrity_token,
+                nonce=body.nonce,
+                install_id=install_id,
+                activation_grant=body.activation_grant,
+            )
+            service.consume_attestation_challenge(
+                platform=platform,
+                install_id=install_id,
+                nonce=body.nonce,
+                intent=intent,
+                proof_signed_at_ms=int(time.time() * 1000),
+            )
+            if intent != "standalone":
+                raise InvalidChallenge("A mobile activation grant is only used for Standalone mode")
+            activation = service.activate_license(
+                install_id=install_id,
+                device_kind="mobile_standalone",
+                device_name=body.device_name,
+                activation_grant=body.activation_grant,
+                confirm_move_token=body.confirm_move_token,
+                prepare_only=True,
+            )
+            payload = _access_activation_payload(activation)
+            payload.update({"verified": True, "intent": intent, "mode": intent, "grant_transfer": True})
+            return JSONResponse(payload, status_code=409 if activation.move_token else 200)
+
+        if platform == "ios":
+            verified = _apple_paid_app_verifier().verify(proof)
+        elif platform == "android":
+            if intent in {"inspect", "companion"}:
+                raise InvalidChallenge("Android Companion and VATSIM do not require Relay Access verification")
+            verified = _google_play_product_verifier().verify(proof)
+        else:
+            raise InvalidChallenge("Platform must be ios or android")
+        verified = _purchase_catalog().validate_identity(verified)
+        service.consume_attestation_challenge(
+            platform=platform,
+            install_id=install_id,
+            nonce=body.nonce,
+            intent=intent,
+            proof_signed_at_ms=verified.verified_at_ms,
+        )
+        if platform == "ios":
+            service.claim_mobile_ownership_evidence(
+                provider=verified.provider,
+                evidence_hash=verified.evidence_hash,
+                install_id=install_id,
+            )
+        if verified.state in {"suspended", "revoked"}:
+            try:
+                service.update_purchase_state(
+                    verified.provider,
+                    verified.external_id,
+                    verified.state,
+                    reason=(
+                        "store_entitlement_revoked"
+                        if verified.state == "revoked"
+                        else "store_purchase_pending"
+                    ),
+                    evidence_hash=verified.evidence_hash,
+                )
+            except LicenseNotFound:
+                pass
+            raise LicenseInactive(
+                "Store ownership is not currently active",
+                access_state="revoked" if verified.state == "revoked" else "suspended",
+                credential_state="revoked" if verified.state == "revoked" else "unknown",
+                reason_code=(
+                    "store_entitlement_revoked"
+                    if verified.state == "revoked"
+                    else "store_purchase_pending"
+                ),
+            )
+        included_license, _license_key, _created = _purchase_fulfillment(service).fulfill(verified)
+        if (
+            verified.provider == "google_play_product"
+            and verified.acknowledgement_state == "pending"
+        ):
+            service.queue_provider_operation(
+                license_id=included_license.license_id,
+                operation="acknowledge",
+            )
+        included_summary = service.license_receiver_summary(
+            included_license.license_id,
+            current_install_id=install_id,
+        )
+        claim_token = service.create_mobile_license_claim(
+            license_id=included_license.license_id,
+            install_id=install_id,
+        )
+        common = {
+            "verified": True,
+            "intent": intent,
+            "mode": "companion" if intent == "inspect" else intent,
+            "included_license": _access_license_payload(included_license),
+            "included_receiver": included_summary["receiver"],
+            "included_seat_state": included_summary["seat_state"],
+            "email_protected": bool(included_license.holder_id),
+            "included_email_protected": bool(included_license.holder_id),
+            "delivery_claim": claim_token,
+            "delivery_claim_license_ref": included_license.license_ref,
+            "claim_token": claim_token,
+            "claim_expires_in": 600,
+        }
+        if intent in {"inspect", "companion"}:
+            return JSONResponse({
+                "ok": True,
+                "activated": False,
+                "license": _access_license_payload(included_license),
+                "receiver": included_summary["receiver"],
+                "seat_state": included_summary["seat_state"],
+                **common,
+            })
+        activation = service.activate_license(
+            license_id="" if body.activation_grant else included_license.license_id,
+            install_id=install_id,
+            device_kind="mobile_standalone",
+            device_name=body.device_name,
+            activation_grant=body.activation_grant,
+            confirm_move_token=body.confirm_move_token,
+            prepare_only=True,
+        )
+        payload = _access_activation_payload(activation)
+        payload.update(common)
+        payload["email_protected"] = bool(activation.license.holder_id)
+        selected_summary = service.license_receiver_summary(
+            activation.license.license_id,
+            current_install_id=install_id,
+        )
+        payload["seat_state"] = selected_summary["seat_state"]
+        payload["receiver"] = selected_summary["receiver"]
+        return JSONResponse(payload, status_code=409 if activation.move_token else 200)
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+@app.post("/v1/access/magic-links/request", status_code=202)
+def access_magic_link_request(body: AccessMagicLinkRequestIn, request: Request) -> Dict[str, Any]:
+    credential = _request_access_token(request)
+    try:
+        _check_access_rate_limit(
+            request,
+            action="magic_link",
+            limit=_int_env("RELAY_ACCESS_MAGIC_LINK_HOURLY_LIMIT", 5, minimum=1),
+            window_seconds=3600,
+            subject=body.email.strip().casefold(),
+        )
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+    try:
+        delivery = _license_service().request_magic_link(
+            body.email,
+            credential=credential if credential.startswith(("lfr_", "lfrclaim_")) else "",
+            purpose=body.purpose,
+        )
+        if delivery is not None:
+            try:
+                service = _license_service()
+                service.queue_magic_link_notification(delivery)
+                _deliver_pending_notifications(limit=1)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return {"ok": True, "message": "If Relay Access is associated with that address, a link is on its way."}
+
+
+@app.post("/v1/access/magic-links/exchange")
+def access_magic_link_exchange(body: AccessMagicLinkExchangeIn, request: Request) -> Dict[str, Any]:
+    try:
+        _check_access_rate_limit(
+            request,
+            action="magic_exchange",
+            limit=_int_env("RELAY_ACCESS_MAGIC_EXCHANGE_10M_LIMIT", 20, minimum=1),
+            window_seconds=600,
+            subject=body.token[:24],
+        )
+        service = _license_service()
+        session = service.exchange_magic_link(body.token)
+        if session.license_key and session.delivered_license_id:
+            try:
+                _deliver_pending_license_emails(limit=1)
+            except Exception:
+                pass
+        summaries = service.holder_license_summaries(session.token)
+        payload: Dict[str, Any] = {
+            "ok": True,
+            "holder_session": session.token,
+            "expires_in": 900,
+            "licenses": [
+                {
+                    **_access_license_payload(item["license"]),
+                    "receiver": item["receiver"],
+                    "key_delivery": item["key_delivery"],
+                }
+                for item in summaries
+            ],
+        }
+        if session.license_key and session.delivered_license_id:
+            delivered = next(
+                (item for item in session.licenses if item.license_id == session.delivered_license_id),
+                None,
+            )
+            if delivered is not None:
+                payload["key_delivery"] = {
+                    "license_ref": delivered.license_ref,
+                    "license_key": session.license_key,
+                    "key_ref": f"{delivered.key_prefix}…{delivered.key_last_four}",
+                    "one_time": True,
+                }
+                payload["license_key"] = session.license_key
+        return payload
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+@app.post("/v1/access/activation-grants")
+def access_activation_grant(body: AccessActivationGrantIn, request: Request) -> Dict[str, Any]:
+    holder_session = _request_access_token(request)
+    if not holder_session.startswith("lfrhs_"):
+        raise HTTPException(status_code=401, detail={"code": "holder_session_required", "message": "A fresh email link is required"})
+    try:
+        _check_access_rate_limit(
+            request,
+            action="activation_grant",
+            limit=_int_env("RELAY_ACCESS_GRANT_10M_LIMIT", 20, minimum=1),
+            window_seconds=600,
+            subject=holder_session[:24],
+        )
+        grant = _license_service().create_activation_grant(
+            holder_session,
+            body.license_id.strip(),
+            install_id=body.install_id.strip(),
+        )
+        return {"ok": True, "activation_grant": grant, "expires_in": 600}
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+@app.post("/v1/access/licenses/action")
+def access_license_action(body: AccessLicenseActionIn, request: Request) -> Dict[str, Any]:
+    holder_session = _request_access_token(request)
+    if not holder_session.startswith("lfrhs_"):
+        raise HTTPException(status_code=401, detail={"code": "holder_session_required", "message": "A fresh email link is required"})
+    try:
+        _check_access_rate_limit(
+            request,
+            action="license_action",
+            limit=_int_env("RELAY_ACCESS_ACTION_10M_LIMIT", 10, minimum=1),
+            window_seconds=600,
+            subject=holder_session[:24],
+        )
+        action = body.action.strip().lower()
+        if action == "rotate_key":
+            service = _license_service()
+            license_record, license_key = service.rotate_license_key(holder_session, body.license_id.strip())
+            try:
+                _deliver_pending_license_emails(limit=1)
+            except Exception:
+                pass
+            summaries = service.holder_license_summaries(holder_session)
+            refreshed = next(
+                (item for item in summaries if item["license"].license_id == body.license_id.strip()),
+                None,
+            )
+            return {
+                "ok": True,
+                "license": _access_license_payload(license_record),
+                "receiver": refreshed["receiver"] if refreshed else None,
+                "license_key": license_key,
+                "key_delivery": {
+                    "license_ref": license_record.license_ref,
+                    "license_key": license_key,
+                    "key_ref": f"{license_record.key_prefix}…{license_record.key_last_four}",
+                    "one_time": True,
+                },
+                "licenses": [
+                    {
+                        **_access_license_payload(item["license"]),
+                        "receiver": item["receiver"],
+                        "key_delivery": item["key_delivery"],
+                    }
+                    for item in summaries
+                ],
+            }
+        if action == "revoke_receiver":
+            service = _license_service()
+            revoked = service.revoke_activation(holder_session, body.license_id.strip())
+            summaries = service.holder_license_summaries(holder_session)
+            refreshed = next(
+                (item for item in summaries if item["license"].license_id == body.license_id.strip()),
+                None,
+            )
+            return {
+                "ok": True,
+                "revoked": revoked,
+                "license": _access_license_payload(refreshed["license"]) if refreshed else None,
+                "receiver": refreshed["receiver"] if refreshed else None,
+                "key_delivery": refreshed["key_delivery"] if refreshed else None,
+                "licenses": [
+                    {
+                        **_access_license_payload(item["license"]),
+                        "receiver": item["receiver"],
+                        "key_delivery": item["key_delivery"],
+                    }
+                    for item in summaries
+                ],
+            }
+        raise InvalidChallenge("License action is not supported")
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+@app.get("/v1/access/status")
+def access_status(request: Request, install_id: str = Query("")) -> Dict[str, Any]:
+    credential = _request_access_token(request)
+    if not credential:
+        raise HTTPException(status_code=401, detail={"code": "relay_credential_required", "message": "Relay Access credential is required"})
+    try:
+        _check_access_rate_limit(
+            request,
+            action="access_status",
+            limit=_int_env("RELAY_ACCESS_STATUS_MINUTE_LIMIT", 120, minimum=1),
+            window_seconds=60,
+            subject=install_id.strip() or credential[:24],
+        )
+        status = _license_service().status(credential, install_id=install_id.strip())
+        return {"ok": True, **status}
+    except Exception as exc:
+        raise _access_exception(exc) from exc
 
 
 class SiteContactIn(BaseModel):
@@ -9796,10 +11982,33 @@ def _build_client_status(
     app_version: str = "",
 ) -> Dict[str, Any]:
     _ensure_install_allowed(install_id)
-    activation_row = _load_activation(activation_token)
-    if activation_token and activation_row is None:
+    token = (activation_token or "").strip()
+    if _access_mode() == "licensed" and not token.startswith("lfr_"):
+        raise HTTPException(
+            status_code=401 if not token else 403,
+            detail={
+                "code": "relay_license_required",
+                "message": "An active Beacon Relay device credential is required.",
+                "credential_state": "unknown",
+                "reason_code": "licensed_credential_required",
+                "retryable": False,
+            },
+        )
+    licensed_row: Optional[Dict[str, Any]] = None
+    activation_row = None if token.startswith("lfr_") else _load_activation(token)
+    if token.startswith("lfr_"):
+        try:
+            licensed_row = _license_service().resolve_credential(token, install_id=install_id)
+        except Exception as exc:
+            raise _access_exception(exc) from exc
+        plan = "licensed"
+        schedule_limit = _int_env("RELAY_LICENSED_SCHEDULE_LIMIT", _managed_schedule_limit(), minimum=1)
+        radar_limit = _int_env("RELAY_LICENSED_RADAR_LIMIT", _managed_radar_limit(), minimum=1)
+        token_prefix = str(licensed_row.get("credential_prefix") or token[:12])
+        label = str(licensed_row.get("device_name") or "Beacon Relay Access")
+    elif token and activation_row is None:
         raise HTTPException(status_code=403, detail="Activation token invalid or revoked")
-    if activation_row is not None:
+    elif activation_row is not None:
         bound_install_id = (activation_row["bound_install_id"] or "").strip()
         if bound_install_id and bound_install_id != install_id:
             raise HTTPException(status_code=403, detail="Activation token already bound to another install")
@@ -9818,7 +12027,7 @@ def _build_client_status(
 
     conn = _connect()
     known_install_row = _activation_row_for_install(conn, install_id)
-    known_install = activation_row is not None or known_install_row is not None
+    known_install = licensed_row is not None or activation_row is not None or known_install_row is not None
     if not token_prefix and known_install_row is not None:
         token_prefix = str(known_install_row["token_prefix"] or "")
     aerodatabox_key, _ = _provider_status(_SETTING_AERODATABOX_KEY, "AERODATABOX_API_KEY", conn=conn)
@@ -9845,6 +12054,7 @@ def _build_client_status(
         "can_reissue": known_install,
         "token_prefix": token_prefix,
         "label": label,
+        "purchase_environment": str((licensed_row or {}).get("purchase_environment") or "") if licensed_row else "",
         "app_version": (app_version or "").strip(),
         "providers": {
             "aerodatabox": bool(aerodatabox_key),
@@ -9950,6 +12160,7 @@ def _lookup_relay_airport(query: str) -> Any:
 
 def _require_mobile_standalone_access(
     *,
+    request: Request,
     install_id: str,
     activation_token: str,
     app_version: str,
@@ -9967,12 +12178,34 @@ def _require_mobile_standalone_access(
         raise HTTPException(status_code=403, detail="client_kind=mobile_standalone is required")
     if not (app_version or "").strip():
         raise HTTPException(status_code=422, detail="app_version is required for mobile standalone clients")
+    resolved_service = (
+        "vatsim_schedule" if service == "aviationstack" else "vatsim_radar"
+    ) if source_mode == "virtual" else service
     token = (activation_token or "").strip()
-    if not token:
-        raise HTTPException(status_code=403, detail="Standalone mobile activation_token is required")
-    access = _resolve_access(install_id=install_id, activation_token=token, service=service)
-    if access.get("activation_row") is None:
-        raise HTTPException(status_code=403, detail="Standalone mobile activation token required")
+    if source_mode == "virtual":
+        _check_access_rate_limit(
+            request,
+            action="mobile_vatsim",
+            limit=_int_env("RELAY_MOBILE_VATSIM_10M_LIMIT", 180, minimum=1),
+            window_seconds=600,
+            subject=install_id,
+        )
+        access = _resolve_access(install_id=install_id, activation_token="", service=resolved_service)
+    else:
+        if not token:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "relay_credential_required",
+                    "message": "Beacon Relay Access is required for real-flight Standalone mode.",
+                    "credential_state": "unknown",
+                    "reason_code": "credential_missing",
+                    "retryable": False,
+                },
+            )
+        access = _resolve_access(install_id=install_id, activation_token=token, service=resolved_service)
+        if access.get("activation_row") is None:
+            raise HTTPException(status_code=403, detail="Standalone mobile Relay Access is required")
     _record_install_profile(
         install_id=install_id,
         presence_event="relay_activity",
@@ -10264,6 +12497,17 @@ def _mobile_cache_store(*, install_id: str, service: str, cache_key: str, payloa
 
 @app.post("/v1/activate")
 def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any]:
+    if _access_mode() == "licensed":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "relay_license_required",
+                "message": "Legacy Community and Managed credentials are not issued in licensed mode.",
+                "credential_state": "unknown",
+                "reason_code": "legacy_issuance_disabled",
+                "retryable": False,
+            },
+        )
     install_id = _validate_install_id(body.install_id)
     install_fingerprint = (body.install_fingerprint or "").strip()
     expected_fingerprint = _install_fingerprint(install_id)
@@ -10459,6 +12703,7 @@ def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any
 
 @app.get("/v1/client/status")
 def relay_client_status(
+    request: Request,
     install_id: str = Query(...),
     activation_token: str = Query(""),
     app_version: str = Query(""),
@@ -10479,9 +12724,15 @@ def relay_client_status(
     matrix_online_count: int = Query(0, ge=0, le=100_000),
 ) -> Dict[str, Any]:
     install_id = _validate_install_id(install_id)
+    access_token = _request_access_token(request, activation_token)
+    if activation_token.strip().startswith("lfr_") and not access_token:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "relay_credential_required", "message": "Send Relay Access credentials with Authorization: Bearer."},
+        )
     status_payload = _build_client_status(
         install_id=install_id,
-        activation_token=(activation_token or "").strip(),
+        activation_token=access_token,
         app_version=app_version,
     )
     _record_install_profile(
@@ -10508,11 +12759,17 @@ def relay_client_status(
 
 
 @app.post("/v1/client/checkin")
-def relay_client_checkin(body: ClientStatusIn) -> Dict[str, Any]:
+def relay_client_checkin(body: ClientStatusIn, request: Request) -> Dict[str, Any]:
     install_id = _validate_install_id(body.install_id)
+    access_token = _request_access_token(request, body.activation_token)
+    if body.activation_token.strip().startswith("lfr_") and not access_token:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "relay_credential_required", "message": "Send Relay Access credentials with Authorization: Bearer."},
+        )
     status = _build_client_status(
         install_id=install_id,
-        activation_token=(body.activation_token or "").strip(),
+        activation_token=access_token,
         app_version=body.app_version,
     )
     _record_install_profile(
@@ -10551,7 +12808,7 @@ def relay_client_checkin(body: ClientStatusIn) -> Dict[str, Any]:
         )
         status = _build_client_status(
             install_id=install_id,
-            activation_token=(body.activation_token or "").strip(),
+            activation_token=access_token,
             app_version=body.app_version,
         )
     return status
@@ -10563,8 +12820,17 @@ def _require_remote_companion_install(install_id: str, activation_token: str, in
     if not token:
         raise HTTPException(status_code=403, detail="Remote Companion requires a relay activation token")
     status = _build_client_status(install_id=install_id, activation_token=token)
-    if status.get("plan") != "managed":
-        raise HTTPException(status_code=403, detail="Remote Companion requires a managed relay-linked install")
+    required_plan = "licensed" if _access_mode() == "licensed" else "managed"
+    if status.get("plan") != required_plan:
+        raise HTTPException(status_code=403, detail="Remote Companion requires active Relay Access on its desktop host")
+    if required_plan == "licensed" and not _provider_access_policy().allows("remote_companion", "relay"):
+        raise HTTPException(status_code=503, detail="Remote Companion commercial access is not enabled")
+    if (
+        required_plan == "licensed"
+        and str(status.get("purchase_environment") or "production").lower() != "production"
+        and not _enabled_env("RELAY_ACCESS_ALLOW_TEST_LICENSES")
+    ):
+        raise HTTPException(status_code=403, detail="A test-store Relay Access license cannot authorize production Remote Companion")
     expected_ref = _install_fingerprint(install_id)
     if install_ref and install_ref != expected_ref:
         raise HTTPException(status_code=403, detail="install_ref does not match install_id")
@@ -10667,11 +12933,20 @@ def _check_and_increment_remote_companion_rate_limits(*, row: sqlite3.Row, netwo
 
 
 @app.post("/v1/remote-companion/grants")
-def remote_companion_grants(body: RemoteCompanionGrantIn) -> Dict[str, Any]:
+def remote_companion_grants(body: RemoteCompanionGrantIn, request: Request) -> Dict[str, Any]:
     install_id = _validate_install_id(body.install_id)
+    credential = _request_access_token(
+        request,
+        body.activation_token if _access_mode() == "legacy" else "",
+    )
+    if _access_mode() == "licensed" and not credential:
+        raise HTTPException(
+            status_code=401,
+            detail="Remote Companion receiver credential must be sent in Authorization",
+        )
     install_ref = _require_remote_companion_install(
         install_id,
-        body.activation_token,
+        credential,
         install_ref=body.install_ref,
     )
     action = (body.action or "register").strip().lower()
@@ -10733,16 +13008,126 @@ def remote_companion_grants(body: RemoteCompanionGrantIn) -> Dict[str, Any]:
     }
 
 
+@app.post("/v1/remote-companion/host/ticket")
+def remote_companion_host_ticket(
+    body: RemoteCompanionWsTicketIn,
+    request: Request,
+) -> Dict[str, Any]:
+    """Exchange an authenticated receiver credential for a short WebSocket ticket."""
+    install_id = _validate_install_id(body.install_id.strip())
+    credential = _request_access_token(request)
+    if not credential:
+        raise HTTPException(status_code=401, detail="Remote Companion receiver credential is required")
+    try:
+        _check_access_rate_limit(
+            request,
+            action="remote_companion_ws_ticket",
+            limit=_int_env("RELAY_ACCESS_WS_TICKET_MINUTE_LIMIT", 30, minimum=1),
+            window_seconds=60,
+            subject=install_id,
+        )
+        install_ref = _require_remote_companion_install(install_id, credential)
+        service = _license_service()
+        if _access_mode() == "licensed":
+            if not credential.startswith("lfr_"):
+                raise LicenseNotFound("Relay Access credential was not found")
+            receiver = service.resolve_credential(credential, install_id=install_id)
+            ticket = service.create_remote_companion_ws_ticket(
+                install_id=install_id,
+                install_ref=install_ref,
+                activation_id=str(receiver["activation_id"]),
+                license_id=str(receiver["license_id"]),
+            )
+        else:
+            activation = _load_activation(credential)
+            if activation is None:
+                raise LicenseNotFound("Managed Relay credential was not found")
+            ticket = service.create_remote_companion_ws_ticket(
+                install_id=install_id,
+                install_ref=install_ref,
+                legacy_activation_hash=str(activation["token_hash"]),
+            )
+        return {
+            "ok": True,
+            "ticket": ticket,
+            "expires_in": 60,
+            "install_ref": install_ref,
+            "websocket_path": "/v1/remote-companion/host/ws",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+def _consume_remote_companion_host_ticket(*, install_id: str, ticket: str) -> str:
+    result = _license_service().consume_remote_companion_ws_ticket(
+        ticket=ticket,
+        install_id=install_id,
+    )
+    expected_ref = _install_fingerprint(install_id)
+    if str(result.get("install_ref") or "") != expected_ref:
+        raise InvalidChallenge("Remote Companion ticket installation reference does not match")
+    if bool(result.get("legacy")):
+        if _access_mode() != "legacy":
+            raise LicenseInactive("Legacy Remote Companion tickets are not accepted in licensed mode")
+        conn = _connect()
+        try:
+            activation = conn.execute(
+                """
+                SELECT bound_install_id, access_plan
+                FROM activation_tokens
+                WHERE token_hash=? AND revoked_at IS NULL
+                """,
+                (str(result.get("legacy_activation_hash") or ""),),
+            ).fetchone()
+        finally:
+            conn.close()
+        if (
+            not activation
+            or str(activation["bound_install_id"] or "") != install_id
+            or str(activation["access_plan"] or "managed").strip().lower() != "managed"
+        ):
+            raise LicenseInactive("Managed Relay credential is no longer active")
+        return expected_ref
+    if _access_mode() != "licensed":
+        raise LicenseInactive("Licensed Remote Companion ticket is not accepted in legacy mode")
+    if not _provider_access_policy().allows("remote_companion", "relay"):
+        raise AccessConfigurationError("Remote Companion commercial access is not enabled")
+    if (
+        str(result.get("purchase_environment") or "production").lower() != "production"
+        and not _enabled_env("RELAY_ACCESS_ALLOW_TEST_LICENSES")
+    ):
+        raise LicenseInactive("A test-store Relay Access license cannot authorize production Remote Companion")
+    return expected_ref
+
+
+def _websocket_bearer_token(websocket: WebSocket) -> str:
+    authorization = websocket.headers.get("authorization", "").strip()
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return ""
+
+
 @app.websocket("/v1/remote-companion/host/ws")
 async def remote_companion_host_ws(
     websocket: WebSocket,
     install_id: str = Query(...),
-    activation_token: str = Query(...),
+    activation_token: str = Query(""),
     app_version: str = Query(""),
 ) -> None:
     try:
-        install_ref = _require_remote_companion_install(install_id, activation_token)
-    except HTTPException:
+        install_id = _validate_install_id(install_id)
+        ticket = _websocket_bearer_token(websocket)
+        if ticket.startswith("lfrws_"):
+            install_ref = _consume_remote_companion_host_ticket(install_id=install_id, ticket=ticket)
+        elif _access_mode() == "legacy" and activation_token:
+            # Temporary compatibility for pre-ticket desktop releases. Licensed
+            # mode never accepts a long-lived receiver credential in the URL.
+            install_ref = _require_remote_companion_install(install_id, activation_token)
+        else:
+            raise InvalidChallenge("A short-lived Remote Companion WebSocket ticket is required")
+    except (HTTPException, AccessConfigurationError, InvalidChallenge, LicenseInactive, LicenseNotFound):
         await websocket.close(code=1008)
         return
     await websocket.accept()
@@ -10963,8 +13348,9 @@ def relay_airports_resolve(q: str = Query(..., min_length=2, max_length=10)) -> 
 
 @app.get("/v1/mobile/summary")
 def relay_mobile_summary(
+    request: Request,
     install_id: str = Query(...),
-    activation_token: str = Query(...),
+    activation_token: str = Query(""),
     app_version: str = Query(...),
     client_kind: str = Query(...),
     airport_iata: str = Query(...),
@@ -10974,16 +13360,18 @@ def relay_mobile_summary(
     device_type: str = Query("phone"),
     source: str = Query("real", pattern="^(real|virtual)$"),
 ) -> Dict[str, Any]:
+    access_token = _request_access_token(request, activation_token)
     source_mode = _mobile_standalone_source(source)
     airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
     timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
     airport["timezone"] = timezone_name
     _require_mobile_standalone_access(
+        request=request,
         install_id=install_id,
-        activation_token=activation_token,
+        activation_token=access_token,
         app_version=app_version,
         client_kind=client_kind,
-        service="aviationstack",
+        service="public_summary",
         device_type=device_type,
         airport_iata=str(airport.get("iata") or ""),
         airport_icao=str(airport.get("icao") or ""),
@@ -10991,7 +13379,23 @@ def relay_mobile_summary(
         diagnostics_mode=diagnostics_mode,
         source_mode=source_mode,
     )
-    status = _build_client_status(install_id=_validate_install_id(install_id), activation_token=activation_token, app_version=app_version)
+    status = (
+        {
+            "plan": "vatsim",
+            "token_prefix": "",
+            "schedule_cache": {},
+            "shared_schedule_budget": {},
+            "schedule_access_budget": {},
+            "limits": {"schedule": None, "radar": None},
+            "providers": {"adsbexchange": False},
+        }
+        if source_mode == "virtual"
+        else _build_client_status(
+            install_id=_validate_install_id(install_id),
+            activation_token=access_token,
+            app_version=app_version,
+        )
+    )
     metar: Optional[Dict[str, Any]] = None
     if airport.get("icao"):
         try:
@@ -11064,8 +13468,9 @@ def relay_mobile_summary(
 
 @app.get("/v1/mobile/metar")
 def relay_mobile_metar(
+    request: Request,
     install_id: str = Query(...),
-    activation_token: str = Query(...),
+    activation_token: str = Query(""),
     app_version: str = Query(...),
     client_kind: str = Query(...),
     airport_iata: str = Query(""),
@@ -11074,14 +13479,16 @@ def relay_mobile_metar(
     diagnostics_mode: str = Query("manual"),
     device_type: str = Query("phone"),
 ) -> Dict[str, Any]:
+    access_token = _request_access_token(request, activation_token)
     airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
     timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
     _require_mobile_standalone_access(
+        request=request,
         install_id=install_id,
-        activation_token=activation_token,
+        activation_token=access_token,
         app_version=app_version,
         client_kind=client_kind,
-        service="aviationstack",
+        service="public_weather",
         device_type=device_type,
         airport_iata=str(airport.get("iata") or ""),
         airport_icao=str(airport.get("icao") or ""),
@@ -11103,7 +13510,7 @@ def relay_mobile_metar(
 def relay_mobile_fids(
     request: Request,
     install_id: str = Query(...),
-    activation_token: str = Query(...),
+    activation_token: str = Query(""),
     app_version: str = Query(...),
     client_kind: str = Query(...),
     airport_iata: str = Query(...),
@@ -11115,13 +13522,15 @@ def relay_mobile_fids(
     device_type: str = Query("phone"),
     source: str = Query("real", pattern="^(real|virtual)$"),
 ) -> Any:
+    access_token = _request_access_token(request, activation_token)
     source_mode = _mobile_standalone_source(source)
     airport = _airport_result_payload(_lookup_relay_airport(airport_iata or airport_icao), include_coords=True)
     timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
     airport["timezone"] = timezone_name
     _require_mobile_standalone_access(
+        request=request,
         install_id=install_id,
-        activation_token=activation_token,
+        activation_token=access_token,
         app_version=app_version,
         client_kind=client_kind,
         service="aviationstack",
@@ -11146,7 +13555,7 @@ def relay_mobile_fids(
         display_horizon_hours=12,
         refresh_seconds=_standalone_schedule_min_refresh_seconds(),
         install_id=install_id,
-        activation_token=activation_token,
+        activation_token=access_token,
         app_version=app_version,
         client_kind="mobile_standalone",
         device_type=device_type,
@@ -11166,7 +13575,7 @@ def relay_mobile_fids(
 def relay_mobile_board(
     request: Request,
     install_id: str = Query(...),
-    activation_token: str = Query(...),
+    activation_token: str = Query(""),
     app_version: str = Query(...),
     client_kind: str = Query(...),
     airport_iata: str = Query(...),
@@ -11182,9 +13591,11 @@ def relay_mobile_board(
     timezone_name = _normalize_timezone_name(timezone or str(airport.get("timezone") or "UTC"))
     airport["timezone"] = timezone_name
     install_id = _validate_install_id(install_id)
+    access_token = _request_access_token(request, activation_token)
     _require_mobile_standalone_access(
+        request=request,
         install_id=install_id,
-        activation_token=activation_token,
+        activation_token=access_token,
         app_version=app_version,
         client_kind=client_kind,
         service="aviationstack",
@@ -11227,7 +13638,7 @@ def relay_mobile_board(
                 display_horizon_hours=12,
                 refresh_seconds=_standalone_schedule_min_refresh_seconds(),
                 install_id=install_id,
-                activation_token=activation_token,
+                activation_token=access_token,
                 app_version=app_version,
                 client_kind="mobile_standalone",
                 device_type=device_type,
@@ -11278,7 +13689,7 @@ def relay_mobile_board(
 def relay_mobile_radar(
     request: Request,
     install_id: str = Query(...),
-    activation_token: str = Query(...),
+    activation_token: str = Query(""),
     app_version: str = Query(...),
     client_kind: str = Query(...),
     airport_iata: str = Query(...),
@@ -11296,9 +13707,11 @@ def relay_mobile_radar(
     if airport.get("lat") is None or airport.get("lon") is None:
         raise HTTPException(status_code=404, detail="Radar is unavailable for this airport")
     install_id = _validate_install_id(install_id)
+    access_token = _request_access_token(request, activation_token)
     access = _require_mobile_standalone_access(
+        request=request,
         install_id=install_id,
-        activation_token=activation_token,
+        activation_token=access_token,
         app_version=app_version,
         client_kind=client_kind,
         service="radar",
@@ -11637,10 +14050,11 @@ def relay_reports(body: ReportIn, request: Request) -> Dict[str, Any]:
     if install_fingerprint != expected_fingerprint:
         raise HTTPException(status_code=422, detail="install_fingerprint does not match install_id")
 
-    if body.activation_token.strip():
+    report_access_token = _request_access_token(request, body.activation_token.strip())
+    if report_access_token:
         _build_client_status(
             install_id=install_id,
-            activation_token=body.activation_token.strip(),
+            activation_token=report_access_token,
             app_version=body.app_version,
         )
     else:
@@ -11653,11 +14067,12 @@ def relay_reports(body: ReportIn, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="Linear reporting is not configured on the relay")
 
     message_hash = _normalize_message_hash(body)
+    report_context = _redact_sensitive((body.context or "").strip().lower())
     dedupe_key = _report_dedupe_key(
         team=team,
         report_type=report_type,
         origin=origin,
-        context=(body.context or "").strip().lower(),
+        context=report_context,
         message_hash=message_hash,
         install_fingerprint=install_fingerprint,
     )
@@ -11686,7 +14101,7 @@ def relay_reports(body: ReportIn, request: Request) -> Dict[str, Any]:
                 network_tag=network_tag,
                 report_type=report_type,
                 origin=origin,
-                context=body.context,
+                context=report_context,
                 team=team,
                 status="deduped",
                 dedupe_key=dedupe_key,
@@ -11704,7 +14119,7 @@ def relay_reports(body: ReportIn, request: Request) -> Dict[str, Any]:
             network_tag=network_tag,
             report_type=report_type,
             origin=origin,
-            context=body.context,
+            context=report_context,
             team=team,
             status="filed",
             dedupe_key=dedupe_key,
@@ -11905,7 +14320,11 @@ def relay_schedule(
     network_tag = _network_tag(_client_ip(request))
     _check_and_increment_schedule_rpm_limits(install_id=install_id, network_tag=network_tag)
 
-    access = _resolve_access(install_id=install_id, activation_token=activation_token, service="aviationstack")
+    access = _resolve_access(
+        install_id=install_id,
+        activation_token=_request_access_token(request, activation_token),
+        service="aviationstack",
+    )
     client_kind = _clean_client_kind(client_kind)
     if client_kind == "mobile_standalone":
         refresh_seconds = max(int(refresh_seconds), _standalone_schedule_min_refresh_seconds())
@@ -11950,6 +14369,9 @@ def relay_schedule(
     conn = _connect()
     snapshot_row = _load_schedule_snapshot_conn(conn, cache_key)
     conn.close()
+    if snapshot_row is not None and not _licensed_schedule_snapshot_allowed(str(snapshot_row["provider"] or "")):
+        # A provider-policy change applies immediately to cached and fresh data.
+        snapshot_row = None
     if snapshot_row is None:
         _check_and_mark_new_schedule_cache_key(network_tag=network_tag, cache_key=cache_key)
 
@@ -12293,7 +14715,11 @@ def relay_flights(
     if not dep_iata and not arr_iata:
         raise HTTPException(status_code=400, detail="dep_iata or arr_iata is required")
 
-    access = _resolve_access(install_id=install_id, activation_token=activation_token, service="aviationstack")
+    access = _resolve_access(
+        install_id=install_id,
+        activation_token=_request_access_token(request, activation_token),
+        service="aviationstack",
+    )
     month = _month_key()
     current = _get_usage(access["subject_key"], "aviationstack", month)
     if current >= access["limit"]:
@@ -12378,7 +14804,7 @@ def relay_airport_ground(
     airport_icao: str = Query(""),
     radius_nm: float = Query(5.0, ge=1.0, le=20.0),
     install_id: str = Query(...),
-    activation_token: str = Query(...),
+    activation_token: str = Query(""),
     app_version: str = Query(...),
     client_kind: str = Query("desktop"),
     device_type: str = Query("unknown"),
@@ -12388,7 +14814,7 @@ def relay_airport_ground(
     if not _airport_ground_enabled():
         raise HTTPException(status_code=503, detail="Airport ground-layer cache is disabled on this relay")
     install_id = _validate_install_id(install_id)
-    token = str(activation_token or "").strip()
+    token = _request_access_token(request, activation_token)
     if not token:
         raise HTTPException(status_code=403, detail="Activation token required for airport ground layers")
     access = _resolve_access(install_id=install_id, activation_token=token, service="radar")
@@ -12576,7 +15002,11 @@ def relay_radar(
     client_kind = _clean_client_kind(client_kind)
     if client_kind == "mobile_standalone" and int(radius_nm) not in _STANDALONE_RADAR_RADII_NM:
         raise HTTPException(status_code=422, detail="mobile_standalone radar radius must be one of 1, 3, 5, or 10 NM")
-    access = _resolve_access(install_id=install_id, activation_token=activation_token, service="radar")
+    access = _resolve_access(
+        install_id=install_id,
+        activation_token=_request_access_token(request, activation_token),
+        service="radar",
+    )
     _record_install_profile(
         install_id=install_id,
         presence_event="relay_activity",
@@ -12644,10 +15074,17 @@ def relay_radar(
 
 @app.get("/v1/managed/config")
 def relay_managed_config(
+    request: Request,
     install_id: str = Query(...),
     activation_token: str = Query(...),
 ) -> Dict[str, Any]:
-    status = _build_client_status(install_id=_validate_install_id(install_id), activation_token=activation_token)
+    access_token = _request_access_token(request, activation_token)
+    if activation_token.strip().startswith("lfr_") and not access_token:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "relay_credential_required", "message": "Send Relay Access credentials with Authorization: Bearer."},
+        )
+    status = _build_client_status(install_id=_validate_install_id(install_id), activation_token=access_token)
     if status.get("plan") != "managed":
         raise HTTPException(status_code=403, detail="Managed activation token required")
     return status
@@ -12713,6 +15150,14 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
             "features": {
                 "raw_provider_debug": _raw_provider_debug_enabled(),
                 "airport_surface_overlay": _airport_surface_enabled(),
+                "relay_access_mode": _access_mode(),
+                "relay_access_sales": _provider_access_policy().sales_enabled,
+                "relay_access_schedule": _provider_access_policy().allows("schedule"),
+                "relay_access_radar": _provider_access_policy().allows("radar"),
+                "relay_access_remote_companion": _provider_access_policy().allows("remote_companion"),
+                "relay_access_aerodatabox": _provider_access_policy().allows("schedule", "aerodatabox"),
+                "relay_access_aviationstack": _provider_access_policy().allows("schedule", "aviationstack"),
+                "relay_access_adsbexchange": _provider_access_policy().allows("radar", "adsbexchange"),
             },
             "counts": {
                 "usage_rows": _admin_count(conn, "SELECT COUNT(*) FROM usage WHERE month=?", (month,)),
@@ -12724,6 +15169,30 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
                 "activation_tokens_revoked": _admin_count(
                     conn,
                     "SELECT COUNT(*) FROM activation_tokens WHERE revoked_at IS NOT NULL",
+                ),
+                "relay_licenses_active": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM relay_licenses WHERE status='active'",
+                ),
+                "relay_licenses_inactive": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM relay_licenses WHERE status<>'active'",
+                ),
+                "relay_receivers_active": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM relay_activations WHERE status='active'",
+                ),
+                "relay_delivery_pending": _admin_count(
+                    conn,
+                    """
+                    SELECT COUNT(*) FROM license_deliveries
+                    WHERE status IN ('pending', 'sending')
+                       OR (status='failed' AND next_attempt_at IS NOT NULL)
+                    """,
+                ),
+                "relay_delivery_failed": _admin_count(
+                    conn,
+                    "SELECT COUNT(*) FROM license_deliveries WHERE status='failed'",
                 ),
                 "activation_requests_pending": _admin_count(
                     conn,
@@ -12797,6 +15266,203 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
         }
     finally:
         conn.close()
+
+
+def _admin_access_payload(
+    *,
+    limit: int,
+    cursor: str,
+    q: str,
+    source: str,
+    state: str,
+) -> Dict[str, Any]:
+    service = _license_service()
+    page = service.admin_search(limit=limit, cursor=cursor, query=q, source=source, state=state)
+    conn = _connect()
+    try:
+        schema_version = access_schema_version(conn)
+    finally:
+        conn.close()
+    return {
+        "mode": _access_mode(),
+        "sales_enabled": _provider_access_policy().sales_enabled,
+        "mobile_ownership_enabled": _mobile_ownership_enabled(),
+        "configuration_ready": not _access_preflight_errors(),
+        "delivery_ready": _mobile_license_delivery_ready(),
+        "reconciliation_ready": {
+            "apple": _mobile_reconciliation_ready("ios"),
+            "google": _mobile_reconciliation_ready("android"),
+        },
+        "backup": _access_backup_health(),
+        "schema_version": schema_version,
+        "licenses": page["items"],
+        "next_cursor": page["next_cursor"],
+        "has_more": page["has_more"],
+        "filtered_estimate": page["total"],
+        "total_estimate": page["total"],
+        # Never echo an exact email search into operator JSON. The browser
+        # already owns its filter input; the server returns only whether a
+        # query was applied and the non-sensitive facet values.
+        "filters": {"query_applied": bool(q.strip()), "source": source, "state": state},
+        "purchase_events": service.admin_purchase_events(limit),
+        "deliveries": service.admin_delivery_snapshot(limit),
+        "notifications": service.admin_notification_snapshot(limit),
+        "reconciliation_health": service.admin_reconciliation_snapshot(),
+    }
+
+
+@app.get("/admin/api/access")
+def admin_api_access(
+    limit: int = Query(100, ge=1, le=200),
+    cursor: str = Query("", max_length=512),
+    q: str = Query("", max_length=240),
+    source: str = Query("", max_length=40),
+    state: str = Query("", max_length=40),
+    _username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    # Exact email search is intentionally POST-only. Query strings commonly
+    # enter reverse-proxy and CDN logs even when the response body is clean.
+    if "@" in q:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "secure_search_required",
+                "message": "Exact email lookup must use the secure operator search endpoint.",
+            },
+        )
+    return _admin_access_payload(
+        limit=limit,
+        cursor=cursor,
+        q=q,
+        source=source,
+        state=state,
+    )
+
+
+@app.post("/admin/api/access/search")
+def admin_api_access_search(
+    body: AccessAdminSearchIn,
+    _username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    return _admin_access_payload(
+        limit=body.limit,
+        cursor=body.cursor,
+        q=body.q,
+        source=body.source,
+        state=body.state,
+    )
+
+
+@app.get("/admin/api/access/{license_id}")
+def admin_api_access_detail(
+    license_id: str,
+    _username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    try:
+        detail = _license_service().admin_license_detail(license_id.strip())
+        license_payload = _access_license_payload(detail["license"])
+        license_payload["email_protected"] = bool(detail["license"].holder_id)
+        return {
+            "license": license_payload,
+            "activations": detail["activations"],
+            "purchases": detail["purchases"],
+            "deliveries": detail["deliveries"],
+            "events": detail["events"],
+            "notifications": detail["notifications"],
+            "purchase_transitions": detail["purchase_transitions"],
+        }
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+@app.post("/admin/api/access/{license_id}/action")
+def admin_api_access_action(
+    license_id: str,
+    body: AccessAdminActionIn,
+    _username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    service = _license_service()
+    try:
+        action = body.action.strip().lower()
+        if action == "revoke_license":
+            return {"ok": True, "license": _access_license_payload(service.admin_set_license_status(license_id, "revoked"))}
+        if action == "suspend_license":
+            return {"ok": True, "license": _access_license_payload(service.admin_set_license_status(license_id, "suspended"))}
+        if action == "reactivate_license":
+            return {"ok": True, "license": _access_license_payload(service.admin_set_license_status(license_id, "active"))}
+        if action == "revoke_receiver":
+            return {"ok": True, "revoked": service.admin_revoke_activation(license_id)}
+        if action == "retry_deliveries":
+            return {"ok": True, "retried": service.admin_retry_deliveries(license_id)}
+        if action == "retry_notifications":
+            retried = service.admin_retry_notifications(license_id)
+            try:
+                _deliver_pending_notifications(limit=max(1, retried))
+            except Exception:
+                pass
+            return {"ok": True, "retried": retried}
+        if action == "retry_reconciliation":
+            operation_id = service.admin_retry_reconciliation(license_id)
+            try:
+                _process_provider_operations(limit=1)
+            except Exception:
+                pass
+            return {"ok": True, "queued": True, "operation_ref": operation_id[:16]}
+        if action == "rotate_key":
+            record = service.admin_rotate_license_key(license_id)
+            try:
+                _deliver_pending_license_emails(limit=1)
+            except Exception:
+                pass
+            return {
+                "ok": True,
+                "license": _access_license_payload(record),
+                "delivery": "queued",
+            }
+        raise InvalidChallenge("Admin license action is not supported")
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+@app.post("/admin/api/access/events/{event_ref}/action")
+def admin_api_access_event_action(
+    event_ref: str,
+    body: AccessAdminActionIn,
+    _username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    service = _license_service()
+    try:
+        result = service.admin_resolve_purchase_event(event_ref, action=body.action)
+        if body.action.strip().lower() == "retry_reconciliation" and result.get("license_id"):
+            service.admin_retry_reconciliation(str(result["license_id"]))
+            try:
+                _process_provider_operations(limit=1)
+            except Exception:
+                pass
+        return {
+            "ok": True,
+            "event_ref": result["event_ref"],
+            "status": result["status"],
+        }
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
+@app.post("/admin/api/access-backups/action")
+def admin_api_access_backup_action(
+    body: AccessAdminActionIn,
+    _username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    try:
+        action = body.action.strip().lower()
+        if action == "create_backup":
+            result = _maybe_create_access_backup(force=True)
+            return {"ok": True, "backup": result or _access_backup_health()}
+        if action == "verify_latest":
+            return {"ok": True, "backup": _access_backup_health()}
+        raise InvalidChallenge("Backup action is not supported")
+    except Exception as exc:
+        raise _access_exception(exc) from exc
 
 
 @app.get("/admin/api/usage")
@@ -14111,6 +16777,9 @@ def main() -> None:
         host=_env("HOST", "0.0.0.0"),
         port=int(_env("PORT", "8080")),
         reload=False,
+        # Request targets may be supplied by old clients. Keep them out of
+        # infrastructure logs; application diagnostics are explicitly redacted.
+        access_log=False,
     )
 
 

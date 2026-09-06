@@ -1,0 +1,350 @@
+---
+import LicenseManagementLayout from "../../../../layouts/LicenseManagementLayout.astro";
+import { relayOrigin } from "../../../../data/site";
+---
+
+<LicenseManagementLayout
+  title="Manage Beacon Relay Access"
+  description="Recover, protect, transfer, or release a Beacon Relay Access license without creating an account."
+>
+  <section class="management-main" data-license-management data-relay-origin={relayOrigin}>
+    <div class="management-frame">
+      <div class="management-intro">
+        <span class="section-index">BEACON RELAY ACCESS</span>
+        <h1>Manage a license without an account.</h1>
+        <p>This page is only for recovery and device changes. It has no checkout, pricing, or app-store links. A short-lived email link proves access; there is no Beacon password or profile.</p>
+      </div>
+
+      <div class="management-panel">
+        <section id="managementRecovery" aria-labelledby="recoveryTitle">
+          <span class="feature-index">EMAIL RECOVERY</span>
+          <h2 id="recoveryTitle">Send a private management link.</h2>
+          <p>Enter the address used at Stripe Checkout or the address you confirmed when protecting a mobile license. The response is deliberately the same even when no license is found.</p>
+          <form class="management-form" id="recoveryForm">
+            <label for="recoveryEmail">Recovery email</label>
+            <input id="recoveryEmail" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="240" />
+            <button class="action-button action-button--primary" type="submit">Email a management link</button>
+          </form>
+          <p class="form-status" id="recoveryStatus" role="status" aria-live="polite"></p>
+          <p class="management-privacy">Beacon Relay stores a keyed lookup and encrypted notification copy, not a plain email field. Email delivery can be delayed without affecting an already active device credential.</p>
+        </section>
+
+        <section id="managementSession" hidden aria-labelledby="licensesTitle">
+          <div class="management-session-heading">
+            <div>
+              <span class="feature-index">VERIFIED EMAIL LINK</span>
+              <h2 id="licensesTitle">Your separate Relay licenses.</h2>
+            </div>
+            <button class="relay-text-button" id="endSession" type="button">End this session</button>
+          </div>
+          <p class="form-status" id="sessionStatus" role="status" aria-live="polite"></p>
+
+          <div class="license-delivery management-key-delivery" id="managementKeyDelivery" hidden>
+            <span class="feature-index">ONE-TIME DELIVERY</span>
+            <h3 id="deliveryTitle">Your Relay Access key</h3>
+            <label for="managementLicenseKey">Save this key now</label>
+            <div class="relay-key-row">
+              <input class="mono" id="managementLicenseKey" readonly autocomplete="off" spellcheck="false" />
+              <button class="action-button" id="copyManagementKey" type="button">Copy key</button>
+            </div>
+            <p class="form-note">This page reveals the key only for confirmed initial delivery or a requested rotation. Mobile never displays or accepts it inside the app.</p>
+          </div>
+
+          <div class="relay-license-list" id="licenseList" aria-live="polite"></div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <template id="licenseTemplate">
+    <article class="relay-license">
+      <div class="relay-license-heading">
+        <div>
+          <span class="feature-index" data-license-source></span>
+          <h3 data-license-title>Beacon Relay Access</h3>
+        </div>
+        <span class="license-state" data-license-state></span>
+      </div>
+      <dl class="license-facts">
+        <div><dt>Purchased</dt><dd data-license-date></dd></div>
+        <div><dt>Key reference</dt><dd class="mono" data-license-key-ref></dd></div>
+        <div><dt>Current main device</dt><dd data-license-receiver></dd></div>
+        <div><dt>Key delivery</dt><dd data-license-delivery></dd></div>
+      </dl>
+      <div class="license-actions">
+        <button class="action-button" type="button" data-license-action="desktop_grant">Create desktop activation code</button>
+        <button class="action-button" type="button" data-license-action="mobile_grant">Create mobile handoff</button>
+        <button class="relay-text-button" type="button" data-license-action="revoke_receiver">Release current main device</button>
+        <button class="relay-text-button" type="button" data-license-action="rotate_key">Rotate a lost key</button>
+      </div>
+      <div class="relay-grant" data-license-grant hidden>
+        <strong data-grant-title></strong>
+        <p data-grant-explanation></p>
+        <code data-grant-value></code>
+        <a class="action-button" data-grant-mobile-link hidden>Open in Local Flight Mobile</a>
+      </div>
+      <p class="form-status" data-license-status role="status" aria-live="polite"></p>
+    </article>
+  </template>
+
+  <script is:inline>
+    (() => {
+      const root = document.querySelector("[data-license-management]");
+      const relay = root?.dataset.relayOrigin || "";
+      const recovery = document.getElementById("managementRecovery");
+      const session = document.getElementById("managementSession");
+      const recoveryForm = document.getElementById("recoveryForm");
+      const recoveryStatus = document.getElementById("recoveryStatus");
+      const sessionStatus = document.getElementById("sessionStatus");
+      const licenseList = document.getElementById("licenseList");
+      const template = document.getElementById("licenseTemplate");
+      const keyDelivery = document.getElementById("managementKeyDelivery");
+      const keyField = document.getElementById("managementLicenseKey");
+      const deliveryTitle = document.getElementById("deliveryTitle");
+      let holderSession = "";
+      let licenses = [];
+
+      const sourceLabel = (source) => ({
+        stripe: "WEB / STRIPE",
+        apple: "IOS / APP STORE",
+        apple_app: "IOS / APP STORE",
+        app_store: "IOS / APP STORE",
+        google: "ANDROID / GOOGLE PLAY",
+        google_app: "ANDROID / GOOGLE PLAY",
+        google_play: "ANDROID / GOOGLE PLAY",
+      }[String(source || "").toLowerCase()] || "BEACON RELAY ACCESS");
+
+      const stateLabel = (state) => ({
+        active: "ACTIVE",
+        suspended: "SUSPENDED",
+        refunded: "REFUNDED",
+        revoked: "REVOKED",
+        inactive: "INACTIVE",
+      }[String(state || "").toLowerCase()] || String(state || "UNKNOWN").toUpperCase());
+
+      const receiverLabel = (receiver) => {
+        if (!receiver || typeof receiver !== "object" || !receiver.device_kind) return "Available — no active main device";
+        const kind = receiver.device_kind === "mobile_standalone" ? "Mobile Standalone" : "Desktop Beacon Relay";
+        const name = String(receiver.device_name || "").trim();
+        return name ? `${kind} · ${name}` : kind;
+      };
+
+      const dateLabel = (value) => {
+        const date = new Date(String(value || ""));
+        return Number.isNaN(date.valueOf()) ? "Date unavailable" : new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date);
+      };
+
+      const deliveryLabel = (license) => {
+        const delivery = license.key_delivery || license.delivery || {};
+        const state = String(delivery.state || delivery.status || "").toLowerCase();
+        if (state === "sent") return "Sent by email";
+        if (state === "pending" || state === "sending" || state === "failed") return "Email delivery pending";
+        if (state === "revealed") return "Revealed once";
+        return license.email_protected === false ? "Not protected by email" : "Protected by email";
+      };
+
+      const apiError = async (response) => {
+        let payload = {};
+        try { payload = await response.json(); } catch {}
+        const detail = payload?.detail;
+        const message = typeof detail === "object" ? detail?.message : detail;
+        throw new Error(message || payload?.error || "Relay Access could not complete that request.");
+      };
+
+      const showKey = (key, purpose = "delivery") => {
+        if (typeof key !== "string" || !key.startsWith("LFRA-")) return;
+        keyField.value = key;
+        deliveryTitle.textContent = purpose === "rotation" ? "Your rotated Relay Access key" : "Your Relay Access key";
+        keyDelivery.hidden = false;
+        keyDelivery.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      };
+
+      const actionRequest = async (path, body) => {
+        const response = await fetch(`${relay}${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${holderSession}` },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) return apiError(response);
+        return response.json();
+      };
+
+      const updateFromAction = (payload) => {
+        if (Array.isArray(payload?.licenses)) licenses = payload.licenses;
+        else if (payload?.license) {
+          const index = licenses.findIndex((item) => item.license_ref === payload.license.license_ref || item.license_id === payload.license.license_id);
+          if (index >= 0) licenses[index] = { ...licenses[index], ...payload.license, receiver: payload.license.receiver ?? payload.receiver ?? licenses[index].receiver };
+        }
+        renderLicenses();
+      };
+
+      const handleLicenseAction = async (button, license, card) => {
+        const action = button.dataset.licenseAction;
+        const output = card.querySelector("[data-license-status]");
+        const grantBox = card.querySelector("[data-license-grant]");
+        output.textContent = "";
+        grantBox.hidden = true;
+        if (!holderSession) return;
+        button.disabled = true;
+        try {
+          if (action === "desktop_grant" || action === "mobile_grant") {
+            const payload = await actionRequest("/v1/access/activation-grants", { license_id: license.license_id || license.license_ref });
+            const grant = String(payload.activation_grant || "");
+            if (!grant.startsWith("lfrag_")) throw new Error("Beacon Relay did not return an activation grant.");
+            const mobile = action === "mobile_grant";
+            card.querySelector("[data-grant-title]").textContent = mobile ? "Mobile handoff ready" : "Desktop activation code";
+            card.querySelector("[data-grant-explanation]").textContent = mobile
+              ? "The mobile app will verify the receiving app before it can consume this handoff: App Store entitlement on iOS or Play Integrity on Android."
+              : "Paste this one-use code into desktop Beacon Relay setup. It expires in about ten minutes.";
+            card.querySelector("[data-grant-value]").textContent = grant;
+            const mobileLink = card.querySelector("[data-grant-mobile-link]");
+            mobileLink.hidden = !mobile;
+            if (mobile) mobileLink.href = `localflight://relay-access#grant=${encodeURIComponent(grant)}`;
+            grantBox.hidden = false;
+            output.textContent = mobile ? "Fresh iOS entitlement or Android official-app proof is still required on the receiving device." : "Code created. It can be used once.";
+            output.dataset.tone = "ok";
+          } else if (action === "revoke_receiver") {
+            if (!window.confirm("Release this license’s current main device? That device will lose Beacon Relay access.")) return;
+            const payload = await actionRequest("/v1/access/licenses/action", { license_id: license.license_id || license.license_ref, action: "revoke_receiver" });
+            updateFromAction(payload);
+            sessionStatus.textContent = "The main device was released. This license is available again.";
+            sessionStatus.dataset.tone = "ok";
+          } else if (action === "rotate_key") {
+            if (!window.confirm("Rotate this lost master key? The old key and active main-device credential will stop working.")) return;
+            const payload = await actionRequest("/v1/access/licenses/action", { license_id: license.license_id || license.license_ref, action: "rotate_key" });
+            updateFromAction(payload);
+            showKey(payload.license_key, "rotation");
+            sessionStatus.textContent = "The old key and main-device credential were revoked. Save the new key now.";
+            sessionStatus.dataset.tone = "ok";
+          }
+        } catch (error) {
+          output.textContent = error instanceof Error ? error.message : "Relay Access could not complete that request.";
+          output.dataset.tone = "bad";
+        } finally {
+          button.disabled = false;
+        }
+      };
+
+      function renderLicenses() {
+        licenseList.replaceChildren();
+        if (!licenses.length) {
+          const empty = document.createElement("p");
+          empty.className = "management-empty";
+          empty.textContent = "No Relay Access licenses are attached to this verified address.";
+          licenseList.append(empty);
+          return;
+        }
+        for (const license of licenses) {
+          const card = template.content.firstElementChild.cloneNode(true);
+          card.querySelector("[data-license-source]").textContent = sourceLabel(license.purchase_source);
+          card.querySelector("[data-license-title]").textContent = license.product_name || "Beacon Relay Access";
+          const state = card.querySelector("[data-license-state]");
+          state.textContent = stateLabel(license.status);
+          state.dataset.state = String(license.status || "unknown").toLowerCase();
+          card.querySelector("[data-license-date]").textContent = dateLabel(license.created_at || license.purchased_at);
+          card.querySelector("[data-license-key-ref]").textContent = license.key_ref || "Masked reference unavailable";
+          card.querySelector("[data-license-receiver]").textContent = receiverLabel(license.receiver);
+          card.querySelector("[data-license-delivery]").textContent = deliveryLabel(license);
+          const active = String(license.status || "").toLowerCase() === "active";
+          const hasReceiver = Boolean(license.receiver?.device_kind);
+          card.querySelectorAll("[data-license-action]").forEach((button) => {
+            const action = button.dataset.licenseAction;
+            button.disabled = (!active && action !== "rotate_key") || (action === "revoke_receiver" && !hasReceiver);
+            button.addEventListener("click", () => handleLicenseAction(button, license, card));
+          });
+          licenseList.append(card);
+        }
+      }
+
+      const startSession = (payload) => {
+        holderSession = String(payload.holder_session || "");
+        licenses = Array.isArray(payload.licenses) ? payload.licenses : [];
+        if (!holderSession.startsWith("lfrhs_")) throw new Error("The email link did not create a management session.");
+        recovery.hidden = true;
+        session.hidden = false;
+        sessionStatus.textContent = "Email verified. This short-lived session is held only in this page.";
+        sessionStatus.dataset.tone = "ok";
+        showKey(payload.license_key || payload.key_delivery?.license_key, payload.key_delivery?.purpose === "rotation" ? "rotation" : "delivery");
+        renderLicenses();
+      };
+
+      const exchangeFragment = async () => {
+        const fragment = window.location.hash.replace(/^#/, "");
+        const params = new URLSearchParams(fragment);
+        const token = params.get("token") || (fragment.startsWith("lfrml_") ? fragment : "");
+        if (!token) return;
+        history.replaceState(null, "", window.location.pathname);
+        recovery.hidden = true;
+        session.hidden = false;
+        sessionStatus.textContent = "Verifying the one-time email link…";
+        try {
+          const response = await fetch(`${relay}/v1/access/magic-links/exchange`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          });
+          if (!response.ok) return apiError(response);
+          startSession(await response.json());
+        } catch (error) {
+          session.hidden = true;
+          recovery.hidden = false;
+          recoveryStatus.textContent = error instanceof Error ? error.message : "That email link is invalid or expired. Request a new one.";
+          recoveryStatus.dataset.tone = "bad";
+        }
+      };
+
+      recoveryForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submit = recoveryForm.querySelector('button[type="submit"]');
+        const email = new FormData(recoveryForm).get("email");
+        submit.disabled = true;
+        recoveryStatus.textContent = "Requesting a private link…";
+        recoveryStatus.dataset.tone = "";
+        try {
+          const response = await fetch(`${relay}/v1/access/magic-links/request`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, purpose: "recovery" }),
+          });
+          if (!response.ok && response.status !== 202) return apiError(response);
+          recoveryForm.reset();
+          recoveryStatus.textContent = "If Relay Access is associated with that address, a private link is on its way.";
+          recoveryStatus.dataset.tone = "ok";
+        } catch {
+          recoveryStatus.textContent = "The request could not be sent. No license information was revealed; try again shortly.";
+          recoveryStatus.dataset.tone = "bad";
+        } finally {
+          submit.disabled = false;
+        }
+      });
+
+      document.getElementById("endSession")?.addEventListener("click", () => {
+        holderSession = "";
+        licenses = [];
+        keyField.value = "";
+        keyDelivery.hidden = true;
+        licenseList.replaceChildren();
+        session.hidden = true;
+        recovery.hidden = false;
+        recoveryStatus.textContent = "This page forgot the short-lived management session.";
+        recoveryStatus.dataset.tone = "ok";
+      });
+
+      document.getElementById("copyManagementKey")?.addEventListener("click", async () => {
+        if (!keyField.value) return;
+        try {
+          await navigator.clipboard.writeText(keyField.value);
+          sessionStatus.textContent = "License key copied.";
+          sessionStatus.dataset.tone = "ok";
+        } catch {
+          keyField.focus();
+          keyField.select();
+          sessionStatus.textContent = "Copy was blocked. The key is selected so you can copy it manually.";
+          sessionStatus.dataset.tone = "pending";
+        }
+      });
+
+      exchangeFragment();
+    })();
+  </script>
+</LicenseManagementLayout>

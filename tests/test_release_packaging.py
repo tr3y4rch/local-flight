@@ -363,7 +363,7 @@ def test_release_safety_rejects_direct_url_metadata_even_without_private_path(
     "relative",
     (
         Path("_internal/localflight-0.5.2.dist-info/direct_url.json"),
-        Path("cryptography-49.0.0.dist-info/sboms/cryptography-rust.cyclonedx.json"),
+        Path("cryptography-50.0.1.dist-info/sboms/cryptography-rust.cyclonedx.json"),
         Path("localflight/decode/mappings/__pycache__/airports.cpython-311.pyc"),
     ),
 )
@@ -803,7 +803,7 @@ def test_release_locks_are_hash_pinned_from_python_311() -> None:
         in project_dependencies
     )
     assert (
-        "cryptography>=49.0.0; sys_platform != 'darwin' or platform_machine != 'x86_64'"
+        "cryptography>=50.0.1; sys_platform != 'darwin' or platform_machine != 'x86_64'"
         in project_dependencies
     )
 
@@ -813,7 +813,7 @@ def test_release_locks_are_hash_pinned_from_python_311() -> None:
         in core_input
     )
     assert (
-        'cryptography==49.0.0 ; sys_platform != "darwin" or platform_machine != "x86_64"'
+        'cryptography==50.0.1 ; sys_platform != "darwin" or platform_machine != "x86_64"'
         in core_input
     )
 
@@ -834,7 +834,7 @@ def test_release_locks_are_hash_pinned_from_python_311() -> None:
             in text
         )
         assert (
-            "cryptography==49.0.0 ; platform_machine != 'x86_64' or sys_platform != 'darwin'"
+            "cryptography==50.0.1 ; platform_machine != 'x86_64' or sys_platform != 'darwin'"
             in text
         )
         assert "3e4a1a3232eef2e6c732827d5722db29a0cc8b27af2a4d865b094cf954be9ca1" in text

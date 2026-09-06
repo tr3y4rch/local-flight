@@ -8,12 +8,13 @@ const views = [
   ["surfaces", "Surfaces"],
   ["reports", "Reports"],
   ["activations", "Activations"],
+  ["access", "Relay Access"],
   ["providers", "Providers"],
   ["maintenance", "Maintenance"]
 ];
 
 const state = Object.fromEntries(
-  views.map(([key]) => [key, { cursor: "", last: "", filters: {}, sort: key === "reports" ? "ts" : "last_seen", dir: "desc" }])
+  views.map(([key]) => [key, { cursor: "", last: "", filters: {}, sort: key === "reports" ? "ts" : key === "access" ? "" : "last_seen", dir: "desc" }])
 );
 
 const endpoints = {
@@ -23,8 +24,12 @@ const endpoints = {
   schedules: "/admin/api/schedules",
   surfaces: "/admin/api/surfaces",
   reports: "/admin/api/reports",
-  activations: "/admin/api/activations"
+  activations: "/admin/api/activations",
+  access: "/admin/api/access"
 };
+
+let activeAccessLicenseId = "";
+let activeAccessSummary = null;
 
 const columns = {
   traffic: [["service", "Service"], ["plan", "Plan"], ["calls", "Calls"], ["subject.fingerprint", "Subject"], ["last_seen", "Last seen"]],
@@ -64,11 +69,11 @@ function compact(value, fallback = "-") {
 function badge(value) {
   const text = compact(value);
   const lower = text.toLowerCase();
-  const tone = lower.includes("fresh") || lower.includes("active") || lower.includes("ready") || lower === "200" || lower === "false"
+  const tone = lower.includes("fresh") || lower.includes("active") || lower.includes("ready") || lower.includes("processed") || lower.includes("delivered") || lower === "sent" || lower === "revealed" || lower === "200" || lower === "false"
     ? "good"
-    : lower.includes("error") || lower.includes("blocked") || lower.includes("revoked") || lower.includes("failed")
+    : lower.includes("error") || lower.includes("blocked") || lower.includes("revoked") || lower.includes("failed") || lower.includes("refunded") || lower.includes("disputed")
       ? "bad"
-      : lower.includes("stale") || lower.includes("recent") || lower.includes("pending") || lower.includes("manual")
+      : lower.includes("stale") || lower.includes("recent") || lower.includes("pending") || lower.includes("manual") || lower.includes("suspended")
         ? "warn"
         : lower.includes("unknown") || lower.includes("missing")
           ? "missing"
@@ -159,6 +164,123 @@ function shortTime(value) {
   return String(value).slice(0, 16).replace("T", " ");
 }
 
+function maskedRef(value, lead = 6, tail = 4) {
+  const text = String(value || "").trim();
+  if (!text) return "-";
+  if (text.length <= lead + tail + 1) return `${text.slice(0, Math.min(lead, text.length))}…`;
+  return `${text.slice(0, lead)}…${text.slice(-tail)}`;
+}
+
+function licenseKeyRef(row) {
+  const supplied = String(row?.key_ref || "").trim();
+  if (supplied) return supplied;
+  const prefix = String(row?.key_prefix || "").trim();
+  const tail = String(row?.key_last_four || "").trim();
+  return prefix && tail ? `${prefix}…${tail}` : "not issued";
+}
+
+function emptyTable(message) {
+  return `<div class="table-wrap compact"><table><tbody><tr><td class="muted">${esc(message)}</td></tr></tbody></table></div>`;
+}
+
+function accessLicenseTable(rows) {
+  if (!rows.length) return emptyTable("No Relay Access licenses recorded.");
+  return `<div class="table-wrap compact"><table><thead><tr>
+    <th>Key reference</th><th>Source</th><th>Status</th><th>Receiver</th><th>Install reference</th><th>Created</th><th>Last activity</th>
+  </tr></thead><tbody>${rows.map((row, idx) => `<tr data-kind="access_license" data-index="${idx}">
+    <td><strong class="mono">${esc(licenseKeyRef(row))}</strong><span class="cell-sub">${esc(row.product_code || "-")}</span></td>
+    <td>${esc(row.purchase_source || "-")}</td>
+    <td>${badge(row.status)}</td>
+    <td>${esc(row.device_name || "No active receiver")}<span class="cell-sub">${esc(row.device_kind || "available seat")}</span></td>
+    <td class="mono">${esc(row.install_ref ? maskedRef(row.install_ref) : "-")}</td>
+    <td>${esc(shortTime(row.created_at))}</td>
+    <td>${esc(shortTime(row.last_seen_at || row.activated_at || row.updated_at))}</td>
+  </tr>`).join("")}</tbody></table></div>`;
+}
+
+function accessDeliveryTable(rows, licenses) {
+  if (!rows.length) return emptyTable("No license deliveries recorded.");
+  const refs = new Map(licenses.map(row => [row.license_id, licenseKeyRef(row)]));
+  return `<div class="table-wrap compact access-secondary-table"><table><thead><tr>
+    <th>License</th><th>Channel</th><th>Purpose</th><th>Status</th><th>Attempts</th><th>Next attempt</th><th>Detail</th>
+  </tr></thead><tbody>${rows.map(row => `<tr>
+    <td class="mono">${esc(refs.get(row.license_id) || maskedRef(row.license_id))}</td>
+    <td>${esc(row.channel || "-")}</td><td>${esc(row.purpose || "-")}</td><td>${badge(row.status)}</td>
+    <td>${Number(row.attempt_count || 0).toLocaleString()}</td><td>${esc(shortTime(row.next_attempt_at || row.delivered_at || row.updated_at))}</td>
+    <td>${esc(row.detail_code || "-")}</td>
+  </tr>`).join("")}</tbody></table></div>`;
+}
+
+function accessEventTable(rows) {
+  if (!rows.length) return emptyTable("No purchase events recorded.");
+  return `<div class="table-wrap compact access-secondary-table"><table><thead><tr>
+    <th>Provider</th><th>Event</th><th>Status</th><th>Detail</th><th>Created</th><th>Processed</th><th>Action</th>
+  </tr></thead><tbody>${rows.map(row => `<tr>
+    <td>${esc(row.provider || "-")}</td><td>${esc(row.event_type || "-")}</td><td>${badge(row.status)}</td>
+    <td>${esc(row.detail_code || "-")}</td><td>${esc(shortTime(row.created_at))}</td><td>${esc(shortTime(row.processed_at))}</td>
+    <td>${["reconciliation_required", "failed"].includes(String(row.status).toLowerCase())
+      ? `<button data-event-action="mark_resolved" data-event-ref="${esc(row.event_ref || "")}">Resolve</button>`
+      : "-"}</td>
+  </tr>`).join("")}</tbody></table></div>`;
+}
+
+function accessNotificationTable(rows, licenses) {
+  if (!rows.length) return emptyTable("No queued notifications or provider operations.");
+  const refs = new Map(licenses.map(row => [row.license_id, licenseKeyRef(row)]));
+  return `<div class="table-wrap compact access-secondary-table"><table><thead><tr>
+    <th>License</th><th>Channel</th><th>Purpose</th><th>Status</th><th>Attempts</th><th>Next attempt</th><th>Detail</th>
+  </tr></thead><tbody>${rows.map(row => `<tr>
+    <td class="mono">${esc(refs.get(row.license_id) || maskedRef(row.license_id))}</td>
+    <td>${esc(row.channel || "-")}</td><td>${esc(row.purpose || "-")}</td><td>${badge(row.status)}</td>
+    <td>${Number(row.attempt_count || 0).toLocaleString()}</td><td>${esc(shortTime(row.next_attempt_at || row.delivered_at || row.updated_at))}</td>
+    <td>${esc(row.detail_code || "-")}</td>
+  </tr>`).join("")}</tbody></table></div>`;
+}
+
+function renderAccess(payload) {
+  const licenses = payload.licenses || [];
+  const deliveries = payload.deliveries || [];
+  const notifications = payload.notifications || [];
+  const events = payload.purchase_events || [];
+  const active = licenses.filter(row => String(row.status).toLowerCase() === "active").length;
+  const failedDeliveries = deliveries.filter(row => String(row.status).toLowerCase() === "failed").length;
+  const pendingDeliveries = deliveries.filter(row => String(row.status).toLowerCase() === "pending").length;
+  const eventIssues = events.filter(row => !["processed", "completed", "success"].includes(String(row.status).toLowerCase())).length;
+  const reconciliation = payload.reconciliation_ready || {};
+  const reconciliationHealth = payload.reconciliation_health || [];
+  const degradedProviders = reconciliationHealth.filter(row => String(row.status || "").toLowerCase() !== "healthy");
+  const backup = payload.backup || {};
+  const cards = [
+    ["Licenses", licenses.length, `${active} active / ${licenses.length - active} inactive`, licenses.length - active ? "warn" : "good"],
+    ["Delivery queue", failedDeliveries + pendingDeliveries, `${pendingDeliveries} pending / ${failedDeliveries} failed`, failedDeliveries ? "bad" : pendingDeliveries ? "warn" : "good"],
+    ["Event issues", eventIssues, `${events.length} recent events`, eventIssues ? "warn" : "good"],
+    ["Access mode", payload.mode || "unknown", `Schema ${payload.schema_version ?? "-"}`, payload.mode === "licensed" ? "good" : "warn"],
+    ["Configuration", payload.configuration_ready ? "ready" : "not ready", "License service preflight", payload.configuration_ready ? "good" : "bad"],
+    ["License delivery", payload.delivery_ready ? "ready" : "not ready", "Email and recovery delivery", payload.delivery_ready ? "good" : "warn"],
+    ["Sales", payload.sales_enabled ? "enabled" : "disabled", "Commercial checkout gate", payload.sales_enabled ? "good" : "warn"],
+    ["Mobile ownership", payload.mobile_ownership_enabled ? "enabled" : "disabled", `Apple ${reconciliation.apple ? "ready" : "not ready"} / Google ${reconciliation.google ? "ready" : "not ready"}`, payload.mobile_ownership_enabled && reconciliation.apple && reconciliation.google ? "good" : "warn"],
+    ["Provider checks", degradedProviders.length ? "attention" : "healthy", reconciliationHealth.length ? `${reconciliationHealth.length} provider records / ${degradedProviders.length} degraded` : "No provider checks recorded", degradedProviders.length ? "bad" : "good"],
+    ["Encrypted backups", backup.healthy ? "healthy" : "attention", backup.last_backup_at ? `Latest ${shortTime(backup.last_backup_at)}${backup.detail_code ? ` · ${backup.detail_code}` : ""}` : "No verified backup", backup.healthy ? "good" : "bad"]
+  ];
+  const body = filters("access", [
+      ["q", "License, key reference, or exact email"],
+      ["source", "Purchase source", "select", ["stripe", "apple_app", "google_play_product"]],
+      ["state", "License state", "select", ["active", "suspended", "refunded", "revoked"]]
+    ]) + `<div class="card-grid">${cards.map(([label, value, sub, tone]) => metric(label, value, sub, tone)).join("")}</div>
+    <div class="panel-subhead"><h3>Universal licenses</h3><span>One purchase, one portable license, one active independent receiver. Select a row for safe operations.</span></div>
+    ${accessLicenseTable(licenses)}
+    <div class="panel-subhead"><h3>Delivery diagnostics</h3><span>License and delivery identifiers remain masked.</span></div>
+    ${accessDeliveryTable(deliveries, licenses)}
+    <div class="panel-subhead"><h3>Notification and provider queue</h3><span>Destinations, purchase handles, and message payloads remain encrypted and hidden.</span></div>
+    ${accessNotificationTable(notifications, licenses)}
+    <div class="panel-subhead"><h3>Provider reconciliation health</h3><span>Authority checks must remain current before production access is enabled.</span></div>
+    ${reconciliationHealth.length ? `<div class="table-wrap compact access-secondary-table"><table><thead><tr><th>Provider</th><th>Status</th><th>Last success</th><th>Last attempt</th><th>Next attempt</th><th>Detail</th></tr></thead><tbody>${reconciliationHealth.map(row => `<tr><td>${esc(row.provider || "-")}</td><td>${badge(row.status || "unknown")}</td><td>${esc(shortTime(row.last_success_at))}</td><td>${esc(shortTime(row.last_attempt_at))}</td><td>${esc(shortTime(row.next_attempt_at))}</td><td>${esc(row.detail_code || "-")}</td></tr>`).join("")}</tbody></table></div>` : emptyTable("No provider reconciliation checks recorded.")}
+    <div class="action-card"><button data-action="createAccessBackup">Create verified backup</button><button data-action="verifyAccessBackup">Verify latest backup</button></div>
+    <div class="panel-subhead"><h3>Purchase events</h3><span>Provider events are summarized without raw purchase identifiers or proofs.</span></div>
+    ${accessEventTable(events)}`;
+  panel("access", "Relay Access", "Universal Stripe, Apple, and Google license operations. Secrets and ownership evidence never render in this view.", "Operate", body, pager("access", payload));
+}
+
 function topFacetEntries(facets, name, limit = 5) {
   return Object.entries(facets?.[name] || {}).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, limit);
 }
@@ -188,8 +310,24 @@ async function load(key) {
   setNav(key);
   const endpoint = endpoints[key];
   if (!endpoint) return renderStatic(key);
-  const qs = paramsFor(key).toString();
-  const response = await fetch(endpoint + (qs ? "?" + qs : ""), { headers: { "Accept": "application/json" } });
+  let response;
+  if (key === "access") {
+    const filters = state[key]?.filters || {};
+    response = await fetch("/admin/api/access/search", {
+      method: "POST",
+      headers: { "Accept": "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        limit: 100,
+        cursor: state[key]?.cursor || "",
+        q: filters.q || "",
+        source: filters.source || "",
+        state: filters.state || ""
+      })
+    });
+  } else {
+    const qs = paramsFor(key).toString();
+    response = await fetch(endpoint + (qs ? "?" + qs : ""), { headers: { "Accept": "application/json" } });
+  }
   if (!response.ok) throw new Error(`${key}: HTTP ${response.status}`);
   const payload = await response.json();
   state[key].last = payload;
@@ -258,6 +396,8 @@ function render(key, payload) {
       + `<div class="panel-subhead"><h3>Activation queue</h3><span>Requests stay sanitized</span></div>`
       + table(key, payload.requests || [], columns.requestsQueue, "activation_request");
     panel(key, "Activations", "Managed tokens and activation queue.", "Operate", body);
+  } else if (key === "access") {
+    renderAccess(payload);
   }
 }
 
@@ -300,13 +440,163 @@ function inspector(kind, row, actions) {
   return `<div class="drawer-actions">${actions.join("")}</div><pre>${esc(JSON.stringify(row, null, 2))}</pre>`;
 }
 
+function accessRecordBlock(title, rows, fields) {
+  if (!rows.length) {
+    return `<section class="detail-block access-records"><h3>${esc(title)}</h3><p class="muted">No records.</p></section>`;
+  }
+  return `<section class="detail-block access-records"><h3>${esc(title)}</h3>${rows.map((row, idx) => `<article class="access-record">
+    <div class="access-record-title"><strong>${esc(fields.heading(row, idx))}</strong>${badge(row.status || row.state || "recorded")}</div>
+    ${fields.rows(row).map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(compact(value))}</strong></div>`).join("")}
+  </article>`).join("")}</section>`;
+}
+
+function accessDrawerActions(summary, detail) {
+  const status = String(detail.license?.status || summary.status || "").toLowerCase();
+  const activeReceiver = (detail.activations || []).some(row => String(row.status).toLowerCase() === "active");
+  const failedDelivery = (detail.deliveries || []).some(row => String(row.status).toLowerCase() === "failed");
+  const failedNotification = (detail.notifications || []).some(row => String(row.status).toLowerCase() === "failed");
+  const latestPurchase = (detail.purchases || [])[0] || {};
+  const purchaseState = String(latestPurchase.state || "").toLowerCase();
+  const authoritativePurchase = ["paid", "purchased"].includes(purchaseState);
+  const protectedHolder = Boolean(detail.license?.email_protected ?? summary.email_protected);
+  const actions = [];
+  if (status === "active") actions.push(`<button data-access-action="suspend_license">Suspend license</button>`);
+  if (status !== "revoked") actions.push(`<button class="danger" data-access-action="revoke_license">Revoke license</button>`);
+  if (["suspended", "revoked"].includes(status) && authoritativePurchase) actions.push(`<button class="safe" data-access-action="reactivate_license">Reactivate license</button>`);
+  actions.push(`<button class="danger" data-access-action="revoke_receiver" ${activeReceiver ? "" : "disabled"}>Revoke receiver</button>`);
+  actions.push(`<button data-access-action="retry_deliveries" ${failedDelivery ? "" : "disabled"}>Retry deliveries</button>`);
+  actions.push(`<button data-access-action="retry_notifications" ${failedNotification ? "" : "disabled"}>Retry notifications</button>`);
+  if (["server_authoritative", "device_and_server"].includes(String(latestPurchase.reconciliation_mode || ""))) {
+    actions.push(`<button data-access-action="retry_reconciliation">Retry provider check</button>`);
+  }
+  actions.push(`<button class="danger" data-access-action="rotate_key" ${status === "active" && protectedHolder ? "" : "disabled"}>Rotate master key</button>`);
+  return actions.join("");
+}
+
+function renderAccessDrawer(summary, detail) {
+  const license = detail.license || {};
+  const displayRef = licenseKeyRef(license) !== "not issued" ? licenseKeyRef(license) : licenseKeyRef(summary);
+  drawerTitle.textContent = `Relay Access · ${displayRef}`;
+  drawerBody.innerHTML = `<div class="drawer-actions">${accessDrawerActions(summary, detail)}</div>
+    <p class="access-operator-note">Suspending, revoking, or rotating a license revokes its active receiver. Rotation sends the replacement key only to the protected holder email; it never appears in admin. Reactivation restores license eligibility, not the old receiver credential.</p>
+    ${detailBlock("License", [["Key reference", displayRef], ["Product", license.product_code || summary.product_code], ["Purchase source", license.purchase_source || summary.purchase_source], ["Status", license.status || summary.status], ["Email protection", license.email_protected ? "protected" : "not protected"], ["Created", shortTime(license.created_at || summary.created_at)]])}
+    ${accessRecordBlock("Receiver history", detail.activations || [], {
+      heading: row => `${row.device_name || "Unnamed receiver"} · ${row.device_kind || "unknown"}`,
+      rows: row => [["Install reference", maskedRef(row.install_ref)], ["Credential prefix", row.credential_prefix ? `${row.credential_prefix}…` : "-"], ["Activated", shortTime(row.activated_at)], ["Last seen", shortTime(row.last_seen_at)], ["Revoked", shortTime(row.revoked_at)], ["Reason", row.revoke_reason || "-"]]
+    })}
+    ${accessRecordBlock("Purchase records", detail.purchases || [], {
+      heading: row => `${row.provider || "unknown"} · ${row.environment || "unknown"}`,
+      rows: row => [["Product", row.product_id], ["Evidence reference", maskedRef(row.evidence_ref)], ["Reconciliation", row.reconciliation_mode || "device only"], ["Last reconciled", shortTime(row.last_reconciled_at)], ["Next check", shortTime(row.next_reconcile_at)], ["Acknowledgement", row.acknowledgement_state || "-"], ["Reason", row.state_reason || "-"], ["Last verified", shortTime(row.last_verified_at)], ["State changed", shortTime(row.state_changed_at)], ["Updated", shortTime(row.updated_at)]]
+    })}
+    ${accessRecordBlock("Purchase transitions", detail.purchase_transitions || [], {
+      heading: row => `${row.from_state || "new"} → ${row.to_state || "unknown"}`,
+      rows: row => [["Source", row.source || "authority"], ["Reason", row.reason_code || "-"], ["Changed", shortTime(row.created_at)]]
+    })}
+    ${accessRecordBlock("Delivery history", detail.deliveries || [], {
+      heading: row => `${row.channel || "unknown"} · ${row.purpose || "delivery"}`,
+      rows: row => [["Key version", row.key_version], ["Attempts", row.attempt_count], ["Delivered", shortTime(row.delivered_at)], ["Updated", shortTime(row.updated_at)], ["Detail", row.detail_code || "-"]]
+    })}
+    ${accessRecordBlock("Provider event linkage", detail.events || [], {
+      heading: row => `${row.provider || "unknown"} · ${row.event_type || "event"}`,
+      rows: row => [["Status", row.status], ["Detail", row.detail_code || "-"], ["Created", shortTime(row.created_at)], ["Processed", shortTime(row.processed_at)]]
+    })}
+    ${accessRecordBlock("Notification history", detail.notifications || [], {
+      heading: row => `${row.channel || "unknown"} · ${row.purpose || "notification"}`,
+      rows: row => [["Status", row.status], ["Attempts", row.attempt_count], ["Next retry", shortTime(row.next_attempt_at)], ["Detail", row.detail_code || "-"]]
+    })}`;
+}
+
+function apiErrorMessage(payload, fallback) {
+  const detail = payload?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (detail && typeof detail === "object") return detail.message || detail.code || fallback;
+  return payload?.message || fallback;
+}
+
+async function fetchAccessDetail(licenseId) {
+  const response = await fetch(`/admin/api/access/${encodeURIComponent(licenseId)}`, { headers: { "Accept": "application/json" } });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(apiErrorMessage(payload, `Relay Access detail: HTTP ${response.status}`));
+  return payload;
+}
+
+async function openAccessDrawer(summary) {
+  if (!summary?.license_id) return;
+  activeAccessLicenseId = summary.license_id;
+  activeAccessSummary = summary;
+  delete drawer.dataset.row;
+  drawer.dataset.kind = "access_license";
+  drawerTitle.textContent = `Relay Access · ${licenseKeyRef(summary)}`;
+  drawerBody.innerHTML = `<p class="muted">Loading masked license diagnostics…</p>`;
+  drawer.classList.add("open");
+  const selectedId = summary.license_id;
+  try {
+    const detail = await fetchAccessDetail(selectedId);
+    if (activeAccessLicenseId !== selectedId) return;
+    activeAccessSummary = { ...summary, ...(detail.license || {}), license_id: selectedId };
+    renderAccessDrawer(activeAccessSummary, detail);
+  } catch (error) {
+    if (activeAccessLicenseId !== selectedId) return;
+    drawerBody.innerHTML = `<p class="access-load-error">${esc(error.message || "Unable to load license details.")}</p>`;
+  }
+}
+
+async function runAccessAction(action, trigger) {
+  const licenseId = activeAccessLicenseId;
+  if (!licenseId || !activeAccessSummary) return;
+  const ref = licenseKeyRef(activeAccessSummary);
+  const confirmations = {
+    revoke_license: `Revoke ${ref}? This immediately disables the license and revokes its active receiver credential.`,
+    suspend_license: `Suspend ${ref}? This immediately revokes its active receiver credential.`,
+    reactivate_license: `Reactivate ${ref}? This restores license eligibility, but does not restore a previous receiver credential.`,
+    revoke_receiver: `Revoke the active receiver for ${ref}? The device must activate again before using Relay Access.`,
+    retry_deliveries: `Retry failed email deliveries for ${ref}?`,
+    retry_notifications: `Retry failed recovery, protection, move, or provider notifications for ${ref}?`,
+    retry_reconciliation: `Ask the purchase provider to reconcile ${ref} now?`,
+    rotate_key: `Rotate the master key for ${ref}? The old key and active receiver credential will be revoked. The replacement key is sent only to the protected holder email and will not appear here.`
+  };
+  if (!confirm(confirmations[action] || `Run ${action} for ${ref}?`)) return;
+  if (trigger) trigger.disabled = true;
+  try {
+    const response = await fetch(`/admin/api/access/${encodeURIComponent(licenseId)}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ action })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(apiErrorMessage(payload, `Relay Access action: HTTP ${response.status}`));
+    if (action === "rotate_key") {
+      const detail = await fetchAccessDetail(licenseId);
+      activeAccessSummary = { ...activeAccessSummary, ...(detail.license || {}), license_id: licenseId };
+      renderAccessDrawer(activeAccessSummary, detail);
+      notice("Master key rotated. Protected email delivery has been queued; no raw key was returned to admin.", "good");
+      load("access").catch(error => notice(error.message, "danger"));
+      return;
+    }
+    const messages = {
+      revoke_license: "Relay Access license revoked.",
+      suspend_license: "Relay Access license suspended.",
+      reactivate_license: "Relay Access license reactivated; the receiver must activate again.",
+      revoke_receiver: payload.revoked ? "Active receiver revoked." : "No active receiver was attached.",
+      retry_deliveries: `${Number(payload.retried || 0)} failed deliveries queued for retry.`,
+      retry_notifications: `${Number(payload.retried || 0)} failed notifications queued for retry.`,
+      retry_reconciliation: "Provider reconciliation queued."
+    };
+    notice(messages[action] || "Relay Access action completed.", "good");
+    closeDrawer();
+    load("access").catch(error => notice(error.message, "danger"));
+  } finally {
+    if (trigger?.isConnected) trigger.disabled = false;
+  }
+}
+
 async function post(path, body, confirmText) {
   if (confirmText && !confirm(confirmText)) return;
   const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(body || {}) });
   const payload = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(payload.detail || res.statusText);
+  if (!res.ok) throw new Error(apiErrorMessage(payload, res.statusText));
   notice(payload.message || "Action completed.", "good");
-  drawer.classList.remove("open");
+  closeDrawer();
   load(document.querySelector(".nav button.active")?.dataset.view || "overview");
 }
 
@@ -328,6 +618,23 @@ document.addEventListener("click", async ev => {
   if (button?.dataset.clear) { const key = button.dataset.clear; state[key].cursor = ""; state[key].filters = {}; load(key).catch(e => notice(e.message)); return; }
   if (button?.dataset.next) { const key = button.dataset.next; state[key].cursor = state[key].last.next_cursor || ""; load(key).catch(e => notice(e.message)); return; }
   if (button?.dataset.prev) { const key = button.dataset.prev; state[key].cursor = ""; load(key).catch(e => notice(e.message)); return; }
+  if (button?.dataset.accessAction) {
+    try {
+      await runAccessAction(button.dataset.accessAction, button);
+    } catch (error) {
+      notice(error.message || "Relay Access action failed.", "danger");
+    }
+    return;
+  }
+  if (button?.dataset.eventAction && button?.dataset.eventRef) {
+    return post(
+      `/admin/api/access/events/${encodeURIComponent(button.dataset.eventRef)}/action`,
+      { action: button.dataset.eventAction },
+      "Mark this masked provider event as resolved?"
+    );
+  }
+  if (button?.dataset.action === "createAccessBackup") return post("/admin/api/access-backups/action", { action: "create_backup" }, "Create and verify an encrypted database backup now?");
+  if (button?.dataset.action === "verifyAccessBackup") return post("/admin/api/access-backups/action", { action: "verify_latest" });
   if (button?.dataset.action === "saveProviders") return post("/admin/api/providers/save", { aerodatabox_key: aeroKey.value, aviationstack_key: aviKey.value, rapidapi_key: rapidKey.value }, "Save replacement provider keys?");
   if (button?.dataset.action === "clearAero") return post("/admin/api/providers/clear", { provider: "aerodatabox" }, "Clear AeroDataBox override?");
   if (button?.dataset.action === "clearAviation") return post("/admin/api/providers/clear", { provider: "aviationstack" }, "Clear AviationStack override?");
@@ -349,6 +656,10 @@ document.addEventListener("click", async ev => {
     const kind = rowEl.dataset.kind;
     const idx = Number(rowEl.dataset.index);
     const payload = state[active]?.last || {};
+    if (kind === "access_license") {
+      openAccessDrawer((payload.licenses || [])[idx] || {}).catch(error => notice(error.message, "danger"));
+      return;
+    }
     const source = kind === "token" ? payload.tokens : kind === "activation_request" ? payload.requests : kind === "request" ? payload.requests?.rows : payload.rows || payload.installs || payload.snapshots || payload.recent_events || [];
     openDrawer(kind, source[idx] || {});
   }
@@ -366,7 +677,16 @@ document.addEventListener("click", ev => {
   load(key).catch(e => notice(e.message));
 });
 
-drawerClose.onclick = () => drawer.classList.remove("open");
+function closeDrawer() {
+  drawer.classList.remove("open");
+  drawerBody.replaceChildren();
+  activeAccessLicenseId = "";
+  activeAccessSummary = null;
+  delete drawer.dataset.kind;
+  delete drawer.dataset.row;
+}
+
+drawerClose.onclick = closeDrawer;
 document.getElementById("quickViews").querySelectorAll("button").forEach((btn, idx) => btn.onclick = () => {
   const [, key, filters] = quickViewDefs[idx];
   state[key].filters = { ...filters };

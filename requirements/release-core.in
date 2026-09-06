@@ -12,8 +12,9 @@ pillow==12.3.0
 qrcode==8.2
 python-dotenv==1.2.2
 python-multipart==0.0.32
-# cryptography 49 dropped Intel macOS wheels. Keep the audited universal2
-# security release on that target so release builds never link host Homebrew
-# OpenSSL; every other platform remains on 49.0.0.
+# cryptography 50 does not publish Intel macOS wheels. Keep the audited
+# universal2 build on that target so release builds never link host Homebrew
+# OpenSSL. Local Flight only uses AES-GCM there, not the PKCS#7 decrypt API
+# affected by CVE-2026-69247; every other platform uses the fixed release.
 cryptography==48.0.1 ; sys_platform == "darwin" and platform_machine == "x86_64"
-cryptography==49.0.0 ; sys_platform != "darwin" or platform_machine != "x86_64"
+cryptography==50.0.1 ; sys_platform != "darwin" or platform_machine != "x86_64"

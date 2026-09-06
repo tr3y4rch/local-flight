@@ -106,7 +106,7 @@
     const client = (sys && sys.client) || {};
     const mode = String(client.mode || "?").trim().toLowerCase();
     if (mode === "managed") return "managed relay (shared snapshot)";
-    if (mode === "community") return client.community_key_present ? "community direct key" : "community relay (shared snapshot)";
+    if (mode === "community") return client.community_key_present ? "legacy direct key" : "Beacon Relay (shared snapshot)";
     if (mode === "byok") return "byok";
     if (mode === "virtual") return "virtual";
     return client.mode || "?";

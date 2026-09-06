@@ -46,6 +46,7 @@ from localflight.display.fids import enrich_presentation_fields, gate_fields
 from localflight.render.fids import build_fids_context
 from localflight.storage.config import (
     ALLOWED_REFRESH_SECONDS,
+    ALLOWED_DATA_ROUTES,
     ALLOWED_DIAGNOSTICS_MODES,
     ALLOWED_SKINS,
     ALLOWED_SOURCES,
@@ -105,11 +106,12 @@ _COMPANION_STALE_SECONDS = 15 * 60
 _COMPANION_RETENTION_DAYS = 30
 
 
-def _schedule_policy_for_config(source: Optional[str] = None) -> Dict[str, Any]:
+def _schedule_policy_for_config(source: Optional[str] = None, data_route: Optional[str] = None) -> Dict[str, Any]:
     try:
         from localflight.sources.web.aviationstack_client import schedule_policy
 
-        return schedule_policy(source or load_config().source)
+        cfg = load_config()
+        return schedule_policy(source or cfg.source, data_route=data_route or cfg.data_route)
     except Exception:
         allowed = sorted(ALLOWED_REFRESH_SECONDS)
         return {
@@ -765,6 +767,7 @@ class ConfigPatch(BaseModel):
     display_name:    Optional[str] = Field(None, max_length=40)
     theme:           Optional[Literal["dark", "light"]] = None
     source:          Optional[Literal["real", "virtual"]] = None
+    data_route:      Optional[Literal["relay", "byok", "vatsim"]] = None
     timezone:        Optional[str] = None
     skin:            Optional[str] = None
     diagnostics_mode: Optional[str] = None
@@ -999,6 +1002,30 @@ def api_patch_config(patch: ConfigPatch, background_tasks: BackgroundTasks) -> D
     if "radar_surface_mode" in data:
         data["radar_surface_enabled"] = str(data["radar_surface_mode"]).strip().lower() != "off"
     current_cfg = load_config()
+    if "data_route" in data:
+        route = str(data["data_route"]).strip().lower()
+        if route not in ALLOWED_DATA_ROUTES:
+            raise HTTPException(status_code=422, detail=f"data_route must be one of {sorted(ALLOWED_DATA_ROUTES)}")
+        if route != current_cfg.data_route:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "data_route_requires_setup",
+                    "message": "Change the data route through setup so Relay Access can be released safely.",
+                },
+            )
+        data["source"] = current_cfg.source
+    elif "source" in data:
+        requested_source = str(data["source"] or "").strip().lower()
+        if requested_source != current_cfg.source:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "data_route_requires_setup",
+                    "message": "Change the data route through setup so Relay Access can be released safely.",
+                },
+            )
+        data["data_route"] = current_cfg.data_route
     source_for_policy = str(data.get("source") or current_cfg.source)
     if "refresh_seconds" in data:
         data["refresh_seconds"] = _coerce_refresh_for_schedule_policy(int(data["refresh_seconds"]), source_for_policy)
@@ -1012,6 +1039,7 @@ def api_patch_config(patch: ConfigPatch, background_tasks: BackgroundTasks) -> D
         "airport_icao",
         "refresh_seconds",
         "source",
+        "data_route",
         "timezone",
         "display_grace_minutes",
         "display_horizon_hours",
@@ -1867,19 +1895,24 @@ def _relay_ground_payload_for_map(
         if not token:
             return None
         metadata = relay_client_metadata()
+        params = {
+            "airport_iata": cfg.airport_iata,
+            "airport_icao": cfg.airport_icao,
+            "radius_nm": min(20.0, max(1.0, float(radius_nm))),
+            "install_id": get_install_id(),
+            "app_version": metadata.get("app_version") or app_version(),
+            "client_kind": "desktop",
+            "device_type": "desktop",
+        }
+        headers = {"Accept": "application/json"}
+        if token.startswith("lfr_"):
+            headers["Authorization"] = f"Bearer {token}"
+        else:
+            params["activation_token"] = token
         response = _req.get(
             relay_airport_ground_url(default_public_relay_url()),
-            params={
-                "airport_iata": cfg.airport_iata,
-                "airport_icao": cfg.airport_icao,
-                "radius_nm": min(20.0, max(1.0, float(radius_nm))),
-                "install_id": get_install_id(),
-                "activation_token": token,
-                "app_version": metadata.get("app_version") or app_version(),
-                "client_kind": "desktop",
-                "device_type": "desktop",
-            },
-            headers={"Accept": "application/json"},
+            params=params,
+            headers=headers,
             timeout=8,
         )
         if response.status_code >= 400:
@@ -2544,36 +2577,51 @@ def api_admin_system() -> Dict[str, Any]:
         result["install_id"] = None
         result["install_fingerprint"] = None
 
+    cfg = load_config()
     try:
         from localflight.sources.web.aviationstack_client import get_usage_stats
+        from localflight.storage.install import get_relay_access_summary
 
-        usage = get_usage_stats(load_config().source)
+        usage = get_usage_stats(cfg.source)
+        access = get_relay_access_summary()
         managed = usage.get("managed") or {}
         community = usage.get("community") or {}
         cost_estimate = usage.get("cost_estimate") or {}
         shared_snapshot = usage.get("shared_snapshot") or managed.get("shared_snapshot") or community.get("shared_snapshot") or {}
         result["client"] = {
-            "mode": usage.get("active_mode") or usage.get("mode") or "virtual",
+            "mode": cfg.data_route,
+            "data_route": cfg.data_route,
             "relay_url": managed.get("relay_url") or community.get("relay_url"),
-            "activation_token_present": bool(managed.get("token_present")),
-            "activation_token_prefix": managed.get("token_prefix") or "",
+            "activation_token_present": bool(access.get("credential_present")),
+            "activation_token_prefix": access.get("credential_reference") or "",
+            "relay_state": access.get("relay_state") or "none",
+            "access_state": access.get("access_state") or "",
+            "masked_key_reference": access.get("masked_key_reference") or "",
+            "purchase_source": access.get("purchase_source") or "",
+            "current_main_device_description": access.get("current_main_device_description") or "",
             "community_key_present": bool(community.get("key_present")),
             "managed_verified": bool(managed.get("status_ok")),
             "managed_status": managed.get("status_error") or "",
-            "diagnostics_mode": load_config().diagnostics_mode,
+            "diagnostics_mode": cfg.diagnostics_mode,
             "cost_estimate": cost_estimate,
             "shared_snapshot": shared_snapshot,
         }
     except Exception:
         result["client"] = {
-            "mode": "unknown",
+            "mode": cfg.data_route,
+            "data_route": cfg.data_route,
             "relay_url": None,
             "activation_token_present": False,
             "activation_token_prefix": "",
             "community_key_present": False,
             "managed_verified": False,
             "managed_status": "",
-            "diagnostics_mode": load_config().diagnostics_mode,
+            "relay_state": "unreachable",
+            "access_state": "",
+            "masked_key_reference": "",
+            "purchase_source": "",
+            "current_main_device_description": "",
+            "diagnostics_mode": cfg.diagnostics_mode,
             "cost_estimate": {
                 "enabled": False,
                 "usage_model": "unknown",
@@ -3058,6 +3106,14 @@ def api_mobile_remote_invite(request: Request) -> Dict[str, Any]:
     cfg = load_config()
     if not cfg.remote_companion_enabled:
         raise HTTPException(status_code=403, detail="Remote Companion is disabled on this host")
+    if cfg.data_route != "relay":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "relay_access_required",
+                "message": "Remote Companion requires active Relay Access on this desktop host.",
+            },
+        )
     from localflight.companion_pairing import pairing_qr_png_bytes, remote_pairing_gateway_payload
     from localflight.sources.web.relay_activation import ensure_relay_link
 
@@ -3066,7 +3122,7 @@ def api_mobile_remote_invite(request: Request) -> Dict[str, Any]:
         display_name="Local Flight Remote Companion host",
         airport_iata=cfg.airport_iata,
         airport_icao=cfg.airport_icao,
-        requested_mode="community",
+        requested_mode="relay",
         force=False,
     )
     if not relay_link.get("linked"):

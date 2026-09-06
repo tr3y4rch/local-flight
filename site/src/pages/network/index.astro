@@ -53,19 +53,19 @@ import SafetyNotice from "../../components/SafetyNotice.astro";
           <strong>Use the Beacon Tools shared service</strong><span class="connection-arrow" aria-hidden="true"></span>
           <div class="connection-stop"><strong>Your Local Flight setup</strong><span>Sends a random service ID and the airport request needed for the shared board.</span></div>
           <span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Community Relay</strong><span>Reuses recent shared airport data and applies update and fair-use limits.</span></div>
+          <div class="connection-stop"><strong>Beacon Relay</strong><span>Checks Relay Access, reuses recent shared airport data, and applies update and fair-use limits.</span></div>
         </div>
         <div class="connection-lane connection-lane--optional">
           <strong>Reach your setup while away</strong><span class="connection-arrow" aria-hidden="true"></span>
           <div class="connection-stop"><strong>Remote Companion</strong><span>The encryption key stays on your paired phone and Local Flight computer.</span></div>
           <span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Community Relay</strong><span>Passes along encrypted messages and routing details. Beacon Tools cannot read the message.</span></div>
+          <div class="connection-stop"><strong>Beacon Relay</strong><span>Passes along encrypted messages and routing details. Beacon Tools cannot read the message.</span></div>
         </div>
         <div class="connection-lane connection-lane--optional">
           <strong>Use only a phone</strong><span class="connection-arrow" aria-hidden="true"></span>
           <div class="connection-stop"><strong>Standalone</strong><span>Your airport choice and recent movement history remain on the phone.</span></div>
           <span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Community Relay</strong><span>Receives a random service ID and the requests needed for board, radar, weather, and map data.</span></div>
+          <div class="connection-stop"><strong>Beacon Relay</strong><span>Receives a random service ID, a revocable device credential, and the requests needed for board, radar, weather, and map data.</span></div>
         </div>
       </div>
     </div>
@@ -75,7 +75,7 @@ import SafetyNotice from "../../components/SafetyNotice.astro";
     <div class="terminal-frame">
       <SectionHeading index="02 / UPDATE TIMING" title="Why Local Flight may keep showing an older board." description="Aviation-data services have update limits and can be temporarily unavailable. Local Flight keeps a known board visible when it is safer and more useful than an empty screen, and shows when the data was last updated." />
       <div class="cadence-line" data-reveal>
-        <article class="cadence-item"><strong>30 min</strong><h3>Community Relay board</h3><p>A Community Relay setup requests a new schedule board no more often than every 30 minutes.</p></article>
+        <article class="cadence-item"><strong>30 min</strong><h3>Beacon Relay board</h3><p>A Beacon Relay setup requests a new schedule board no more often than every 30 minutes.</p></article>
         <article class="cadence-item"><strong>About 1 h</strong><h3>Standalone Board</h3><p>Airline schedules usually refresh about once an hour. Shared information may still be cached or delayed.</p></article>
         <article class="cadence-item"><strong>About 3 min</strong><h3>Standalone Radar</h3><p>Nearby traffic can refresh about every 3 minutes while Radar is open.</p></article>
       </div>
@@ -88,7 +88,7 @@ import SafetyNotice from "../../components/SafetyNotice.astro";
       <SectionHeading index="03 / TROUBLESHOOTING" title="Start with the mode shown in the app." description="The mode name tells you whether to check your home network, the computer running Local Flight, or the phone’s internet connection." />
       <ol class="troubleshooting-list" data-reveal>
         <li><span class="step">01 / HOME</span><strong>Companion on Wi-Fi</strong><p>Keep the phone and Local Flight computer on the same trusted network, confirm Local Flight is running, and scan the pairing code in Settings or enter the local address with port <code>:8000</code>.</p></li>
-        <li><span class="step">02 / AWAY</span><strong>Remote Companion</strong><p>Leave the Local Flight computer online and connected to Community Relay. If access was revoked, return to the same home or local network and pair again.</p></li>
+        <li><span class="step">02 / AWAY</span><strong>Remote Companion</strong><p>Leave the licensed Local Flight computer online and connected to Beacon Relay. Companion screens do not use another main-device place. If access was revoked, return to the same home or local network and pair again.</p></li>
         <li><span class="step">03 / DIRECT</span><strong>Standalone</strong><p>Check the phone’s internet connection and wait a few minutes. A recent board may remain visible while a provider is unavailable.</p></li>
         <li><span class="step">04 / SUPPORT</span><strong>Need another pair of eyes?</strong><p>Use <a href="/support/">Support</a> and include the mode, airport, approximate time, and whether the phone and Local Flight computer were online. Include diagnostics only if you choose.</p></li>
       </ol>

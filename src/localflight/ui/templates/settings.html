@@ -423,9 +423,9 @@
 
   <section class="status-strip" id="statusGrid">
     <div class="metric-card"><b>Airport</b><strong>{{ cfg.airport_iata }} / {{ cfg.airport_icao }}</strong><span>{{ cfg.timezone }}</span></div>
-    <div class="metric-card"><b>Data</b><strong>{{ (cfg.source or "real")|upper }}</strong><span>{{ state.source_name or "Real schedule or VATSIM source." }}</span></div>
+    <div class="metric-card"><b>Data route</b><strong>{{ data_route_label }}</strong><span>Change this route in the setup wizard.</span></div>
     <div class="metric-card"><b>Refresh</b><strong>{{ cfg.refresh_seconds // 60 }} min</strong><span>Provider-friendly cadence</span></div>
-    <div class="metric-card"><b>Relay</b><strong id="relayStatusMetric">Checking...</strong><span id="relayDetailMetric">Tokens stay hidden.</span></div>
+    <div class="metric-card"><b>Relay</b><strong id="relayStatusMetric">Checking...</strong><span id="relayDetailMetric">Credentials stay hidden.</span></div>
     <div class="metric-card"><b>Surface</b><strong>{{ (cfg.radar_surface_mode or "off")|upper }}</strong><span>Relay only when explicitly selected.</span></div>
   </section>
 
@@ -439,8 +439,8 @@
 
     <section class="settings-grid">
       <div class="settings-card">
-        <h2>Airport &amp; Source</h2>
-        <p class="intro">Pick the airport and choose real schedule data or VATSIM virtual traffic.</p>
+        <h2>Airport &amp; Data route</h2>
+        <p class="intro">Pick the airport here. Your data route stays read-only so Relay Access can be released safely in the setup wizard.</p>
         <div class="form-grid">
           <label class="wide">
             <span>Airport search</span>
@@ -460,12 +460,10 @@
             <input type="text" name="airport_icao" id="airportIcao" value="{{ cfg.airport_icao }}" readonly />
           </label>
           <label>
-            <span>Flight source</span>
-            <select name="source">
-              {% for option in settings_options.sources %}
-                <option value="{{ option.value }}" {% if (cfg.source or "real") == option.value %}selected{% endif %}>{{ option.label }}</option>
-              {% endfor %}
-            </select>
+            <span>Data route</span>
+            <input type="text" value="{{ data_route_label }}" readonly aria-readonly="true" />
+            <input type="hidden" name="source" value="{{ cfg.source or 'real' }}" />
+            <button type="button" onclick="changeDataRoute()">Change data route</button>
           </label>
           <label>
             <span>Refresh cadence</span>
@@ -754,21 +752,21 @@
       <details class="details-card settings-folder">
         <summary>
           <span class="folder-icon">🔗</span>
-          <span class="folder-copy"><strong>Relay details</strong><span>Community Relay or managed-access status — tokens stay hidden.</span></span>
+          <span class="folder-copy"><strong>Relay Access</strong><span>Read-only route and access status — credentials stay hidden.</span></span>
           <span class="folder-caret">›</span>
         </summary>
         <div class="details-body">
-          <p class="intro">Read-only access status. Tokens, raw install IDs, and operator internals are not shown.</p>
+          <p class="intro">Read-only access status. Credentials, raw install IDs, and operator details are not shown.</p>
           <div class="mini-grid">
             <div class="mini-cell"><b>Support ID</b><span id="clientInstallId" class="mono">Loading...</span></div>
             <div class="mini-cell"><b>Data mode</b><span id="clientMode">Loading...</span></div>
-            <div class="mini-cell"><b>Community key</b><span id="clientCommunityKey">Loading...</span></div>
-            <div class="mini-cell"><b>Managed token</b><span id="clientToken">Loading...</span></div>
+            <div class="mini-cell"><b>Access state</b><span id="clientAccessState">Loading...</span></div>
+            <div class="mini-cell"><b>Key reference</b><span id="clientKeyReference">Loading...</span></div>
             <div class="mini-cell"><b>Relay host</b><span id="clientRelayUrl" class="mono">Loading...</span></div>
             <div class="mini-cell"><b>Access path</b><span id="clientAccessStatus">Loading...</span></div>
-            <div class="mini-cell"><b>Schedule window</b><span id="clientFetchWindow">Loading...</span></div>
-            <div class="mini-cell"><b>Access summary</b><span id="clientBurnRate">Loading...</span></div>
-            <div class="mini-cell"><b>Data note</b><span id="clientCadenceNote">Loading...</span></div>
+            <div class="mini-cell"><b>Purchase source</b><span id="clientPurchaseSource">Loading...</span></div>
+            <div class="mini-cell"><b>Current main device</b><span id="clientMainDevice">Loading...</span></div>
+            <div class="mini-cell"><b>Last confirmed</b><span id="clientLastCheck">Loading...</span></div>
           </div>
         </div>
       </details>
@@ -960,47 +958,25 @@ async function clearProviderKeys() {
     return `lf-${String(value).slice(0, 6)}...${String(value).slice(-4)}`;
   }
   try {
-    const r = await fetch("/api/admin/system");
+    const r = await fetch("/api/setup/client-info");
     const data = await r.json();
-    const client = data.client || {};
-    const estimate = client.cost_estimate || {};
-    const shared = client.shared_snapshot || {};
-    const sharedStats = shared.shared_stats || {};
-    const mode = client.mode || "unknown";
-    const sharedMode = mode === "managed" || (mode === "community" && !client.community_key_present);
-    const modeLabel = {
-      community: "Community relay",
-      managed: "Managed token",
-      byok: "Personal keys",
-      virtual: "Virtual only",
-    }[mode] || mode;
-    const accessLabel =
-      mode === "managed"
-        ? (client.managed_verified ? "Managed relay verified" : (client.managed_status || "Managed relay pending verification"))
-        : mode === "community"
-          ? "Community relay active"
-          : mode === "byok"
-            ? "Direct provider access"
-            : mode === "virtual"
-              ? "No schedule relay in use"
-              : "Unavailable";
+    const route = (data.config || {}).data_route || "relay";
+    const routeLabel = { relay: "Beacon Relay", byok: "Bring Your Own Keys", vatsim: "VATSIM" }[route] || "Unknown";
+    const relayState = String(data.relay_state || "none").replaceAll("_", " ");
+    const accessState = String(data.access_state || "not confirmed").replaceAll("_", " ");
     setText("clientInstallId", safeId(data.install_fingerprint || data.install_id));
-    setText("clientMode", modeLabel);
-    setText("clientCommunityKey", client.community_key_present ? "Set locally" : "Not set");
-    setText("clientToken", client.activation_token_present ? (client.activation_token_prefix || "Present") : "Not set");
-    setText("clientRelayUrl", client.relay_url || (mode === "byok" || mode === "virtual" ? "Not used" : "Default relay"));
-    setText("clientAccessStatus", accessLabel);
-    setText("clientFetchWindow", mode === "virtual" ? "VATSIM live only" : `${estimate.dates_touched || 0} date(s), ${estimate.page_size || 100}/page`);
-    setText("clientBurnRate", mode === "virtual" ? "No schedule calls" : `~${estimate.estimated_calls_per_refresh || 0} per refresh, ~${estimate.estimated_calls_per_month || 0}/30d`);
-    setText("clientCadenceNote", estimate.cadence_warning || (mode === "virtual" ? "Not applicable" : `Recent avg ${estimate.recent_avg_pages_per_direction || 0} pages/direction`));
-    setText("relayStatusMetric", modeLabel);
-    setText("relayDetailMetric", accessLabel);
-    if (sharedMode) {
-      setText("clientBurnRate", sharedStats.client_accesses != null ? `${sharedStats.client_accesses || 0} relay accesses, ${sharedStats.upstream_pulls || 0} upstream pulls` : "Waiting for first shared relay snapshot");
-      setText("clientCadenceNote", sharedStats.client_accesses != null ? `${shared.cache_state || "fresh"} snapshot, ${sharedStats.cache_hit_rate_pct || 0}% hit rate, ~${sharedStats.estimated_savings || 0} refreshes shared` : "Relay-backed mode shares upstream fetches by airport/window");
-    }
+    setText("clientMode", routeLabel);
+    setText("clientAccessState", relayState);
+    setText("clientKeyReference", data.masked_key_reference || "Not available");
+    setText("clientRelayUrl", route === "relay" ? (data.relay_url || "Default relay") : "Not used by this route");
+    setText("clientAccessStatus", accessState);
+    setText("clientPurchaseSource", data.purchase_source || "Not available");
+    setText("clientMainDevice", data.current_main_device_description || (relayState === "active" ? "This desktop" : "None"));
+    setText("clientLastCheck", data.last_successful_check_time || "Not checked yet");
+    setText("relayStatusMetric", routeLabel);
+    setText("relayDetailMetric", route === "relay" ? `${relayState} · ${accessState}` : "Relay Access is available for another main device.");
   } catch {
-    ["clientInstallId","clientMode","clientCommunityKey","clientToken","clientRelayUrl","clientAccessStatus","clientFetchWindow","clientBurnRate","clientCadenceNote"].forEach(id => setText(id, "Unavailable"));
+    ["clientInstallId","clientMode","clientAccessState","clientKeyReference","clientRelayUrl","clientAccessStatus","clientPurchaseSource","clientMainDevice","clientLastCheck"].forEach(id => setText(id, "Unavailable"));
     setText("relayStatusMetric", "Unavailable");
     setText("relayDetailMetric", "Relay status could not be loaded.");
   }
@@ -1260,6 +1236,15 @@ refreshRemoteCompanionStatus();
 
 function resetSetup() {
   document.getElementById("resetModal").style.display = "flex";
+}
+async function changeDataRoute() {
+  try {
+    const response = await fetch("/api/setup/reset", { method: "POST" });
+    if (!response.ok) throw new Error("Setup could not be opened.");
+    window.location.assign("/setup");
+  } catch (error) {
+    alert(error.message || "Setup could not be opened.");
+  }
 }
 async function confirmReset() {
   const btn = document.getElementById("confirmResetBtn");

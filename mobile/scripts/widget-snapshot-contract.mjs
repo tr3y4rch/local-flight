@@ -498,6 +498,7 @@ module.exports = { openDatabaseAsync };
   const serializedSnapshot = widgets.serializeWidgetExchangeSnapshot(snapshot);
   for (const privateField of [
     "activationToken",
+    "deviceCredential",
     "installId",
     "companionId",
     "serverUrl",

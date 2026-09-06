@@ -162,6 +162,69 @@ def test_remote_companion_host_websocket_rejects_unlinked_install(tmp_path: Path
             pass
 
 
+def test_remote_companion_host_uses_one_time_ticket_without_credential_in_url(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_relay_db(tmp_path, monkeypatch)
+    _issue_managed_activation()
+    client = TestClient(relay_main.app)
+    issued = client.post(
+        "/v1/remote-companion/host/ticket",
+        headers={"Authorization": f"Bearer {ACTIVATION_TOKEN}"},
+        json={"install_id": INSTALL_ID},
+    )
+    assert issued.status_code == 200
+    ticket = issued.json()["ticket"]
+    assert ticket.startswith("lfrws_")
+    conn = relay_main._connect()
+    try:
+        assert ticket not in "\n".join(conn.iterdump())
+    finally:
+        conn.close()
+    ws_url = f"{issued.json()['websocket_path']}?install_id={INSTALL_ID}&app_version=0.5.1"
+    assert ACTIVATION_TOKEN not in ws_url
+    assert ticket not in ws_url
+    headers = {"Authorization": f"Bearer {ticket}"}
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(f"{ws_url}&ticket={ticket}"):
+            pass
+    with client.websocket_connect(ws_url, headers=headers):
+        assert _install_ref() in relay_main._REMOTE_COMPANION_HOSTS
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(ws_url, headers=headers):
+            pass
+
+
+def test_remote_companion_ticket_is_burned_by_wrong_installation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _use_temp_relay_db(tmp_path, monkeypatch)
+    _issue_managed_activation()
+    client = TestClient(relay_main.app)
+    issued = client.post(
+        "/v1/remote-companion/host/ticket",
+        headers={"Authorization": f"Bearer {ACTIVATION_TOKEN}"},
+        json={"install_id": INSTALL_ID},
+    )
+    ticket = issued.json()["ticket"]
+    wrong_install = "22222222-2222-4222-8222-222222222222"
+    headers = {"Authorization": f"Bearer {ticket}"}
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(
+            f"/v1/remote-companion/host/ws?install_id={wrong_install}",
+            headers=headers,
+        ):
+            pass
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(
+            f"/v1/remote-companion/host/ws?install_id={INSTALL_ID}",
+            headers=headers,
+        ):
+            pass
+
+
 def test_remote_companion_request_rejects_revoked_grant(tmp_path: Path, monkeypatch) -> None:
     _use_temp_relay_db(tmp_path, monkeypatch)
     _issue_managed_activation()

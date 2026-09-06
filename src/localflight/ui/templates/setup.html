@@ -180,6 +180,11 @@
       cursor: pointer;
       transition: border-color .16s, background .16s, transform .16s;
     }
+    .mode-card:focus-visible, .diagnostics-card:focus-visible,
+    .btn:focus-visible, .key-toggle:focus-visible, .airport-option:focus-visible {
+      outline: 3px solid var(--setup-cyan);
+      outline-offset: 3px;
+    }
     .mode-card:hover, .diagnostics-card:hover {
       border-color: rgba(124,231,255,.36);
       transform: translateY(-1px);
@@ -379,7 +384,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 40px;
+      min-height: 44px;
       padding: 10px 18px;
       border: 1px solid rgba(74,158,218,.45);
       border-radius: 11px;
@@ -621,22 +626,22 @@
         <div class="panel-head">
         <div>
           <h2>Choose how flight data should work</h2>
-          <p class="sub">Local Flight Relay is the easiest real-flight option. Use your own keys if you want your own quotas, or choose VATSIM for virtual traffic only.</p>
+          <p class="sub">Choose Beacon Relay, bring your own provider keys, or use VATSIM virtual traffic.</p>
         </div>
       </div>
-      <div class="mode-grid">
+      <div class="mode-grid" role="radiogroup" aria-label="Flight data route">
         {% for option in setup_guidance.source_options %}
-          <article class="mode-card{% if option.mode == 'community' %} selected{% endif %}" id="mode-{{ option.mode }}" data-mode="{{ option.mode }}" data-title="{{ option.title }}" data-note="{{ option.note }}" data-finish-label="{{ option.finish_label }}" onclick="selectMode('{{ option.mode }}')">
+          <article class="mode-card{% if option.mode == 'relay' %} selected{% endif %}" id="mode-{{ option.mode }}" data-mode="{{ option.mode }}" data-title="{{ option.title }}" data-note="{{ option.note }}" data-finish-label="{{ option.finish_label }}" role="radio" tabindex="0" aria-checked="{{ 'true' if option.mode == 'relay' else 'false' }}" onclick="selectMode('{{ option.mode }}')" onkeydown="activateCard(event, () => selectMode('{{ option.mode }}'))">
             <div class="card-icon">{{ option.icon }}</div>
             <div class="card-title">{{ option.title }}</div>
             <div class="card-body">{{ option.body }}</div>
           </article>
         {% endfor %}
       </div>
-      <div class="test-result ok" id="setupModeNote" style="display:block;">Local Flight Relay is selected. This device does not need personal schedule keys for the guided setup.</div>
+      <div class="test-result ok" id="setupModeNote" style="display:block;">Beacon Relay is selected. Activate Relay Access for this desktop, or choose BYOK or VATSIM.</div>
 
       <div class="setup-box" id="relaySetupBox">
-        <h3>Local Flight Relay</h3>
+        <h3>Beacon Relay</h3>
         <div class="info-grid">
           <div class="info-cell">
             <strong>Device code</strong>
@@ -648,35 +653,44 @@
           </div>
         </div>
         <div class="field" style="margin-top:12px; margin-bottom:0;">
-          <label for="relayUrl">Relay address</label>
-          <input type="text" id="relayUrl" placeholder="{{ relay_url_default or 'https://relay.beacontools.cc' }}" />
-          <div class="hint">Leave this on the hosted Local Flight relay unless you run your own. Only the relay base address belongs here.</div>
+          <label for="relayUrl">Hosted relay</label>
+          <input type="text" id="relayUrl" value="{{ relay_url_default or 'https://relay.beacontools.cc' }}" readonly />
+          <div class="hint">Beacon Relay is the hosted route. BYOK and VATSIM remain separate free routes.</div>
+        </div>
+        <div class="field" id="activationTokenField">
+          <label for="activationToken">{{ 'Relay Access license key or activation code' if allow_license_key else 'One-time activation code' }}</label>
+          <div class="key-wrap">
+            <input type="password" id="activationToken" placeholder="{{ 'LFRA key or activation code' if allow_license_key else 'Paste a one-time activation code' }}" autocomplete="off" />
+            <button class="key-toggle" type="button" onclick="toggleKey('activationToken', this)">show</button>
+          </div>
+          <div class="hint">Local Flight exchanges this for access on this device and does not save the license key.</div>
         </div>
         <div class="mini-actions" id="managedActions">
-          <button class="btn btn-secondary" type="button" id="connectRelayBtn" onclick="connectManagedRelay()">Link this device</button>
-          <button class="btn btn-secondary" type="button" id="checkRelayBtn" onclick="checkManagedStatus()">Check relay status</button>
-          <button class="btn btn-secondary" type="button" id="verifyRelayBtn" onclick="verifyManagedActivation()">Test relay access</button>
+          <a class="btn btn-secondary" id="buyRelayAccessBtn" href="https://beacontools.cc/local-flight/relay-access/" target="_blank" rel="noopener">Get Relay Access</a>
+          <button class="btn btn-primary" type="button" id="connectRelayBtn" onclick="activateRelayAccess()">Activate this desktop</button>
+          <button class="btn btn-secondary" type="button" id="checkRelayBtn" onclick="checkRelayAccessStatus()">Check access</button>
+          <button class="btn btn-secondary" type="button" id="verifyRelayBtn" onclick="verifyRelayAccess()">Test access</button>
         </div>
-        <div class="test-result" id="activationRequestStatus"></div>
+        <div class="test-result" id="activationRequestStatus" role="status" aria-live="polite"></div>
+        <div class="test-result warn" id="occupiedAccessCard" role="alert" style="display:none;">
+          <span id="occupiedAccessText"></span>
+          <div class="mini-actions">
+            <button class="btn btn-secondary" type="button" onclick="keepRelayThere()">Keep it there</button>
+            <button class="btn btn-primary" type="button" onclick="moveRelayHere()">Move to this desktop</button>
+          </div>
+        </div>
       </div>
 
-      <div class="field" style="display:none;" id="activationTokenField">
-        <label for="activationToken">Relay token <span class="hint">only if you already have one</span></label>
-        <div class="key-wrap">
-          <input type="password" id="activationToken" placeholder="Stored automatically when this device is linked." />
-          <button class="key-toggle" type="button" onclick="toggleKey('activationToken', this)">show</button>
-        </div>
-      </div>
       <div class="test-result" id="activationVerifyStatus"></div>
       <input type="hidden" id="sourceInput" value="real" />
-      <input type="hidden" id="setupModeInput" value="community" />
+      <input type="hidden" id="setupModeInput" value="relay" />
     </div>
 
     <div class="panel" id="panel-3">
         <div class="panel-head">
         <div>
           <h2>Direct provider keys</h2>
-          <p class="sub">Only needed for Use Your Own Keys. Keep schedule and radar private by entering your own providers here: AeroDataBox or AviationStack for schedules, ADS-B Exchange on RapidAPI for radar, and OpenSky as an optional fallback.</p>
+          <p class="sub">Only needed for Bring Your Own Keys. Keep schedule and radar private by entering your own providers here: AeroDataBox or AviationStack for schedules, ADS-B Exchange on RapidAPI for radar, and OpenSky as an optional fallback.</p>
         </div>
       </div>
       <div class="provider-path" aria-label="Direct provider data path">
@@ -771,9 +785,9 @@
           <p class="sub">Choose how Local Flight may help when something breaks. Manual reporting is always available later from the Report screen.</p>
         </div>
       </div>
-      <div class="diagnostics-grid">
+      <div class="diagnostics-grid" role="radiogroup" aria-label="Diagnostics choice">
         {% for option in setup_guidance.diagnostics_options %}
-          <article class="diagnostics-card{% if option.mode == 'manual' %} selected{% endif %}" id="diagnostics-{{ option.mode }}" data-mode="{{ option.mode }}" data-title="{{ option.title }}" data-note="{{ option.note }}" onclick="selectDiagnostics('{{ option.mode }}')">
+          <article class="diagnostics-card{% if option.mode == 'manual' %} selected{% endif %}" id="diagnostics-{{ option.mode }}" data-mode="{{ option.mode }}" data-title="{{ option.title }}" data-note="{{ option.note }}" role="radio" tabindex="0" aria-checked="{{ 'true' if option.mode == 'manual' else 'false' }}" onclick="selectDiagnostics('{{ option.mode }}')" onkeydown="activateCard(event, () => selectDiagnostics('{{ option.mode }}'))">
             <div class="card-icon">{{ option.icon }}</div>
             <div class="card-title">{{ option.title }}</div>
             <div class="card-body">{{ option.body }}</div>
@@ -810,13 +824,37 @@
 <script>
 (function () {
   const TOTAL_STEPS = 6;
+  const ALLOW_LICENSE_KEY = {{ allow_license_key|tojson }};
   let currentStep = 0;
   let managedVerified = false;
+  let pendingMoveToken = "";
+  let savedProviderState = {};
+  let deviceDisplayName = "Local Flight desktop";
   let results = [];
   let debounce = null;
 
   function el(id) {
     return document.getElementById(id);
+  }
+
+  window.activateCard = function (event, action) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      action();
+    }
+  };
+
+  function invalidatePendingMove() {
+    pendingMoveToken = "";
+    el("occupiedAccessCard").style.display = "none";
+  }
+
+  function showActivationReplacement() {
+    managedVerified = false;
+    el("activationToken").dataset.prefix = "";
+    el("activationToken").value = "";
+    el("activationTokenField").style.display = "block";
+    invalidatePendingMove();
   }
 
   const searchEl = el("airportSearch");
@@ -827,7 +865,7 @@
   const tzEl = el("airportTz");
 
   function mode() {
-    return el("setupModeInput").value || "community";
+    return el("setupModeInput").value || "relay";
   }
 
   function diagnosticsMode() {
@@ -895,9 +933,20 @@
       searchEl.focus();
       return false;
     }
-    if (currentStep === 3 && mode() === "byok" && !el("aerodataboxKey").value.trim() && !el("aviationstackKey").value.trim()) {
-      setResult("aerodataboxTest", "err", "BYOK mode needs an AeroDataBox or AviationStack schedule key before launch.");
+    if (
+      currentStep === 3
+      && mode() === "byok"
+      && !el("aerodataboxKey").value.trim()
+      && !el("aviationstackKey").value.trim()
+      && !savedProviderState.aerodatabox_configured
+      && !savedProviderState.aviationstack_configured
+    ) {
+      setResult("aerodataboxTest", "err", "Bring Your Own Keys needs an AeroDataBox or AviationStack schedule key before launch.");
       el("aerodataboxKey").focus();
+      return false;
+    }
+    if (currentStep === 2 && mode() === "relay" && !managedVerified) {
+      setResult("activationRequestStatus", "warn", "Activate Relay Access on this desktop before continuing, or choose BYOK or VATSIM.");
       return false;
     }
     return true;
@@ -931,19 +980,24 @@
   }
 
   window.selectMode = function (selectedMode) {
+    if (selectedMode !== mode()) invalidatePendingMove();
     el("setupModeInput").value = selectedMode;
-    el("sourceInput").value = selectedMode === "virtual" ? "virtual" : "real";
+    el("sourceInput").value = selectedMode === "vatsim" ? "virtual" : "real";
     document.querySelectorAll(".mode-card").forEach((card) => {
       card.classList.toggle("selected", card.dataset.mode === selectedMode);
+      card.setAttribute("aria-checked", card.dataset.mode === selectedMode ? "true" : "false");
     });
     const card = selectedModeCard();
     setResult("setupModeNote", "ok", card ? card.dataset.note : "Flight data path selected.");
-    const showRelay = selectedMode === "community";
+    const showRelay = selectedMode === "relay";
     el("relaySetupBox").style.display = showRelay ? "block" : "none";
     el("activationVerifyStatus").style.display = showRelay && el("activationVerifyStatus").textContent ? "block" : "none";
     if (!showRelay) {
       managedVerified = false;
       setResult("activationVerifyStatus", "", "");
+      if (el("activationToken").dataset.prefix) {
+        setResult("setupModeNote", "warn", "Switching routes frees Relay Access for another main device. If this desktop is offline, Local Flight will finish the switch and retry the release later.");
+      }
     }
   };
 
@@ -951,6 +1005,7 @@
     el("diagnosticsModeInput").value = modeValue;
     document.querySelectorAll(".diagnostics-card").forEach((card) => {
       card.classList.toggle("selected", card.dataset.mode === modeValue);
+      card.setAttribute("aria-checked", card.dataset.mode === modeValue ? "true" : "false");
     });
     const card = selectedDiagnosticsCard();
     setResult("diagnosticsNote", "ok", card ? card.dataset.note : "Diagnostics choice selected.");
@@ -1038,8 +1093,26 @@
   });
   el("activationToken").addEventListener("input", () => {
     managedVerified = false;
+    invalidatePendingMove();
     setResult("activationVerifyStatus", "", "");
   });
+
+  async function loadCatalog() {
+    try {
+      const response = await fetch(`/api/setup/access/catalog?relay_url=${encodeURIComponent(cleanRelayDisplay(el("relayUrl").value))}`);
+      const data = await response.json();
+      const available = response.ok && data.ok && data.sales_available;
+      el("buyRelayAccessBtn").style.display = available ? "inline-flex" : "none";
+      if (!available && !el("activationToken").dataset.prefix) {
+        setResult("activationRequestStatus", "warn", "New purchases are temporarily unavailable. You can still use an existing key or one-time activation code.");
+      }
+    } catch {
+      el("buyRelayAccessBtn").style.display = "none";
+      if (!el("activationToken").dataset.prefix) {
+        setResult("activationRequestStatus", "warn", "Purchase availability could not be checked. You can still use an existing key or one-time activation code.");
+      }
+    }
+  }
 
   async function loadClientInfo() {
     setGlobal("Checking setup", "good");
@@ -1048,15 +1121,44 @@
       const data = await response.json();
       el("machineFingerprint").textContent = data.install_fingerprint || "Unavailable";
       el("relayUrl").value = cleanRelayDisplay(data.relay_url || "");
-      if (data.activation_token_present) {
+      const cfg = data.config || {};
+      deviceDisplayName = cfg.display_name || deviceDisplayName;
+      savedProviderState = data.provider_keys || {};
+      if (savedProviderState.aerodatabox_configured) el("aerodataboxKey").placeholder = "Saved key available; paste to replace";
+      if (savedProviderState.aviationstack_configured) el("aviationstackKey").placeholder = "Saved key available; paste to replace";
+      if (savedProviderState.adsbexchange_configured) el("rapidapiKey").placeholder = "Saved key available; paste to replace";
+      if (savedProviderState.opensky_configured) el("openskyId").placeholder = "Saved credentials available; paste to replace";
+      if (cfg.airport_iata) {
+        iataEl.value = cfg.airport_iata;
+        icaoEl.value = cfg.airport_icao || "";
+        tzEl.value = cfg.timezone || "UTC";
+        searchEl.value = `${cfg.airport_iata} / ${cfg.airport_icao || "----"}`;
+        selectedEl.className = "status-pill ok";
+        selectedEl.textContent = `Selected: ${cfg.airport_iata} / ${cfg.airport_icao || "----"} | ${cfg.timezone || "UTC"}`;
+      }
+      selectMode(["relay", "byok", "vatsim"].includes(cfg.data_route) ? cfg.data_route : "relay");
+      selectDiagnostics(["manual", "auto", "auto_logs"].includes(cfg.diagnostics_mode) ? cfg.diagnostics_mode : "manual");
+      const relayState = data.relay_state || "none";
+      if ((data.activation_token_prefix || "").startsWith("lfr_") && relayState === "active") {
         el("activationToken").dataset.prefix = data.activation_token_prefix || "";
-        el("relayLinkState").textContent = data.activation_token_prefix ? `Linked (${data.activation_token_prefix}...)` : "Linked";
-        setResult("activationRequestStatus", "ok", "This device already has a saved relay link. Local Flight Relay can use it automatically.");
+        el("relayLinkState").textContent = "Checking active access";
+        managedVerified = false;
+        el("activationTokenField").style.display = "none";
+        setResult("activationRequestStatus", "loading", "Checking that Relay Access is still active on this desktop...");
+      } else if (relayState === "release_pending") {
+        el("activationToken").dataset.prefix = data.activation_token_prefix || "";
+        el("relayLinkState").textContent = "Release pending";
+        managedVerified = false;
+        el("activationTokenField").style.display = "none";
+        setResult("activationRequestStatus", "warn", "Relay Access is not used on this desktop. Local Flight will retry releasing it when Beacon Relay is reachable.");
       } else {
-        el("relayLinkState").textContent = "Not linked yet";
-        setResult("activationRequestStatus", "warn", "This device is not linked yet. You can request relay access here if needed.");
+        el("relayLinkState").textContent = "Not activated";
+        setResult("activationRequestStatus", "warn", "Buy Relay Access or enter the license key sent by Beacon Tools.");
       }
       setGlobal("Ready", "good");
+      if ((data.activation_token_prefix || "").startsWith("lfr_") && relayState === "active" && mode() === "relay") {
+        await window.checkRelayAccessStatus();
+      }
     } catch (error) {
       el("machineFingerprint").textContent = "Unavailable";
       el("relayLinkState").textContent = "Could not check";
@@ -1065,9 +1167,15 @@
     }
   }
 
-  window.connectManagedRelay = async function () {
+  window.activateRelayAccess = async function (confirmMove = false) {
+    const licenseKey = el("activationToken").value.trim();
+    if (!licenseKey) {
+      setResult("activationRequestStatus", "warn", "Paste your Relay Access license key first.");
+      el("activationToken").focus();
+      return;
+    }
     setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], false);
-    setResult("activationRequestStatus", "loading", "Contacting the Local Flight relay...");
+    setResult("activationRequestStatus", "loading", confirmMove ? "Moving Relay Access to this desktop..." : "Activating Relay Access...");
     try {
       const response = await fetch("/api/setup/activate", {
         method: "POST",
@@ -1076,25 +1184,37 @@
           relay_url: cleanRelayDisplay(el("relayUrl").value),
           airport_iata: iataEl.value || "",
           airport_icao: icaoEl.value || "",
-          display_name: "Local Flight device",
-          requested_mode: "community",
+          display_name: deviceDisplayName,
+          requested_mode: "relay",
+          license_key: ALLOW_LICENSE_KEY ? licenseKey : "",
+          activation_grant: ALLOW_LICENSE_KEY ? "" : licenseKey,
+          confirm_move_token: confirmMove ? pendingMoveToken : "",
         }),
       });
       const data = await response.json();
+      if (data.status === "seat_in_use" && data.move_token) {
+        const receiver = data.current_receiver || {};
+        const receiverName = receiver.device_name || receiver.device_kind || "another main device";
+        pendingMoveToken = data.move_token;
+        el("occupiedAccessText").textContent = `Relay Access is currently used by ${receiverName}. Moving it here will stop direct Relay use there.`;
+        el("occupiedAccessCard").style.display = "block";
+        setResult("activationRequestStatus", "warn", "Choose where Relay Access should remain.");
+        return;
+      }
       if (!response.ok || !data.ok) {
-        managedVerified = false;
+        if (data.status === "stale_move_token") invalidatePendingMove();
         setResult("activationRequestStatus", "err", data.error || data.decision_note || "Could not link this device to the relay.");
         return;
       }
-      if (data.status === "manual_review") {
-        managedVerified = false;
-        setResult("activationRequestStatus", "warn", data.decision_note || "The relay paused automatic linking for this device and queued a review.");
-        return;
-      }
       if (data.activation_token_prefix) el("activationToken").dataset.prefix = data.activation_token_prefix;
-      el("relayLinkState").textContent = data.activation_token_prefix ? `Linked (${data.activation_token_prefix}...)` : "Linked";
-      setResult("activationRequestStatus", "ok", "Relay access is ready for this device. The guided relay path can now be used.");
-      await window.verifyManagedActivation();
+      pendingMoveToken = "";
+      el("occupiedAccessCard").style.display = "none";
+      el("activationToken").value = "";
+      el("activationTokenField").style.display = "none";
+      el("connectRelayBtn").textContent = "Activate this desktop";
+      el("relayLinkState").textContent = data.activation_token_prefix ? `Active (${data.activation_token_prefix}...)` : "Active";
+      setResult("activationRequestStatus", "ok", "Relay Access is active. The license key was discarded after activation.");
+      await window.verifyRelayAccess();
     } catch (error) {
       managedVerified = false;
       setResult("activationRequestStatus", "err", error.message || "Could not link this device to the relay.");
@@ -1103,7 +1223,20 @@
     }
   };
 
-  window.checkManagedStatus = async function () {
+  window.keepRelayThere = function () {
+    invalidatePendingMove();
+    setResult("activationRequestStatus", "warn", "Relay Access remains on the current main device. Choose BYOK or VATSIM to finish without moving it.");
+  };
+
+  window.moveRelayHere = function () {
+    if (!pendingMoveToken) {
+      setResult("activationRequestStatus", "warn", "That move confirmation expired. Activate again to request a new one.");
+      return;
+    }
+    window.activateRelayAccess(true);
+  };
+
+  window.checkRelayAccessStatus = async function () {
     setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], false);
     setResult("activationRequestStatus", "loading", "Checking saved relay access...");
     try {
@@ -1112,37 +1245,38 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           relay_url: cleanRelayDisplay(el("relayUrl").value),
-          activation_token: el("activationToken").value.trim(),
+          activation_token: "",
         }),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) {
-        managedVerified = false;
+        showActivationReplacement();
         setResult("activationRequestStatus", "err", data.error || "Relay status check failed.");
         return;
       }
-      if ((data.plan || "") === "managed" || data.ok) {
-        if (data.token_prefix) el("activationToken").dataset.prefix = data.token_prefix;
-        el("relayLinkState").textContent = data.token_prefix ? `Linked (${data.token_prefix}...)` : "Linked";
-        setResult("activationRequestStatus", "ok", "Relay is reachable and this device is ready for the guided relay path.");
+      const prefix = data.activation_token_prefix || data.token_prefix || "";
+      if (data.ok && data.access_state !== "suspended" && data.access_state !== "refunded" && data.access_state !== "revoked" && prefix.startsWith("lfr_")) {
+        if (prefix) el("activationToken").dataset.prefix = prefix;
+        managedVerified = true;
+        el("relayLinkState").textContent = prefix ? `Active (${prefix}...)` : "Active";
+        setResult("activationRequestStatus", "ok", "Beacon Relay is reachable and Relay Access is active on this desktop.");
       } else {
-        managedVerified = false;
-        setResult("activationRequestStatus", "warn", "No saved relay link was confirmed yet. You can request one or choose another data source.");
+        showActivationReplacement();
+        setResult("activationRequestStatus", "warn", "No active Relay Access credential was found. Activate a license or choose BYOK or VATSIM.");
       }
     } catch (error) {
-      managedVerified = false;
+      showActivationReplacement();
       setResult("activationRequestStatus", "err", error.message || "Relay status check failed.");
     } finally {
       setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], true);
     }
   };
 
-  window.verifyManagedActivation = async function () {
-    const token = el("activationToken").value.trim();
+  window.verifyRelayAccess = async function () {
     const prefix = el("activationToken").dataset.prefix || "";
-    if (!token && !prefix) {
+    if (!prefix) {
       managedVerified = false;
-      setResult("activationVerifyStatus", "warn", "No saved relay token was found yet. Link this device first if you want to use the Local Flight relay.");
+      setResult("activationVerifyStatus", "warn", "No Relay Access device credential is stored. Activate a license first.");
       return;
     }
     setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], false);
@@ -1151,19 +1285,18 @@
       const response = await fetch("/api/setup/test-activation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ relay_url: cleanRelayDisplay(el("relayUrl").value), activation_token: token }),
+        body: JSON.stringify({ relay_url: cleanRelayDisplay(el("relayUrl").value), activation_token: "" }),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) {
-        managedVerified = false;
+        showActivationReplacement();
         setResult("activationVerifyStatus", "err", data.error || "Relay access test failed.");
         return;
       }
       managedVerified = true;
-      const limit = (data.limits || {}).schedule || "n/a";
-      setResult("activationVerifyStatus", "ok", `Relay access works. Shared allowance: ${limit}.`);
+      setResult("activationVerifyStatus", "ok", "Relay Access works on this desktop.");
     } catch (error) {
-      managedVerified = false;
+      showActivationReplacement();
       setResult("activationVerifyStatus", "err", error.message || "Relay access test failed.");
     } finally {
       setButtons(["connectRelayBtn", "checkRelayBtn", "verifyRelayBtn"], true);
@@ -1242,17 +1375,17 @@
       ["Data source", modeCard ? modeCard.dataset.title : selectedMode],
       ["Diagnostics", diagnosticsCard ? diagnosticsCard.dataset.title : diagnosticsMode()],
     ];
-    if (selectedMode === "community") {
+    if (selectedMode === "relay") {
       items.push([
         "Relay access",
-        (managedVerified || el("activationToken").dataset.prefix) ? "Saved relay link ready" : "Local Flight Relay selected",
+        managedVerified ? "Active on this desktop" : "License activation required",
       ]);
       items.push(["Personal keys", "No personal schedule key required"]);
     } else if (selectedMode === "byok") {
-      items.push(["AeroDataBox", el("aerodataboxKey").value.trim() ? "Primary direct key will be saved locally" : "Not set"]);
-      items.push(["AviationStack", el("aviationstackKey").value.trim() ? "Fill/fallback key will be saved locally" : "Not set"]);
-      items.push(["ADS-B Exchange radar", el("rapidapiKey").value.trim() ? "RapidAPI key will be saved locally" : "Optional key not set"]);
-      items.push(["OpenSky", el("openskyId").value.trim() ? "Optional credentials set" : "Optional credentials not set"]);
+      items.push(["AeroDataBox", el("aerodataboxKey").value.trim() ? "Primary direct key will be saved locally" : savedProviderState.aerodatabox_configured ? "Saved direct key retained" : "Not set"]);
+      items.push(["AviationStack", el("aviationstackKey").value.trim() ? "Fill/fallback key will be saved locally" : savedProviderState.aviationstack_configured ? "Saved direct key retained" : "Not set"]);
+      items.push(["ADS-B Exchange radar", el("rapidapiKey").value.trim() ? "RapidAPI key will be saved locally" : savedProviderState.adsbexchange_configured ? "Saved direct key retained" : "Optional key not set"]);
+      items.push(["OpenSky", el("openskyId").value.trim() ? "Optional credentials set" : savedProviderState.opensky_configured ? "Saved optional credentials retained" : "Optional credentials not set"]);
     } else {
       items.push(["Traffic source", "VATSIM traffic only; no real-flight keys"]);
       items.push(["Privacy", "Pilot identities stay hidden in Local Flight views"]);
@@ -1262,8 +1395,14 @@
 
   window.finish = async function () {
     const selectedMode = mode();
-    if (selectedMode === "byok" && !el("aerodataboxKey").value.trim() && !el("aviationstackKey").value.trim()) {
-      setResult("finishStatus", "err", "BYOK mode needs an AeroDataBox or AviationStack schedule key before launch.");
+    if (
+      selectedMode === "byok"
+      && !el("aerodataboxKey").value.trim()
+      && !el("aviationstackKey").value.trim()
+      && !savedProviderState.aerodatabox_configured
+      && !savedProviderState.aviationstack_configured
+    ) {
+      setResult("finishStatus", "err", "Bring Your Own Keys needs an AeroDataBox or AviationStack schedule key before launch.");
       showPanel(3);
       return;
     }
@@ -1273,12 +1412,13 @@
       airport_iata: iataEl.value || "ZRH",
       airport_icao: icaoEl.value || "LSZH",
       timezone: tzEl.value || "Europe/Zurich",
-      display_name: "Local Flight",
+      display_name: deviceDisplayName,
       setup_mode: selectedMode,
-      source: selectedMode === "virtual" ? "virtual" : "real",
+      data_route: selectedMode,
+      source: selectedMode === "vatsim" ? "virtual" : "real",
       diagnostics_mode: diagnosticsMode(),
-      relay_url: selectedMode === "community" ? cleanRelayDisplay(el("relayUrl").value) : "",
-      activation_token: selectedMode === "community" ? el("activationToken").value.trim() : "",
+      relay_url: selectedMode === "relay" ? cleanRelayDisplay(el("relayUrl").value) : "",
+      activation_token: "",
       aerodatabox_key: selectedMode === "byok" ? el("aerodataboxKey").value.trim() : "",
       aerodatabox_marketplace: selectedMode === "byok" ? el("aerodataboxMarketplace").value : "apimarket",
       aerodatabox_monthly_units_limit: selectedMode === "byok" ? Number(el("aerodataboxMonthlyLimit").value || 24000) : 24000,
@@ -1295,9 +1435,9 @@
       });
       const data = await response.json();
       if (!response.ok || !data.ok) {
-        const message = data.error || "Community Relay is not linked yet. Retry the relay connection, choose VATSIM, or use your own provider keys.";
+        const message = data.error || "Relay Access is not active yet. Activate a license, choose VATSIM, or bring your own provider keys.";
         setResult("finishStatus", data.status === "rate_limited" ? "warn" : "err", message);
-        if (selectedMode === "community") showPanel(2);
+        if (selectedMode === "relay") showPanel(2);
         setButtons(["backBtn", "nextBtn", "finishBtn", "skipKeysBtn"], true);
         return;
       }
@@ -1310,7 +1450,8 @@
   };
 
   loadClientInfo();
-  selectMode("community");
+  loadCatalog();
+  selectMode("relay");
   selectDiagnostics("manual");
   showPanel(0);
 })();

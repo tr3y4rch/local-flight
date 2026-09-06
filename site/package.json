@@ -15,6 +15,7 @@
     "test:contract": "node tests/site-contract.mjs",
     "test:e2e": "playwright test",
     "test:e2e:update": "playwright test --update-snapshots",
+    "test:desktop-wizard": "playwright test --config playwright.desktop.config.ts",
     "verify": "npm run check && npm run build && npm run test:contract"
   },
   "devDependencies": {

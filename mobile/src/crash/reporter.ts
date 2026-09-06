@@ -1,7 +1,7 @@
 import { getConfig, normalizeServerUrl, submitCrashReport } from "../api/client";
 import { submitStandaloneCrash } from "../api/standalone";
 import { getCompanionIdentity } from "../device/identity";
-import { loadMobileDiagnosticsMode, loadMobileSetupState, loadServerUrl } from "../storage/settings";
+import { loadMobileDiagnosticsMode, loadMobileRelayAccessSummary, loadMobileSetupState, loadRelayDeviceCredential, loadServerUrl } from "../storage/settings";
 
 type ErrorUtilsHandler = (error: Error, isFatal?: boolean) => void;
 
@@ -63,10 +63,16 @@ async function mobileCrashContext(serverUrl: string, mobileDiagnosticsMode: stri
 
 async function postStandaloneCrash(input: CrashInput): Promise<boolean> {
   const setup = await loadMobileSetupState();
+  const [relayDeviceCredential, relayAccess] = await Promise.all([
+    loadRelayDeviceCredential(),
+    loadMobileRelayAccessSummary()
+  ]);
+  const virtual = setup.standaloneSource === "virtual";
+  const terminalAccess = relayAccess && ["suspended", "refunded", "revoked", "release_pending"].includes(relayAccess.state);
   if (
     setup.mode !== "standalone" ||
     !setup.relayInstallId ||
-    !setup.relayActivationToken ||
+    (!virtual && (!relayDeviceCredential || terminalAccess)) ||
     !setup.standaloneAirport
   ) {
     return false;
@@ -81,7 +87,7 @@ async function postStandaloneCrash(input: CrashInput): Promise<boolean> {
   await submitStandaloneCrash(
     {
       installId: setup.relayInstallId,
-      activationToken: setup.relayActivationToken,
+      deviceCredential: relayDeviceCredential,
       airport: setup.standaloneAirport,
       source: setup.standaloneSource || "real",
       diagnosticsMode: mobileDiagnosticsMode

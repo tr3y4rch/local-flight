@@ -94,10 +94,10 @@ Real schedule flow:
    written, and WebSocket clients are notified.
 6. Cache and provider caps fail safely so a known-good stale board can remain.
 
-Community Relay setup verifies an activation link before completion and uses a
-30-minute minimum schedule cadence. Existing unlinked installs may attempt one
-cooldown-protected repair; first-board network failures use bounded retry timing
-instead of sleeping for the full schedule interval. The server owns upstream
+Beacon Relay setup verifies an active Relay Access credential before completion.
+Licensed deployments fail closed for missing or inactive credentials, while BYOK
+and VATSIM remain separate free routes. First-board network failures use bounded
+retry timing instead of sleeping for the full schedule interval. The server owns upstream
 freshness, so page navigation reads cached state and never bypasses provider
 timers.
 

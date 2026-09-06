@@ -17,32 +17,18 @@ import json
 import logging
 import os
 import platform
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from localflight.core.redaction import redact_sensitive as _redact_sensitive
 from localflight.version import app_version
 
 log = logging.getLogger(__name__)
 
 _GRAPHQL_URL = "https://api.linear.app/graphql"
 _DEDUP_HOURS = 6
-
-_SECRET_PATTERNS = (
-    (re.compile(r"(AVIATIONSTACK_API_KEY|AERODATABOX_API_KEY|RAPIDAPI_KEY|OPENSKY_CLIENT_SECRET|LINEAR_API_KEY|LINEAR_REPORTER_API_KEY)=\S+", re.I), r"\1=[redacted]"),
-    (re.compile(r"(access_key=)[^&\s]+", re.I), r"\1[redacted]"),
-    (re.compile(r"(X-RapidAPI-Key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
-    (re.compile(r"(x-magicapi-key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
-    (re.compile(r"lin_api_[A-Za-z0-9_]+", re.I), "[redacted-linear-token]"),
-    (re.compile(r"lfm_[A-Za-z0-9._-]+", re.I), "[redacted-activation-token]"),
-    (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I), "[redacted-uuid]"),
-    (re.compile(r"\b10\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b"), r"10.\1.\2.x"),
-    (re.compile(r"\b192\.168\.(\d{1,3})\.(\d{1,3})\b"), r"192.168.\1.x"),
-    (re.compile(r"\b172\.(1[6-9]|2\d|3[01])\.(\d{1,3})\.(\d{1,3})\b"), r"172.\1.\2.x"),
-)
-
 
 # ── Credentials ────────────────────────────────────────────────────────────────
 
@@ -86,7 +72,7 @@ def test_connection() -> dict:
         viewer = (data.get("data") or {}).get("viewer") or {}
         return {"ok": True, "name": viewer.get("name", "")}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": _redact_sensitive(str(exc))}
 
 
 # ── Deduplication state ────────────────────────────────────────────────────────
@@ -118,13 +104,6 @@ def _save_dedup(data: dict) -> None:
 def _fingerprint(error_msg: str) -> str:
     # Stable hash of first 120 chars — enough to identify error class without noise
     return hashlib.sha1(error_msg[:120].encode()).hexdigest()[:12]
-
-
-def _redact_sensitive(text: str) -> str:
-    redacted = text or ""
-    for pattern, repl in _SECRET_PATTERNS:
-        redacted = pattern.sub(repl, redacted)
-    return redacted
 
 
 def _already_filed(fp: str) -> bool:
@@ -178,13 +157,16 @@ def _post_issue(title: str, description: str) -> Optional[str]:
     if not api_key or not team_id:
         return None
 
+    safe_title = _redact_sensitive(title)
+    safe_description = _redact_sensitive(description)
+
     resp = requests.post(
         _GRAPHQL_URL,
         json={
             "query": _CREATE_MUTATION,
             "variables": {
-                "title":       title,
-                "description": description,
+                "title":       safe_title,
+                "description": safe_description,
                 "teamId":      team_id,
             },
         },
@@ -238,7 +220,7 @@ def file_error(
 
         try:
             from localflight.sources.web.aviationstack_client import _is_relay_mode
-            api_mode = "community relay" if _is_relay_mode() else "byok"
+            api_mode = "Beacon Relay" if _is_relay_mode() else "BYOK"
         except Exception:
             api_mode = "unknown"
 
@@ -261,4 +243,4 @@ def file_error(
         log.info("Linear: filed issue %s", url or "(no url)")
 
     except Exception as exc:
-        log.warning("Linear issue filing failed (non-fatal): %s", exc)
+        log.warning("Linear issue filing failed (non-fatal): %s", _redact_sensitive(str(exc)))

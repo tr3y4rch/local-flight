@@ -77,31 +77,61 @@ def _active_remote_grants() -> list[dict[str, Any]]:
     ]
 
 
-def _relay_ws_url(relay_url: str, *, install_id: str, activation_token: str) -> str:
+def _relay_ws_url(
+    relay_url: str,
+    *,
+    install_id: str,
+    websocket_path: str = "/v1/remote-companion/host/ws",
+) -> str:
     base = (relay_url or default_public_relay_url()).rstrip("/")
     if base.startswith("https://"):
         base = "wss://" + base[len("https://") :]
     elif base.startswith("http://"):
         base = "ws://" + base[len("http://") :]
-    query = urlencode(
-        {
-            "install_id": install_id,
-            "activation_token": activation_token,
-            "app_version": _app_version(),
-        }
+    query = urlencode({"install_id": install_id, "app_version": _app_version()})
+    path = "/v1/remote-companion/host/ws"
+    if websocket_path != path:
+        raise ValueError("Relay returned an unexpected Remote Companion WebSocket path")
+    return f"{base}{path}?{query}"
+
+
+def _request_remote_companion_ws_ticket(
+    relay_url: str,
+    *,
+    install_id: str,
+    activation_token: str,
+) -> dict[str, str]:
+    """Exchange the stored receiver credential without placing it in a URL."""
+    response = requests.post(
+        f"{relay_url.rstrip('/')}/v1/remote-companion/host/ticket",
+        json={"install_id": install_id},
+        headers={"Accept": "application/json", "Authorization": f"Bearer {activation_token}"},
+        timeout=10,
     )
-    return f"{base}/v1/remote-companion/host/ws?{query}"
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {}
+    if not response.ok:
+        detail = payload.get("detail") if isinstance(payload, dict) else ""
+        raise RuntimeError(str(detail or f"Relay returned HTTP {response.status_code}"))
+    ticket = str(payload.get("ticket") or "") if isinstance(payload, dict) else ""
+    if not ticket.startswith("lfrws_"):
+        raise RuntimeError("Relay did not return a Remote Companion connection ticket")
+    return {
+        "ticket": ticket,
+        "websocket_path": str(payload.get("websocket_path") or "/v1/remote-companion/host/ws"),
+    }
 
 
 def register_remote_grant_with_relay(grant: dict[str, Any], *, revoke: bool = False) -> dict[str, Any]:
     install_id = get_install_id()
     activation_token = get_activation_token()
     if not activation_token:
-        raise RuntimeError("Remote Companion requires a relay activation token")
+        raise RuntimeError("Remote Companion requires an active Relay Access device credential")
     relay_url = str(grant.get("relay_url") or default_public_relay_url()).rstrip("/")
     payload = {
         "install_id": install_id,
-        "activation_token": activation_token,
         "install_ref": str(grant.get("install_ref") or ""),
         "grant_ref": str(grant.get("grant_ref") or ""),
         "companion_ref": str(grant.get("companion_id") or ""),
@@ -110,9 +140,15 @@ def register_remote_grant_with_relay(grant: dict[str, Any], *, revoke: bool = Fa
         "device_type": str(grant.get("device_type") or ""),
         "app_version": str(grant.get("app_version") or ""),
     }
+    headers = {"Accept": "application/json"}
+    if activation_token.startswith("lfr_"):
+        headers["Authorization"] = f"Bearer {activation_token}"
+    else:
+        payload["activation_token"] = activation_token
     response = requests.post(
         f"{relay_url}/v1/remote-companion/grants",
         json=payload,
+        headers=headers,
         timeout=10,
     )
     if not response.ok:
@@ -186,8 +222,27 @@ async def _agent_session(*, relay_url: str, activation_token: str) -> None:
         return
 
     install_id = get_install_id()
-    ws_url = _relay_ws_url(relay_url, install_id=install_id, activation_token=activation_token)
-    async with websockets.connect(ws_url, ping_interval=20, ping_timeout=20, close_timeout=5) as ws:
+    ticket = await asyncio.to_thread(
+        _request_remote_companion_ws_ticket,
+        relay_url,
+        install_id=install_id,
+        activation_token=activation_token,
+    )
+    ws_url = _relay_ws_url(
+        relay_url,
+        install_id=install_id,
+        websocket_path=ticket["websocket_path"],
+    )
+    # The one-use ticket is still a credential. Keep it out of the URL so
+    # proxies, access logs, browser history, and exception reports cannot
+    # capture it during the WebSocket handshake.
+    async with websockets.connect(
+        ws_url,
+        additional_headers={"Authorization": f"Bearer {ticket['ticket']}"},
+        ping_interval=20,
+        ping_timeout=20,
+        close_timeout=5,
+    ) as ws:
         log.info("Remote Companion agent connected to relay")
         async for raw in ws:
             try:
@@ -287,6 +342,9 @@ async def _dispatch_remote_payload(payload: dict[str, Any], *, grant: dict[str, 
     method = str(payload.get("method") or "GET").upper().strip()
     path = _allowed_remote_path(method, str(payload.get("path") or ""))
     body = payload.get("body") if isinstance(payload.get("body"), dict) else None
+    if method == "PATCH" and path.split("?", 1)[0] == "/api/config" and body:
+        if {"data_route", "source"}.intersection(body):
+            raise ValueError("Remote Companion cannot change the desktop data route; use desktop setup")
     headers = {
         "Accept": "application/json",
         "X-LocalFlight-Client-Type": "mobile-companion",

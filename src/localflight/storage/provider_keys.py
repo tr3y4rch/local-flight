@@ -40,11 +40,11 @@ DIRECT_PROVIDER_KEYS = {
 }
 
 RELAY_KEYS = {
-    "LOCALFLIGHT_ACTIVATION_TOKEN",
     "LOCALFLIGHT_RELAY_URL",
 }
+LEGACY_RELAY_CREDENTIAL_KEY = "LOCALFLIGHT_ACTIVATION_TOKEN"
 
-PROVIDER_ENV_KEYS = frozenset({*DIRECT_PROVIDER_KEYS, *RELAY_KEYS})
+PROVIDER_ENV_KEYS = frozenset({*DIRECT_PROVIDER_KEYS, *RELAY_KEYS, LEGACY_RELAY_CREDENTIAL_KEY})
 
 
 def env_path() -> Path:
@@ -175,7 +175,7 @@ def clear_direct_provider_values(values: Dict[str, str], *, clear_activation: bo
     values["LOCALFLIGHT_AERODATABOX_ENABLED"] = "0"
     values["LOCALFLIGHT_AVIATIONSTACK_ENABLED"] = "0"
     if clear_activation:
-        for key in RELAY_KEYS:
+        for key in {*RELAY_KEYS, LEGACY_RELAY_CREDENTIAL_KEY}:
             if key in values:
                 values.pop(key, None)
                 removed.add(key)
@@ -195,7 +195,7 @@ def apply_byok_values(
     opensky_secret: str = "",
 ) -> set[str]:
     removed = clear_direct_provider_values(values, clear_activation=True)
-    for key in RELAY_KEYS:
+    for key in {*RELAY_KEYS, LEGACY_RELAY_CREDENTIAL_KEY}:
         values.pop(key, None)
         removed.add(key)
     values["LOCALFLIGHT_REAL_SCHEDULE_PROVIDER"] = "auto"
@@ -241,11 +241,11 @@ def apply_relay_values(
     community: bool = False,
 ) -> set[str]:
     removed = clear_direct_provider_values(values, clear_activation=False if community else True)
-    if activation_token.strip():
-        values["LOCALFLIGHT_ACTIVATION_TOKEN"] = activation_token.strip()
-    elif community:
-        values.pop("LOCALFLIGHT_ACTIVATION_TOKEN", None)
-        removed.add("LOCALFLIGHT_ACTIVATION_TOKEN")
+    # Device credentials live only in storage.install's owner-protected file.
+    # Keep accepting the argument while older callers are upgraded, but never
+    # duplicate it into .env.
+    values.pop(LEGACY_RELAY_CREDENTIAL_KEY, None)
+    removed.add(LEGACY_RELAY_CREDENTIAL_KEY)
     values["LOCALFLIGHT_RELAY_URL"] = (relay_url or default_public_relay_url()).strip().rstrip("/")
     return removed
 
@@ -260,28 +260,35 @@ def apply_virtual_values(values: Dict[str, str]) -> set[str]:
 def provider_status() -> Dict[str, Any]:
     values = provider_env_values()
     cfg = load_config()
+    from localflight.storage.install import get_relay_access_summary
+
     adb = aerodatabox_enabled(values)
     aviation = aviationstack_enabled(values)
     rapid = bool(str(values.get("RAPIDAPI_KEY", "")).strip())
     opensky = bool(str(values.get("OPENSKY_CLIENT_ID", "")).strip() or str(values.get("OPENSKY_CLIENT_SECRET", "")).strip())
-    token = bool(str(values.get("LOCALFLIGHT_ACTIVATION_TOKEN", "")).strip())
-    if (cfg.source or "").strip().lower() == "virtual":
+    relay_summary = get_relay_access_summary()
+    legacy_token = str(values.get(LEGACY_RELAY_CREDENTIAL_KEY, "")).strip()
+    credential_reference = str(relay_summary.get("credential_reference") or "")
+    token = bool(credential_reference or legacy_token)
+    route = cfg.data_route
+    if route == "vatsim":
         active_path = "VATSIM virtual traffic"
         privacy_posture = "virtual"
-    elif adb and aviation:
-        active_path = "AeroDataBox direct + AviationStack fill"
-        privacy_posture = "direct_private"
-    elif adb:
-        active_path = "AeroDataBox direct"
-        privacy_posture = "direct_private"
-    elif aviation:
-        active_path = "AviationStack direct"
+    elif route == "byok":
+        if adb and aviation:
+            active_path = "AeroDataBox direct + AviationStack fill"
+        elif adb:
+            active_path = "AeroDataBox direct"
+        elif aviation:
+            active_path = "AviationStack direct"
+        else:
+            active_path = "Bring Your Own Keys needs a schedule key"
         privacy_posture = "direct_private"
     elif token:
-        active_path = "Managed Beacon Tools relay"
+        active_path = "Beacon Relay"
         privacy_posture = "relay"
     else:
-        active_path = "Community relay"
+        active_path = "Beacon Relay not activated"
         privacy_posture = "relay"
     return {
         "ok": True,
@@ -309,8 +316,10 @@ def provider_status() -> Dict[str, Any]:
             "configured": opensky,
         },
         "relay": {
-            "activation_token": token,
+            "activation_token_present": bool(token),
+            "activation_token_prefix": credential_reference or (legacy_token[:12] if legacy_token else ""),
             "url": str(values.get("LOCALFLIGHT_RELAY_URL", "") or default_public_relay_url()).rstrip("/"),
+            "state": relay_summary["relay_state"],
         },
     }
 

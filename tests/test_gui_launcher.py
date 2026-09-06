@@ -14,6 +14,33 @@ from localflight.platform.gui_launcher import decide_gui_launch
 from route_inventory import effective_route_inventory
 
 
+@pytest.fixture(autouse=True)
+def _release_native_qt_objects() -> None:
+    """Keep optional Qt tests isolated from native-object teardown order."""
+
+    yield
+    try:
+        from PySide6 import QtCore, QtWidgets
+    except ImportError:
+        return
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        try:
+            widget.hide()
+            widget.deleteLater()
+        except RuntimeError:
+            pass
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+    try:
+        app.processEvents()
+    except RuntimeError:
+        # A deferred callback owned by a widget created in an earlier module
+        # may observe that its C++ parent has already been released.
+        pass
+
+
 def test_auto_desktop_uses_native_when_qt_available() -> None:
     decision = decide_gui_launch(
         Platform.WINDOWS,
@@ -1027,7 +1054,7 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
     assert setup.web_fallback_btn.text().endswith("Open LAN browser setup")
     assert setup.loading_indicator.isVisible() is False
     assert setup.provider_action_status.text()
-    assert setup.setup_mode.currentData() == "community"
+    assert setup.setup_mode.currentData() == "relay"
     assert setup.diagnostics_mode.currentData() == "manual"
     assert setup.finish_btn.isVisible() is False
     assert setup.stepper is not None
@@ -1274,7 +1301,10 @@ def test_native_setup_reuses_stored_relay_token(monkeypatch: pytest.MonkeyPatch)
                 return {
                     "relay_url": "https://relay.beacontools.cc/v1/flights",
                     "activation_token_present": True,
-                    "activation_token_prefix": "tok-prefix",
+                    "activation_token_prefix": "lfr_device_…",
+                    "relay_state": "active",
+                    "access_state": "active",
+                    "config": {"data_route": "relay", "diagnostics_mode": "manual"},
                 }
             return {}
 
@@ -1283,9 +1313,17 @@ def test_native_setup_reuses_stored_relay_token(monkeypatch: pytest.MonkeyPatch)
     setup = SetupScreen(QtCore, QtWidgets2, _Client(), base_url="http://127.0.0.1:9")
 
     assert app is not None
-    assert setup.setup_mode.currentData() == "community"
+    setup._apply_refresh(
+        {
+            "info": _Client().get_json("/api/setup/client-info"),
+            "catalog": {"ok": True, "sales_available": True},
+        }
+    )
+    assert setup.setup_mode.currentData() == "relay"
     assert setup.relay_url.text() == "https://relay.beacontools.cc"
-    assert "Stored token linked" in setup.activation_token.placeholderText()
+    assert "Device credential stored" in setup.activation_token.placeholderText()
+    assert setup.activation_token.text() == ""
+    assert setup.token_box.isHidden()
     assert setup.diagnostics_mode.currentData() == "manual"
 
 
@@ -1296,7 +1334,7 @@ def test_native_setup_is_extracted_from_legacy_module() -> None:
     assert setup_page.NativeSetupWindow.__module__ == "localflight.native.pages.setup"
 
 
-def test_native_setup_defaults_to_community_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_native_setup_defaults_to_beacon_relay_without_credential(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
     from PySide6 import QtWidgets
@@ -1314,9 +1352,19 @@ def test_native_setup_defaults_to_community_without_token(monkeypatch: pytest.Mo
     setup = SetupScreen(QtCore, QtWidgets2, _Client(), base_url="http://127.0.0.1:9")
 
     assert app is not None
+    setup._apply_refresh(
+        {
+            "info": {
+                "relay_url": "https://relay.beacontools.cc",
+                "activation_token_present": False,
+                "config": {"data_route": "relay"},
+            },
+            "catalog": {"ok": True, "sales_available": False},
+        }
+    )
     assert setup.tabs.count() == 6
-    assert setup.setup_mode.currentData() == "community"
-    assert "not linked" in setup.relay_status.text().lower()
+    assert setup.setup_mode.currentData() == "relay"
+    assert "relay access" in setup.relay_status.text().lower()
     assert setup.logo_label.minimumHeight() >= 90
     assert setup.relay_status.property("tone") == "warn"
 
@@ -1399,7 +1447,11 @@ def test_native_setup_relay_actions_show_local_status(monkeypatch: pytest.Monkey
             return {"relay_url": "https://relay.beacontools.cc"}
 
         def setup_activate(self, payload: dict[str, object]) -> dict[str, object]:
-            return {"ok": True, "activation_token_prefix": "tok-prefix"}
+            return {
+                "ok": True,
+                "activation_token_prefix": "lfr_device_…",
+                "license": {"access_state": "active"},
+            }
 
         def setup_client_status(self, payload: dict[str, object]) -> dict[str, object]:
             return {"ok": True, "status": "active"}
@@ -1411,12 +1463,14 @@ def test_native_setup_relay_actions_show_local_status(monkeypatch: pytest.Monkey
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     setup = SetupScreen(QtCore, QtWidgets2, _Client(), base_url="http://127.0.0.1:9")
     setup.service = _Service()
+    setup._run_async = lambda fetch, apply, _error, **_kwargs: (apply(fetch()) or True)
+    setup.activation_token.setText("LFRA-AAAA-BBBB-CCCC-DDDD")
 
     setup.request_activation()
     assert app is not None
     assert setup.relay_action_status.objectName() == "SetupStatusChip"
     assert setup.relay_action_status.property("tone") == "good"
-    assert "connected" in setup.relay_action_status.text().lower()
+    assert "works" in setup.relay_action_status.text().lower()
     assert setup.request_activation_btn.isEnabled()
 
     setup.check_activation_status()
@@ -1426,7 +1480,7 @@ def test_native_setup_relay_actions_show_local_status(monkeypatch: pytest.Monkey
 
     setup.test_activation()
     assert setup.relay_action_status.property("tone") == "good"
-    assert "token works" in setup.relay_action_status.text().lower()
+    assert "relay access works" in setup.relay_action_status.text().lower()
     assert setup.test_token_btn.isEnabled()
 
 
@@ -1451,24 +1505,26 @@ def test_native_setup_relay_errors_are_friendly_and_not_global_json(monkeypatch:
 
         def setup_activate(self, payload: dict[str, object]) -> dict[str, object]:
             self.activation_calls += 1
-            return {"ok": False, "error": "Activation token already bound to another install"}
+            return {"ok": False, "status": "invalid_license_key"}
 
         def setup_client_status(self, payload: dict[str, object]) -> dict[str, object]:
-            return {"ok": False, "error": "Activation token already bound to another install"}
+            return {"ok": False, "status": "invalid_license_key"}
 
         def setup_test_activation(self, payload: dict[str, object]) -> dict[str, object]:
-            return {"ok": False, "error": "Activation token already bound to another install"}
+            return {"ok": False, "status": "invalid_license_key"}
 
     QtCore, _QtGui, QtWidgets2 = import_qt()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     setup = SetupScreen(QtCore, QtWidgets2, _Client(), base_url="http://127.0.0.1:9")
     service = _Service()
     setup.service = service
+    setup._run_async = lambda fetch, apply, _error, **_kwargs: (apply(fetch()) or True)
+    setup.activation_token.setText("LFRA-BAD-KEY")
 
     setup.request_activation()
     assert app is not None
     assert setup.relay_action_status.property("tone") == "bad"
-    assert "already linked to another install" in setup.relay_action_status.text()
+    assert "was not accepted" in setup.relay_action_status.text()
     assert "{" not in setup.relay_action_status.text()
     assert "}" not in setup.relay_action_status.text()
     assert "Relay needs attention" in setup.status.text()
@@ -1476,14 +1532,14 @@ def test_native_setup_relay_errors_are_friendly_and_not_global_json(monkeypatch:
 
     setup.check_activation_status()
     assert setup.relay_action_status.property("tone") == "bad"
-    assert "already linked to another install" in setup.relay_action_status.text()
+    assert "was not accepted" in setup.relay_action_status.text()
 
     setup._stored_activation = True
     setup.activation_token.clear()
     setup.request_activation()
-    assert service.activation_calls == 2
-    assert setup.relay_action_status.property("tone") == "bad"
-    assert "already linked to another install" in setup.relay_action_status.text()
+    assert service.activation_calls == 1
+    assert setup.relay_action_status.property("tone") == "warn"
+    assert "Enter a Relay Access key" in setup.relay_action_status.text()
 
 
 def test_native_setup_provider_key_actions_show_feedback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1555,6 +1611,7 @@ def test_native_setup_byok_finish_sends_keys_only_for_byok(monkeypatch: pytest.M
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     client = _Client()
     setup = SetupScreen(QtCore, QtWidgets2, client, base_url="http://127.0.0.1:9")
+    setup._run_async = lambda fetch, apply, _error, **_kwargs: (apply(fetch()) or True)
     setup._set_mode("byok")
     setup.aviationstack_key.setText("as-key")
     setup.rapidapi_key.setText("rapid-key")
@@ -1600,12 +1657,14 @@ def test_native_setup_virtual_finish_sends_virtual_source(monkeypatch: pytest.Mo
     client = _Client()
     completed = {"value": False}
     setup = SetupScreen(QtCore, QtWidgets2, client, base_url="http://127.0.0.1:9", on_setup_complete=lambda: completed.update(value=True))
-    setup._set_mode("virtual")
+    setup._run_async = lambda fetch, apply, _error, **_kwargs: (apply(fetch()) or True)
+    setup._set_mode("vatsim")
     setup.finish_setup()
 
     assert app is not None
     assert completed["value"] is True
-    assert client.payload["setup_mode"] == "virtual"
+    assert client.payload["setup_mode"] == "vatsim"
+    assert client.payload["data_route"] == "vatsim"
     assert client.payload["source"] == "virtual"
     assert client.payload["diagnostics_mode"] == "manual"
     assert client.payload["relay_url"] == ""
@@ -1640,10 +1699,23 @@ def test_native_setup_saves_selected_diagnostics_mode(monkeypatch: pytest.Monkey
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     client = _Client()
     setup = SetupScreen(QtCore, QtWidgets2, client, base_url="http://127.0.0.1:9")
+    setup._run_async = lambda fetch, apply, _error, **_kwargs: (apply(fetch()) or True)
+    setup._set_mode("vatsim")
     setup._set_diagnostics_mode("auto_logs")
+    setup._apply_refresh(
+        {
+            "info": {
+                "relay_url": "https://relay.beacontools.cc",
+                "config": {"data_route": "relay", "diagnostics_mode": "manual"},
+            },
+            "catalog": {"ok": True, "sales_available": False},
+        }
+    )
     setup.finish_setup()
 
     assert app is not None
+    assert setup._current_mode() == "vatsim"
+    assert setup._current_diagnostics_mode() == "auto_logs"
     assert client.payload["diagnostics_mode"] == "auto_logs"
     assert "local logs" in setup.finish_summary.text()
 
@@ -3155,7 +3227,7 @@ def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPat
     assert "Surface overlay" in screen.surface_status.text()
     assert screen.surface_progress.isVisible() is False
     assert screen.provider_group.isHidden()
-    screen._apply_provider_key_status({"privacy_posture": "relay", "active_path": "Community relay"})
+    screen._apply_provider_key_status({"privacy_posture": "relay", "active_path": "Beacon Relay"})
     assert screen.provider_group.isHidden()
     screen._apply_provider_key_status(
         {
@@ -3196,7 +3268,7 @@ def test_native_settings_has_airport_search_picker(monkeypatch: pytest.MonkeyPat
         "Pair Mobile",
         "Advanced Board Timing",
         "Maintenance",
-        "Relay details",
+        "Relay Access",
         "Diagnostics & Docs",
     ]
     assert all(
@@ -3332,6 +3404,7 @@ def test_native_settings_config_payload_preserves_fields(monkeypatch: pytest.Mon
             "timezone": "Asia/Singapore",
             "display_name": "Terminal Board",
             "source": "virtual",
+            "data_route": "vatsim",
             "refresh_seconds": 1800,
             "theme": "light",
             "skin": "night_ops",
@@ -3357,7 +3430,7 @@ def test_native_settings_config_payload_preserves_fields(monkeypatch: pytest.Mon
         "airport_icao",
         "timezone",
         "display_name",
-        "source",
+        "data_route",
         "refresh_seconds",
         "theme",
         "skin",
@@ -3378,7 +3451,7 @@ def test_native_settings_config_payload_preserves_fields(monkeypatch: pytest.Mon
     assert payload["radar_surface_mode"] == "relay"
 
 
-def test_native_settings_filters_community_relay_refresh_options(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_native_settings_unlicensed_relay_uses_standard_refresh_options(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
     from PySide6 import QtWidgets
@@ -3411,9 +3484,9 @@ def test_native_settings_filters_community_relay_refresh_options(monkeypatch: py
     ]
 
     assert app is not None
-    assert values[0] == 1800
-    assert 900 not in values
-    assert int(screen.refresh_seconds.currentData()) == 1800
+    assert values[0] == 900
+    assert 900 in values
+    assert int(screen.refresh_seconds.currentData()) == 900
 
 
 def test_native_settings_actions_use_native_service(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3765,7 +3838,8 @@ def test_setup_guidance_copy_is_shared_and_user_facing() -> None:
 
     assert STEP_NAMES == ("Welcome", "Airport", "Flight Data", "Optional Keys", "Diagnostics", "Review & Launch")
     assert STEP_SHORT_LABELS == ("Welcome", "Airport", "Data", "Keys", "Reports", "Launch")
-    assert {option["mode"] for option in SOURCE_OPTIONS} == {"community", "byok", "virtual"}
+    assert [option["mode"] for option in SOURCE_OPTIONS] == ["relay", "byok", "vatsim"]
+    assert [option["title"] for option in SOURCE_OPTIONS] == ["Beacon Relay", "Bring Your Own Keys", "VATSIM"]
     assert {option["mode"] for option in DIAGNOSTICS_OPTIONS} == {"manual", "auto", "auto_logs"}
     joined = " ".join(
         [*STEP_NAMES]

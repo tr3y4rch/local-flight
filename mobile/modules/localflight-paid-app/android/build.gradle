@@ -1,0 +1,20 @@
+plugins {
+  id "com.android.library"
+  id "expo-module-gradle-plugin"
+}
+
+group = "cc.beacontools.localflight"
+version = "0.5.2"
+
+android {
+  namespace "cc.beacontools.localflight.paidapp"
+  defaultConfig {
+    versionCode 1
+    versionName "0.5.2"
+  }
+}
+
+dependencies {
+  implementation "com.android.billingclient:billing:9.1.0"
+  implementation "com.google.android.play:integrity:1.6.0"
+}

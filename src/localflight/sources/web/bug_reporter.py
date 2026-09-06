@@ -18,36 +18,15 @@ import json
 import logging
 import os
 import platform
-import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
+from localflight.core.redaction import redact_sensitive as _redact_sensitive
 from localflight.version import app_version as _app_version
 
 log = logging.getLogger(__name__)
-
-_SECRET_PATTERNS = (
-    (re.compile(r"(AVIATIONSTACK_API_KEY|AERODATABOX_API_KEY|RAPIDAPI_KEY|OPENSKY_CLIENT_SECRET|LINEAR_API_KEY|LINEAR_REPORTER_API_KEY)=\S+", re.I), r"\1=[redacted]"),
-    (re.compile(r"(access_key=)[^&\s]+", re.I), r"\1[redacted]"),
-    (re.compile(r"(X-RapidAPI-Key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
-    (re.compile(r"(x-magicapi-key['\":\s]+)[A-Za-z0-9._-]+", re.I), r"\1[redacted]"),
-    (re.compile(r"lin_api_[A-Za-z0-9_]+", re.I), "[redacted-linear-token]"),
-    (re.compile(r"lfm_[A-Za-z0-9._-]+", re.I), "[redacted-activation-token]"),
-    (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I), "[redacted-uuid]"),
-    (re.compile(r"\b10\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b"), r"10.\1.\2.x"),
-    (re.compile(r"\b192\.168\.(\d{1,3})\.(\d{1,3})\b"), r"192.168.\1.x"),
-    (re.compile(r"\b172\.(1[6-9]|2\d|3[01])\.(\d{1,3})\.(\d{1,3})\b"), r"172.\1.\2.x"),
-)
-
-
-def _redact_sensitive(text: str) -> str:
-    redacted = text or ""
-    for pattern, repl in _SECRET_PATTERNS:
-        redacted = pattern.sub(repl, redacted)
-    return redacted
-
 
 def _gui_launch_context() -> dict[str, str]:
     """Best-effort GUI shell context for Linear reports."""
@@ -123,7 +102,7 @@ def _schedule_mode_context(source: str) -> dict[str, Any]:
         else:
             details.update(
                 {
-                    "mode_label": "community relay",
+                    "mode_label": "Beacon Relay",
                     "transport": "relay",
                     "shared_snapshot": shared_snapshot,
                     "relay_url": relay_url,
@@ -212,7 +191,7 @@ def _api_mode() -> str:
     try:
         from localflight.sources.web.aviationstack_client import _is_relay_mode
 
-        return "community relay" if _is_relay_mode() else "byok"
+        return "Beacon Relay" if _is_relay_mode() else "BYOK"
     except Exception:
         return "unknown"
 
@@ -290,10 +269,21 @@ def _post_relay_report(payload: Dict[str, Any]) -> Dict[str, Any]:
     import requests
 
     try:
+        request_payload = dict(payload)
+        access_token = str(request_payload.pop("activation_token", "") or "").strip()
+        for key, value in tuple(request_payload.items()):
+            if key not in {"install_id", "install_fingerprint"} and isinstance(value, str):
+                request_payload[key] = _redact_sensitive(value)
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        if access_token.startswith("lfr_"):
+            headers["Authorization"] = f"Bearer {access_token}"
+        elif access_token:
+            # Kept only for pre-license relay compatibility.
+            request_payload["activation_token"] = access_token
         response = requests.post(
             _reports_url(),
-            json=payload,
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            json=request_payload,
+            headers=headers,
             timeout=12,
         )
         try:
@@ -306,8 +296,9 @@ def _post_relay_report(payload: Dict[str, Any]) -> Dict[str, Any]:
             return data
         return {"ok": False, "error": "Relay report response was not accepted"}
     except Exception as exc:
-        log.warning("Relay report submission failed: %s", exc)
-        return {"ok": False, "error": str(exc)}
+        safe_error = _redact_sensitive(str(exc))
+        log.warning("Relay report submission failed: %s", safe_error)
+        return {"ok": False, "error": safe_error}
 
 
 def _build_payload(
@@ -450,8 +441,9 @@ def submit_crash(
             _mark_crash_filed(fp)
         return result
     except Exception as exc:
-        log.warning("Auto crash report failed (non-fatal): %s", exc)
-        return {"ok": False, "error": str(exc)}
+        safe_error = _redact_sensitive(str(exc))
+        log.warning("Auto crash report failed (non-fatal): %s", safe_error)
+        return {"ok": False, "error": safe_error}
 
 
 def submit_report(title: str, description: str = "", client_context: str = "") -> dict:

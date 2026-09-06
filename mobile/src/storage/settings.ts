@@ -1,5 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 import type { AirportResolved, AppConfig } from "../api/types";
+import type { MobileRelayAccessState, MobileRelayAccessSummary } from "../access/paidAppAccess";
 import {
   normalizePinnedFlightReference,
   pinnedFlightId,
@@ -30,7 +31,11 @@ const MOBILE_DIAGNOSTICS_KEY = "localflight.mobileDiagnosticsMode";
 const MOBILE_SETUP_STATE_KEY = "localflight.mobileSetupState";
 const WIDGET_PREFERENCES_KEY = "localflight.widgetPreferences";
 const MOBILE_RELAY_INSTALL_ID_KEY = "localflight.mobileRelayInstallId";
-const MOBILE_RELAY_ACTIVATION_TOKEN_KEY = "localflight.mobileRelayActivationToken";
+const MOBILE_RELAY_DEVICE_CREDENTIAL_KEY = "localflight.relayDeviceCredential";
+const MOBILE_RELAY_PENDING_DEVICE_CREDENTIAL_KEY = "localflight.pendingRelayDeviceCredential";
+const MOBILE_RELAY_PENDING_ACTIVATION_KEY = "localflight.pendingRelayActivation";
+const MOBILE_RELAY_ACCESS_SUMMARY_KEY = "localflight.mobileRelayAccessSummary";
+const LEGACY_MOBILE_RELAY_ACTIVATION_TOKEN_KEY = "localflight.mobileRelayActivationToken";
 const STANDALONE_AIRPORT_KEY = "localflight.standaloneAirport";
 const CACHED_LAN_CONFIG_KEY = "localflight.cachedLanConfig";
 const CACHED_LAN_AIRPORT_KEY = "localflight.cachedLanAirport";
@@ -120,12 +125,29 @@ export type MobileSetupState = {
   mode: MobileSetupMode;
   serverUrl: string;
   relayInstallId?: string;
-  relayActivationToken?: string;
+  relayCredentialPresent?: boolean;
+  relayReleasePending?: boolean;
   remoteCompanion?: RemoteCompanionGrant | null;
   standaloneAirport?: StandaloneAirport | null;
   standaloneSource?: StandaloneFlightSource;
   diagnosticsMode: MobileDiagnosticsMode;
   completedAt: string | null;
+};
+
+export type PendingRelayActivation = {
+  installId: string;
+  relayOrigin: string;
+  airport: StandaloneAirport;
+  standaloneSource: "real";
+  diagnosticsMode: MobileDiagnosticsMode;
+  access: MobileRelayAccessSummary;
+  activationState: "active" | "pending_commit";
+  expiresAt: string;
+  createdAt: string;
+};
+
+export type StagedRelayActivation = PendingRelayActivation & {
+  credential: string;
 };
 
 function createCompanionId(): string {
@@ -270,17 +292,151 @@ export async function loadMobileRelayInstallId(): Promise<string> {
   return created;
 }
 
-export async function loadMobileRelayActivationToken(): Promise<string> {
-  return (await SecureStore.getItemAsync(MOBILE_RELAY_ACTIVATION_TOKEN_KEY)) || "";
+export async function loadRelayDeviceCredential(): Promise<string> {
+  const current = (await SecureStore.getItemAsync(MOBILE_RELAY_DEVICE_CREDENTIAL_KEY)) || "";
+  if (current) return current;
+  const legacy = (await SecureStore.getItemAsync(LEGACY_MOBILE_RELAY_ACTIVATION_TOKEN_KEY)) || "";
+  if (!legacy) return "";
+  await SecureStore.setItemAsync(MOBILE_RELAY_DEVICE_CREDENTIAL_KEY, legacy);
+  await SecureStore.deleteItemAsync(LEGACY_MOBILE_RELAY_ACTIVATION_TOKEN_KEY);
+  return legacy;
 }
 
-export async function saveMobileRelayActivationToken(value: string): Promise<void> {
-  const token = value.trim();
-  if (!token) {
-    await SecureStore.deleteItemAsync(MOBILE_RELAY_ACTIVATION_TOKEN_KEY);
+export async function saveRelayDeviceCredential(value: string): Promise<void> {
+  const credential = value.trim();
+  await SecureStore.deleteItemAsync(LEGACY_MOBILE_RELAY_ACTIVATION_TOKEN_KEY);
+  if (!credential) {
+    await SecureStore.deleteItemAsync(MOBILE_RELAY_DEVICE_CREDENTIAL_KEY);
     return;
   }
-  await SecureStore.setItemAsync(MOBILE_RELAY_ACTIVATION_TOKEN_KEY, token);
+  await SecureStore.setItemAsync(MOBILE_RELAY_DEVICE_CREDENTIAL_KEY, credential);
+}
+
+function normalizePendingRelayActivation(value: unknown): PendingRelayActivation | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<PendingRelayActivation>;
+  const installId = String(raw.installId || "").trim();
+  const relayOrigin = String(raw.relayOrigin || "").trim().replace(/\/+$/, "");
+  const airport = normalizeStandaloneAirport(raw.airport);
+  const access = normalizeMobileRelayAccessSummary(raw.access);
+  const diagnosticsMode = normalizeDiagnosticsMode(raw.diagnosticsMode);
+  const activationState = raw.activationState === "pending_commit" ? "pending_commit" : "active";
+  const expiresAt = String(raw.expiresAt || "").trim();
+  const createdAt = String(raw.createdAt || "").trim();
+  if (!installId || !relayOrigin || !airport || !access || diagnosticsMode === "unset" || !createdAt) return null;
+  return {
+    installId,
+    relayOrigin,
+    airport,
+    standaloneSource: "real",
+    diagnosticsMode,
+    access,
+    activationState,
+    expiresAt,
+    createdAt
+  };
+}
+
+export async function stagePendingRelayActivation(value: StagedRelayActivation): Promise<void> {
+  const credential = value.credential.trim();
+  const normalized = normalizePendingRelayActivation(value);
+  if (!credential.startsWith("lfr_") || !normalized) {
+    throw new Error("Relay activation could not be staged safely.");
+  }
+  await SecureStore.setItemAsync(MOBILE_RELAY_PENDING_DEVICE_CREDENTIAL_KEY, credential);
+  try {
+    await SecureStore.setItemAsync(MOBILE_RELAY_PENDING_ACTIVATION_KEY, JSON.stringify(normalized));
+  } catch (error) {
+    await SecureStore.deleteItemAsync(MOBILE_RELAY_PENDING_DEVICE_CREDENTIAL_KEY).catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function loadPendingRelayActivation(): Promise<StagedRelayActivation | null> {
+  const [raw, credential] = await Promise.all([
+    SecureStore.getItemAsync(MOBILE_RELAY_PENDING_ACTIVATION_KEY),
+    SecureStore.getItemAsync(MOBILE_RELAY_PENDING_DEVICE_CREDENTIAL_KEY)
+  ]);
+  if (!raw || !credential?.startsWith("lfr_")) {
+    if (raw || credential) await clearPendingRelayActivation().catch(() => undefined);
+    return null;
+  }
+  try {
+    const normalized = normalizePendingRelayActivation(JSON.parse(raw));
+    if (!normalized) {
+      await clearPendingRelayActivation().catch(() => undefined);
+      return null;
+    }
+    return { ...normalized, credential };
+  } catch {
+    await clearPendingRelayActivation().catch(() => undefined);
+    return null;
+  }
+}
+
+export async function clearPendingRelayActivation(): Promise<void> {
+  await Promise.all([
+    SecureStore.deleteItemAsync(MOBILE_RELAY_PENDING_ACTIVATION_KEY),
+    SecureStore.deleteItemAsync(MOBILE_RELAY_PENDING_DEVICE_CREDENTIAL_KEY)
+  ]);
+}
+
+const MOBILE_RELAY_ACCESS_STATES = new Set<MobileRelayAccessState>([
+  "verification_needed",
+  "checking",
+  "available",
+  "active_here",
+  "active_elsewhere",
+  "suspended",
+  "refunded",
+  "revoked",
+  "retryable_unavailable",
+  "release_pending"
+]);
+
+function normalizeMobileRelayAccessSummary(value: unknown): MobileRelayAccessSummary | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<MobileRelayAccessSummary>;
+  const candidateState = String(raw.state || "verification_needed") as MobileRelayAccessState;
+  const state = MOBILE_RELAY_ACCESS_STATES.has(candidateState) && candidateState !== "checking"
+    ? candidateState
+    : "verification_needed";
+  const candidateKeyRef = String(raw.maskedKeyRef || "").trim().slice(0, 48);
+  const maskedKeyRef = candidateKeyRef.startsWith("lfr_")
+    || (/^LFRA/i.test(candidateKeyRef) && !/[.…*•]/.test(candidateKeyRef))
+      ? ""
+      : candidateKeyRef;
+  return {
+    licenseRef: String(raw.licenseRef || "").trim().slice(0, 80),
+    maskedKeyRef,
+    sourceLabel: String(raw.sourceLabel || "").trim().slice(0, 40),
+    state,
+    protectionEnabled: Boolean(raw.protectionEnabled),
+    currentMainDeviceDescription: String(raw.currentMainDeviceDescription || "").trim().slice(0, 80),
+    lastSuccessfulCheckAt: String(raw.lastSuccessfulCheckAt || "").trim().slice(0, 40)
+  };
+}
+
+export async function loadMobileRelayAccessSummary(): Promise<MobileRelayAccessSummary | null> {
+  const raw = await SecureStore.getItemAsync(MOBILE_RELAY_ACCESS_SUMMARY_KEY);
+  if (!raw) return null;
+  try {
+    return normalizeMobileRelayAccessSummary(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+export async function saveMobileRelayAccessSummary(value: MobileRelayAccessSummary | null): Promise<void> {
+  if (!value) {
+    await SecureStore.deleteItemAsync(MOBILE_RELAY_ACCESS_SUMMARY_KEY);
+    return;
+  }
+  const summary = normalizeMobileRelayAccessSummary(value);
+  if (!summary) return;
+  // This explicit allowlist prevents proof material, move tokens, claims, or
+  // device credentials from being serialized with the cached display state.
+  await SecureStore.setItemAsync(MOBILE_RELAY_ACCESS_SUMMARY_KEY, JSON.stringify(summary));
 }
 
 export async function loadStandaloneAirport(): Promise<StandaloneAirport | null> {
@@ -475,7 +631,8 @@ export function incompleteMobileSetupState(
     mode: "lan_companion",
     serverUrl,
     relayInstallId: "",
-    relayActivationToken: "",
+    relayCredentialPresent: false,
+    relayReleasePending: false,
     remoteCompanion: null,
     standaloneAirport: null,
     standaloneSource: "real",
@@ -487,14 +644,16 @@ export function incompleteMobileSetupState(
 export function completeMobileSetupState(
   serverUrl: string,
   diagnosticsMode: MobileDiagnosticsMode,
-  remoteCompanion: RemoteCompanionGrant | null = null
+  remoteCompanion: RemoteCompanionGrant | null = null,
+  relayReleasePending = false
 ): MobileSetupState {
   return {
     complete: true,
     mode: "lan_companion",
     serverUrl,
     relayInstallId: "",
-    relayActivationToken: "",
+    relayCredentialPresent: relayReleasePending,
+    relayReleasePending,
     remoteCompanion: normalizeRemoteCompanionGrant(remoteCompanion),
     standaloneAirport: null,
     standaloneSource: "real",
@@ -505,26 +664,31 @@ export function completeMobileSetupState(
 
 export function completeStandaloneMobileSetupState({
   relayInstallId,
-  relayActivationToken,
   airport,
   diagnosticsMode,
-  standaloneSource = "real"
+  standaloneSource = "real",
+  relayCredentialPresent,
+  relayReleasePending = false
 }: {
   relayInstallId: string;
-  relayActivationToken: string;
   airport: StandaloneAirport;
   diagnosticsMode: MobileDiagnosticsMode;
   standaloneSource?: StandaloneFlightSource;
+  relayCredentialPresent?: boolean;
+  relayReleasePending?: boolean;
 }): MobileSetupState {
+  const source: StandaloneFlightSource = standaloneSource === "virtual" ? "virtual" : "real";
+  const credentialPresent = relayCredentialPresent ?? (source === "real" || relayReleasePending);
   return {
     complete: true,
     mode: "standalone",
     serverUrl: "",
     relayInstallId: relayInstallId.trim(),
-    relayActivationToken: relayActivationToken.trim(),
+    relayCredentialPresent: credentialPresent,
+    relayReleasePending: source === "virtual" && relayReleasePending,
     remoteCompanion: null,
     standaloneAirport: normalizeStandaloneAirport(airport),
-    standaloneSource: standaloneSource === "virtual" ? "virtual" : "real",
+    standaloneSource: source,
     diagnosticsMode: normalizeDiagnosticsMode(diagnosticsMode),
     completedAt: new Date().toISOString()
   };
@@ -540,18 +704,23 @@ function normalizeMobileSetupState(raw: unknown): MobileSetupState {
   const serverUrl = typeof state.serverUrl === "string" ? state.serverUrl : "";
   const standaloneAirport = normalizeStandaloneAirport(state.standaloneAirport);
   const relayInstallId = typeof state.relayInstallId === "string" ? state.relayInstallId : "";
-  const relayActivationToken = typeof state.relayActivationToken === "string" ? state.relayActivationToken : "";
+  const relayCredentialPresent = Boolean(state.relayCredentialPresent);
+  const relayReleasePending = Boolean(state.relayReleasePending);
   const remoteCompanion = normalizeRemoteCompanionGrant(state.remoteCompanion);
   const standaloneSource: StandaloneFlightSource = state.standaloneSource === "virtual" ? "virtual" : "real";
+  const relayCredentialRequired = standaloneSource === "real";
   const complete = mode === "standalone"
-    ? Boolean(state.complete && relayInstallId && relayActivationToken && standaloneAirport && diagnosticsMode !== "unset")
+    ? Boolean(state.complete && relayInstallId && (!relayCredentialRequired || relayCredentialPresent) && standaloneAirport && diagnosticsMode !== "unset")
     : Boolean(state.complete && serverUrl && diagnosticsMode !== "unset");
   return {
     complete,
     mode,
     serverUrl: mode === "lan_companion" ? serverUrl : "",
     relayInstallId: mode === "standalone" ? relayInstallId : "",
-    relayActivationToken: mode === "standalone" ? relayActivationToken : "",
+    relayCredentialPresent: mode === "standalone"
+      ? (standaloneSource === "real" ? relayCredentialPresent : relayReleasePending)
+      : relayReleasePending,
+    relayReleasePending: mode === "lan_companion" || standaloneSource === "virtual" ? relayReleasePending : false,
     remoteCompanion: mode === "lan_companion" ? remoteCompanion : null,
     standaloneAirport: mode === "standalone" ? standaloneAirport : null,
     standaloneSource,
@@ -569,7 +738,7 @@ export function isMobileSetupComplete(
     return Boolean(
       state.complete &&
       state.relayInstallId &&
-      state.relayActivationToken &&
+      (state.standaloneSource === "virtual" || state.relayCredentialPresent) &&
       state.standaloneAirport &&
       normalizeDiagnosticsMode(diagnosticsMode) !== "unset"
     );
@@ -743,7 +912,24 @@ export async function loadMobileSetupState(): Promise<MobileSetupState> {
     return incompleteMobileSetupState();
   }
   try {
-    return normalizeMobileSetupState(JSON.parse(raw));
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const embeddedLegacyCredential = typeof parsed.relayActivationToken === "string"
+      ? parsed.relayActivationToken.trim()
+      : "";
+    if (embeddedLegacyCredential && !(await loadRelayDeviceCredential())) {
+      await saveRelayDeviceCredential(embeddedLegacyCredential);
+    }
+    const credential = await loadRelayDeviceCredential();
+    const migrated = normalizeMobileSetupState({
+      ...parsed,
+      relayActivationToken: undefined,
+      relayCredentialPresent: Boolean(credential),
+      relayCredentialPrefix: undefined
+    });
+    if (embeddedLegacyCredential || "relayActivationToken" in parsed || "relayCredentialPrefix" in parsed) {
+      await SecureStore.setItemAsync(MOBILE_SETUP_STATE_KEY, JSON.stringify(migrated));
+    }
+    return migrated;
   } catch {
     return incompleteMobileSetupState();
   }

@@ -21,14 +21,19 @@ import {
   loadCachedLanAirport,
   loadCachedLanConfig,
   loadMobileDiagnosticsMode,
+  loadMobileRelayAccessSummary,
+  loadPendingRelayActivation,
+  loadRelayDeviceCredential,
   loadPinnedFlightReference,
   loadProfiles,
   loadServerUrl,
   resolveMobileSetupState,
   type MobileDiagnosticsMode,
-  type MobileSetupState
+  type MobileSetupState,
+  type StagedRelayActivation
 } from "../storage/settings";
 import type { PinnedFlightReference } from "../domain/pinnedFlight";
+import type { MobileRelayAccessSummary } from "../access/paidAppAccess";
 
 export type LaunchHydration = {
   savedUrl: string | null;
@@ -40,6 +45,9 @@ export type LaunchHydration = {
   identity: CompanionIdentity;
   mobileDiagnosticsMode: MobileDiagnosticsMode;
   setupState: MobileSetupState;
+  relayDeviceCredential: string;
+  relayAccessSummary: MobileRelayAccessSummary | null;
+  pendingRelayActivation: StagedRelayActivation | null;
 };
 
 export type { LaunchDataOutcome } from "../domain/launchPresentation";
@@ -252,12 +260,19 @@ export function useLaunchOverlay(
       settledValue(loadCachedLanAirport(), null),
       settledValue(getCompanionIdentity(), fallbackIdentity),
       settledValue(loadMobileDiagnosticsMode(), "unset" as MobileDiagnosticsMode),
+      settledValue(loadRelayDeviceCredential(), ""),
+      settledValue(loadMobileRelayAccessSummary(), null),
+      settledValue(loadPendingRelayActivation(), null),
       settledValue(Linking.getInitialURL(), null)
-    ]).then(async ([savedUrl, savedPin, savedProfiles, savedConfig, savedAirport, identity, mobileDiagnosticsMode, initialUrl]) => {
+    ]).then(async ([savedUrl, savedPin, savedProfiles, savedConfig, savedAirport, identity, mobileDiagnosticsMode, relayDeviceCredential, relayAccessSummary, pendingRelayActivation, initialUrl]) => {
       const setupState = await settledValue(
         resolveMobileSetupState(savedUrl || "", mobileDiagnosticsMode),
         incompleteMobileSetupState(savedUrl || "", mobileDiagnosticsMode)
       );
+      // Resolving setup can migrate an older credential embedded in setup JSON.
+      // Re-read after that migration so the first upgraded launch can use it.
+      const hydratedRelayDeviceCredential = relayDeviceCredential
+        || await settledValue(loadRelayDeviceCredential(), "");
       if (!alive) return;
       bypassCinematicRef.current = isDirectContentLaunch(initialUrl);
       onHydrated({
@@ -269,6 +284,9 @@ export function useLaunchOverlay(
         identity,
         mobileDiagnosticsMode,
         setupState,
+        relayDeviceCredential: hydratedRelayDeviceCredential,
+        relayAccessSummary,
+        pendingRelayActivation,
         initialUrl
       });
       hydrationCompleteRef.current = true;

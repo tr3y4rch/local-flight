@@ -2,7 +2,7 @@
 
 Tracked WidgetKit template for the iOS widget extension. The generated
 `mobile/ios/` directory is ignored, so keep these files as the source of truth.
-The widget-enabled `0.5.2 (9)` source enables this template through
+The widget-enabled `0.5.2 (12)` source enables this template through
 `plugins/with-localflight-ios-widget.js`. The steps below are the required
 generation/signing checks. Apple provisioning must cover the app, widget
 extension, and `group.cc.beacontools.localflight` App Group.
@@ -28,7 +28,7 @@ action is the deterministic foreground path.
   `MediumWidgetViewV2.swift`, and `LiveActivityViewV2.swift`.
 - `LiveActivityViewV2.swift` also supplies the iOS 16.1+ Lock Screen and Dynamic
   Island presentation. The WidgetBundle availability gate keeps the Home Screen
-  widget available on iOS 15.1.
+  widget available on every supported Local Flight Mobile device (iOS 16+).
 - `Fonts/` contains the same bundled app fonts the Expo app uses:
   Audiowide for the Local Flight wordmark, DM Sans for readable UI text, and
   Space Mono for board/FIDS text.
@@ -119,7 +119,7 @@ npm run a11y
 ```bash
 cd /Applications/local-flight
 xcrun --sdk iphonesimulator swiftc -parse \
-  -target arm64-apple-ios15.1-simulator \
+  -target arm64-apple-ios16.0-simulator \
   mobile/native/ios-widget/WidgetSnapshot.swift \
   mobile/native/ios-widget/DesignTokens.swift \
   mobile/native/ios-widget/SmallWidgetViewV2.swift \

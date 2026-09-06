@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY relay/main.py ./main.py
 COPY relay/ground_cache.py ./relay/ground_cache.py
+COPY relay/access ./relay/access
 COPY relay/admin ./admin
 COPY relay/public ./public
 COPY src/localflight ./localflight

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import time as _time
+import ipaddress
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -31,6 +32,7 @@ from localflight.core.timezones import resolve_airport_timezone, resolve_config_
 from localflight.sources.web.relay_defaults import default_public_relay_url, relay_endpoint_url, validate_public_relay_url
 from localflight.storage.config import (
     AppConfig, load_config, save_config,
+    ALLOWED_DATA_ROUTES,
     ALLOWED_DIAGNOSTICS_MODES, DEFAULT_DIAGNOSTICS_MODE,
     ALLOWED_OUTPUTS, ALLOWED_SOURCES, ALLOWED_SKINS,
     ALLOWED_RADAR_SURFACE_MODES, DEFAULT_RADAR_SURFACE_MODE,
@@ -74,17 +76,19 @@ SCHEDULER_SYNC_FIELDS = (
     "airport_icao",
     "refresh_seconds",
     "source",
+    "data_route",
     "timezone",
     "display_grace_minutes",
     "display_horizon_hours",
 )
 
 
-def _schedule_policy_for_source(source: Optional[str]) -> Dict[str, Any]:
+def _schedule_policy_for_source(source: Optional[str], data_route: Optional[str] = None) -> Dict[str, Any]:
     try:
         from localflight.sources.web.aviationstack_client import schedule_policy
 
-        return schedule_policy(source or load_config().source)
+        cfg = load_config()
+        return schedule_policy(source or cfg.source, data_route=data_route or cfg.data_route)
     except Exception:
         allowed = sorted(ALLOWED_REFRESH_SECONDS)
         return {
@@ -125,6 +129,14 @@ def _scheduler_config_changed(before: AppConfig, after: AppConfig) -> bool:
     return any(getattr(before, field) != getattr(after, field) for field in SCHEDULER_SYNC_FIELDS)
 
 
+def _data_route_label(route: str) -> str:
+    return {
+        "relay": "Beacon Relay",
+        "byok": "Bring Your Own Keys",
+        "vatsim": "VATSIM",
+    }.get(str(route or "").strip().lower(), "Beacon Relay")
+
+
 def _network_tools_enabled() -> bool:
     return os.getenv("LOCALFLIGHT_ENABLE_NETWORK_TOOLS", "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -138,6 +150,8 @@ _SETUP_FREE_PATHS = {
     "/api/setup/complete",
     "/api/setup/reset",
     "/api/setup/client-info",
+    "/api/setup/access/catalog",
+    "/api/setup/access/deactivate",
     "/api/setup/activate",
     "/api/setup/client-status",
     "/api/setup/request-activation",
@@ -277,14 +291,85 @@ def _static_asset_version() -> str:
     return digest.hexdigest()[:12]
 
 
+_RELAY_RELEASE_RETRY_STARTUP_S = 60
+_RELAY_RELEASE_RETRY_INTERVAL_S = 5 * 60
+
+
+def _recover_data_route_transition() -> None:
+    """Finish the safe part of a setup transition interrupted by shutdown."""
+    from localflight.storage.install import get_stored_activation_token, update_relay_access_summary
+    from localflight.storage.route_transition import complete_route_transition, load_route_transition
+
+    transition = load_route_transition()
+    if not transition:
+        return
+    cfg = load_config()
+    target = str(transition.get("target_route") or "")
+    stage = str(transition.get("stage") or "")
+    if stage == "started" and cfg.data_route != target:
+        complete_route_transition()
+        return
+    if cfg.data_route != target and stage in {"provider_saved", "route_saved"}:
+        values = asdict(cfg)
+        values.update(data_route=target, source="virtual" if target == "vatsim" else "real")
+        save_config(AppConfig(**values))
+    if target != "relay" and get_stored_activation_token():
+        update_relay_access_summary(
+            relay_state="release_pending",
+            reason_code="route_transition_interrupted",
+            release_retry_after_s=0,
+            release_retry_not_before="",
+        )
+    complete_route_transition()
+
+
+async def _retry_pending_relay_release_once() -> bool:
+    """Retry one deferred main-device release while a free route is active."""
+    from localflight.storage.install import get_relay_access_summary
+
+    access = get_relay_access_summary()
+    if access.get("relay_state") != "release_pending":
+        return False
+    retry_not_before = str(access.get("release_retry_not_before") or "")
+    if retry_not_before:
+        try:
+            if datetime.fromisoformat(retry_not_before) > datetime.now(timezone.utc):
+                return False
+        except ValueError:
+            pass
+    if load_config().data_route == "relay":
+        # Returning to Relay is resolved by an explicit status check; never
+        # release a credential behind that choice.
+        return False
+    await asyncio.to_thread(_deactivate_local_relay, _relay_url_default())
+    return True
+
+
+async def _relay_release_retry_loop() -> None:
+    await asyncio.sleep(_RELAY_RELEASE_RETRY_STARTUP_S)
+    while True:
+        try:
+            await _retry_pending_relay_release_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug("Deferred Relay Access release retry skipped: %s", exc)
+        await asyncio.sleep(_RELAY_RELEASE_RETRY_INTERVAL_S)
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     logger.info("Session started | component=ui")
+    try:
+        _recover_data_route_transition()
+    except Exception as exc:
+        logger.warning("Data route transition recovery deferred: %s", exc)
     loop = asyncio.get_running_loop()
     manager.set_loop(loop)
     asyncio.create_task(manager.broadcast_loop())
     from localflight.sources.web.relay_beat import _heartbeat_loop
     asyncio.create_task(_heartbeat_loop())
+    asyncio.create_task(_relay_release_retry_loop())
     try:
         from localflight.sources.web.remote_companion_agent import ensure_remote_companion_agent_started
 
@@ -350,6 +435,26 @@ def _client_status_url(relay_url: str) -> str:
 
 def _client_checkin_url(relay_url: str) -> str:
     return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/client/checkin")
+
+
+def _access_activate_url(relay_url: str) -> str:
+    return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/access/activate")
+
+
+def _access_activate_commit_url(relay_url: str) -> str:
+    return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/access/activate/commit")
+
+
+def _access_status_url(relay_url: str) -> str:
+    return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/access/status")
+
+
+def _access_catalog_url(relay_url: str) -> str:
+    return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/access/catalog")
+
+
+def _access_deactivate_url(relay_url: str) -> str:
+    return relay_endpoint_url(relay_url or _relay_url_default(), "/v1/access/deactivate")
 
 
 def _activate_url(relay_url: str) -> str:
@@ -556,6 +661,19 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
 # â”€â”€ Setup wizard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+def _request_is_loopback(request: Request | None) -> bool:
+    if request is None:
+        # Direct/native callers are local. HTTP routes always receive Request.
+        return True
+    host = str(request.client.host if request.client else "").strip().split("%", 1)[0]
+    if host in {"localhost", "testclient"}:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 @app.get("/setup", response_class=HTMLResponse)
 def setup_page(request: Request) -> HTMLResponse:
     from localflight.ui.setup_guidance import guidance_context
@@ -563,15 +681,24 @@ def setup_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request,
         name="setup.html",
-        context={"relay_url_default": _relay_url_default(), "setup_guidance": guidance_context()},
+        context={
+            "relay_url_default": _relay_url_default(),
+            "setup_guidance": guidance_context(),
+            "allow_license_key": _request_is_loopback(request),
+        },
     )
 
 
 @app.get("/api/setup/client-info")
-def setup_client_info() -> Dict[str, Any]:
-    from localflight.storage.install import get_activation_token, get_install_fingerprint
+def setup_client_info(request: Request = None) -> Dict[str, Any]:
+    from localflight.storage.install import get_install_fingerprint, get_relay_access_summary, get_stored_activation_token
 
-    token = get_activation_token().strip()
+    cfg = load_config()
+    # Reading setup state is the migration boundary for the former .env copy.
+    # The returned payload below remains summary-only.
+    get_stored_activation_token()
+    access = get_relay_access_summary()
+    provider_values = provider_env_values()
     fingerprint = get_install_fingerprint()
     return {
         # Compatibility alias: client-facing install_id has always been used as
@@ -579,8 +706,35 @@ def setup_client_info() -> Dict[str, Any]:
         "install_id": fingerprint,
         "install_fingerprint": fingerprint,
         "relay_url": _relay_url_default(),
-        "activation_token_present": bool(token),
-        "activation_token_prefix": token[:10] if token else "",
+        "activation_token_present": bool(access["credential_present"]),
+        "activation_token_prefix": access["credential_reference"],
+        "relay_state": access["relay_state"],
+        "access_state": access["access_state"],
+        "reason_code": access["reason_code"],
+        "license_reference": access["license_reference"],
+        "masked_key_reference": access["masked_key_reference"],
+        "purchase_source": access["purchase_source"],
+        "current_main_device_description": access["current_main_device_description"],
+        "last_successful_check_time": access["last_successful_check_time"],
+        "master_key_allowed": _request_is_loopback(request),
+        "provider_keys": {
+            "aerodatabox_configured": bool(str(provider_values.get("AERODATABOX_API_KEY") or "").strip()),
+            "aviationstack_configured": bool(str(provider_values.get("AVIATIONSTACK_API_KEY") or "").strip()),
+            "adsbexchange_configured": bool(str(provider_values.get("RAPIDAPI_KEY") or "").strip()),
+            "opensky_configured": bool(
+                str(provider_values.get("OPENSKY_CLIENT_ID") or "").strip()
+                or str(provider_values.get("OPENSKY_CLIENT_SECRET") or "").strip()
+            ),
+        },
+        "config": {
+            "airport_iata": cfg.airport_iata,
+            "airport_icao": cfg.airport_icao,
+            "timezone": cfg.timezone,
+            "display_name": cfg.display_name,
+            "diagnostics_mode": cfg.diagnostics_mode,
+            "source": cfg.source,
+            "data_route": cfg.data_route,
+        },
     }
 
 
@@ -616,7 +770,10 @@ class ActivationSetupIn(BaseModel):
     airport_iata: str = Field("", max_length=4)
     airport_icao: str = Field("", max_length=4)
     display_name: str = Field("", max_length=80)
-    requested_mode: str = Field("community", max_length=20)
+    requested_mode: str = Field("relay", max_length=20)
+    license_key: str = Field("", max_length=200)
+    activation_grant: str = Field("", max_length=200)
+    confirm_move_token: str = Field("", max_length=200)
 
 
 class ClientStatusSetupIn(BaseModel):
@@ -629,6 +786,10 @@ class ActivationTokenTestIn(BaseModel):
     activation_token: str = Field("", max_length=256)
 
 
+class RelayAccessLocalIn(BaseModel):
+    relay_url: str = Field("", max_length=300)
+
+
 def _relay_detail(payload: Any, fallback: str) -> str:
     if isinstance(payload, dict):
         detail = payload.get("detail") or payload.get("error") or payload.get("message") or payload.get("decision_note")
@@ -639,34 +800,47 @@ def _relay_detail(payload: Any, fallback: str) -> str:
     return fallback
 
 
-def _relay_status_code(detail: str, http_status: int = 0) -> str:
-    clean = (detail or "").casefold()
-    if http_status == 429 or "rate limit" in clean or "cooldown" in clean:
+def _relay_status_code(payload: Any, http_status: int = 0) -> str:
+    """Use the relay's stable code; never derive client state from prose."""
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    code = ""
+    if isinstance(detail, dict):
+        code = str(detail.get("code") or "").strip().lower()
+    if not code and isinstance(payload, dict):
+        code = str(payload.get("code") or payload.get("reason_code") or "").strip().lower()
+    aliases = {
+        "access_rate_limited": "rate_limited",
+        "invalid_license_key": "invalid_license_key",
+        "license_not_found": "credential_not_found",
+        "license_inactive": "license_inactive",
+        "invalid_challenge": "stale_move_token",
+        "access_not_configured": "relay_unavailable",
+        "relay_credential_required": "credential_not_found",
+        "seat_in_use": "seat_in_use",
+    }
+    if code:
+        return aliases.get(code, code[:80])
+    if http_status == 429:
         return "rate_limited"
-    if "already bound to another install" in clean or "bound to another install" in clean:
-        return "token_bound_elsewhere"
-    if "invalid or revoked" in clean or "token invalid" in clean or "invalid activation" in clean:
-        return "token_invalid"
-    if "manual review" in clean:
-        return "manual_review"
-    if "failed:" in clean or "timed out" in clean or "connection" in clean:
+    if http_status in {401, 403}:
+        return "inactive"
+    if http_status >= 500:
         return "relay_unreachable"
     return "relay_error"
 
 
 def _friendly_relay_error(detail: str, code: str, fallback: str) -> str:
-    if code == "token_bound_elsewhere":
-        return (
-            "This relay token belongs to another Local Flight install. "
-            "Use the stored token for this install, request a fresh relay link, or create a deliberately new install identity."
-        )
-    if code == "token_invalid":
-        return "The stored relay token is invalid or was revoked. Request a fresh relay link for this install."
-    if code == "manual_review":
-        return "The relay paused automatic activation for safety and queued this install for review."
+    if code == "invalid_license_key":
+        return "That Relay Access key or activation code was not accepted. Check it and try again."
+    if code == "credential_not_found":
+        return "This desktop's saved Relay Access credential is no longer recognized. Activate access again."
+    if code == "license_inactive":
+        return "Relay Access is not active. Open Relay Access details for the current status."
+    if code == "stale_move_token":
+        return "That move confirmation expired because the activation details changed. Start the move again."
     if code == "rate_limited":
         return "The relay is cooling down activation/status checks. Try again shortly."
-    if code == "relay_unreachable":
+    if code in {"relay_unavailable", "relay_unreachable"}:
         return "The relay could not be reached right now. Your local setup is unchanged."
     return fallback
 
@@ -685,7 +859,7 @@ def _retry_after_seconds(response: Any) -> int | None:
 
 def _relay_failure_payload(payload: Any, *, http_status: int = 0, fallback: str = "Relay request failed.", response: Any = None) -> Dict[str, Any]:
     detail = _relay_detail(payload, fallback)
-    code = _relay_status_code(detail, http_status)
+    code = _relay_status_code(payload, http_status)
     result: Dict[str, Any] = {
         "ok": False,
         "status": code,
@@ -700,7 +874,12 @@ def _relay_failure_payload(payload: Any, *, http_status: int = 0, fallback: str 
         for key in ("request_id", "install_fingerprint", "known_install", "can_reissue", "token_prefix"):
             if key in payload:
                 result[key] = payload[key]
-    tone = "warning" if code in {"manual_review", "rate_limited"} else "error"
+    if isinstance(payload, dict):
+        source = payload.get("detail") if isinstance(payload.get("detail"), dict) else payload
+        for key in ("access_state", "reason_code"):
+            if isinstance(source, dict) and source.get(key):
+                result[key] = source[key]
+    tone = "warning" if code in {"rate_limited", "relay_unavailable", "relay_unreachable"} else "error"
     return attach_notices(
         result,
         [make_notice(
@@ -721,6 +900,151 @@ def _relay_json_response(response: Any) -> Dict[str, Any]:
     except Exception:
         payload = {"detail": f"Relay returned HTTP {response.status_code}"}
     return payload if isinstance(payload, dict) else {"detail": "Relay response was invalid"}
+
+
+def _cache_access_payload(payload: Dict[str, Any], *, relay_state: str) -> None:
+    from localflight.storage.install import update_relay_access_summary
+
+    license_summary = payload.get("license") if isinstance(payload.get("license"), dict) else payload
+    receiver = payload.get("receiver") if isinstance(payload.get("receiver"), dict) else payload
+    device_name = str(receiver.get("device_name") or "").strip()
+    device_kind = str(receiver.get("device_kind") or "").strip()
+    description = device_name or device_kind
+    update_relay_access_summary(
+        relay_state=relay_state,
+        access_state=license_summary.get("access_state") or payload.get("access_state") or "",
+        reason_code=license_summary.get("reason_code") or payload.get("reason_code") or "",
+        license_reference=license_summary.get("license_ref") or payload.get("license_ref") or "",
+        masked_key_reference=license_summary.get("key_ref") or payload.get("key_ref") or "",
+        purchase_source=license_summary.get("purchase_source") or payload.get("purchase_source") or "",
+        current_main_device_description=description,
+        last_successful_check_time=datetime.now(timezone.utc).isoformat() if relay_state in {"active", "inactive"} else "",
+    )
+
+
+def _mark_access_failure(payload: Dict[str, Any], *, http_status: int = 0) -> None:
+    from localflight.storage.install import get_relay_access_summary, update_relay_access_summary
+
+    code = _relay_status_code(payload, http_status)
+    current = get_relay_access_summary()
+    if code in {"relay_unavailable", "relay_unreachable", "rate_limited"}:
+        state = "release_pending" if current.get("relay_state") == "release_pending" else "unreachable"
+    else:
+        state = "inactive"
+    detail = payload.get("detail") if isinstance(payload.get("detail"), dict) else payload
+    reported_access_state = (detail.get("access_state") if isinstance(detail, dict) else "")
+    # A failed or malformed status response must never leave a cached "active"
+    # state authoritative. Terminal states are retained for actionable UI copy.
+    access_state = str(reported_access_state or "").strip().lower()
+    if access_state not in {"suspended", "refunded", "revoked"}:
+        access_state = ""
+    update_relay_access_summary(
+        relay_state=state,
+        access_state=access_state,
+        reason_code=(detail.get("reason_code") if isinstance(detail, dict) else "") or code,
+    )
+
+
+def _deactivate_local_relay(relay_url: str) -> Dict[str, Any]:
+    import requests as _req
+    from localflight.storage.install import (
+        clear_activation_token,
+        get_install_id,
+        get_stored_activation_token,
+        update_relay_access_summary,
+    )
+
+    credential = get_stored_activation_token().strip()
+    if not credential:
+        update_relay_access_summary(relay_state="none", current_main_device_description="")
+        return {"ok": True, "status": "inactive", "released": False}
+    try:
+        root = _validated_setup_relay_url(relay_url)
+        response = _req.post(
+            _access_deactivate_url(root),
+            json={"install_id": get_install_id()},
+            headers={"Accept": "application/json", "Authorization": f"Bearer {credential}"},
+            timeout=12,
+        )
+    except Exception:
+        retry_after = _RELAY_RELEASE_RETRY_INTERVAL_S
+        update_relay_access_summary(
+            relay_state="release_pending",
+            reason_code="relay_unreachable",
+            release_retry_after_s=retry_after,
+            release_retry_not_before=(datetime.now(timezone.utc) + timedelta(seconds=retry_after)).isoformat(),
+        )
+        return {
+            "ok": False,
+            "status": "release_pending",
+            "error": "Relay Access will be released when this desktop can reach Beacon Relay again.",
+        }
+    payload = _relay_json_response(response)
+    code = _relay_status_code(payload, response.status_code)
+    if response.status_code < 400 or code in {"credential_not_found", "license_inactive", "refunded", "revoked"}:
+        clear_activation_token()
+        update_relay_access_summary(
+            relay_state="inactive",
+            access_state=str(payload.get("access_state") or "active"),
+            reason_code=str(payload.get("reason_code") or "main_device_released"),
+            current_main_device_description="",
+            last_successful_check_time=datetime.now(timezone.utc).isoformat(),
+            release_retry_after_s=0,
+            release_retry_not_before="",
+        )
+        return {"ok": True, "status": "inactive", "released": True, **payload}
+    retry_after = _retry_after_seconds(response) or _RELAY_RELEASE_RETRY_INTERVAL_S
+    update_relay_access_summary(
+        relay_state="release_pending",
+        reason_code=code,
+        release_retry_after_s=retry_after,
+        release_retry_not_before=(datetime.now(timezone.utc) + timedelta(seconds=retry_after)).isoformat(),
+    )
+    failure = _relay_failure_payload(payload, http_status=response.status_code, response=response)
+    failure["status"] = "release_pending"
+    failure["release_error_code"] = code
+    return failure
+
+
+@app.get("/api/setup/access/catalog")
+async def setup_access_catalog(relay_url: str = Query("", max_length=300)) -> Dict[str, Any]:
+    import requests as _req
+
+    try:
+        root = _validated_setup_relay_url(relay_url)
+        response = await asyncio.to_thread(
+            _req.get,
+            _access_catalog_url(root),
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+    except Exception:
+        return {
+            "ok": False,
+            "status": "catalog_unavailable",
+            "sales_available": False,
+            "error": "New purchases are temporarily unavailable. Existing keys and activation codes can still be used.",
+        }
+    payload = _relay_json_response(response)
+    if response.status_code >= 400:
+        return {
+            **_relay_failure_payload(payload, http_status=response.status_code, response=response),
+            "status": "catalog_unavailable",
+            "sales_available": False,
+        }
+    product = payload.get("product") if isinstance(payload.get("product"), dict) else {}
+    sources = product.get("purchase_sources") if isinstance(product.get("purchase_sources"), dict) else {}
+    stripe = sources.get("stripe") if isinstance(sources.get("stripe"), dict) else {}
+    return {
+        **payload,
+        "ok": True,
+        "sales_available": bool(product.get("sales_available") or stripe.get("available")),
+    }
+
+
+@app.post("/api/setup/access/deactivate")
+async def setup_access_deactivate(body: RelayAccessLocalIn) -> Dict[str, Any]:
+    return await asyncio.to_thread(_deactivate_local_relay, body.relay_url)
 
 
 def _provider_error_text(payload: Any, fallback: str) -> str:
@@ -985,17 +1309,187 @@ async def setup_test_opensky_get(
 
 
 @app.post("/api/setup/activate")
-async def setup_activate(body: ActivationSetupIn) -> Dict[str, Any]:
-    from localflight.sources.web.relay_activation import ensure_relay_link
+async def setup_activate(body: ActivationSetupIn, request: Request = None) -> Dict[str, Any]:
+    if body.requested_mode.strip().lower() == "relay":
+        import requests as _req
+        from localflight.storage.install import (
+            activation_storage_ready,
+            clear_activation_token,
+            get_install_id,
+            get_stored_activation_token,
+            set_activation_token,
+            set_relay_access_mode,
+        )
 
-    return ensure_relay_link(
-        relay_url=body.relay_url,
-        display_name=body.display_name,
-        airport_iata=body.airport_iata,
-        airport_icao=body.airport_icao,
-        requested_mode=body.requested_mode,
-        force=True,
-    )
+        try:
+            relay_url = _validated_setup_relay_url(body.relay_url)
+        except ValueError:
+            return _relay_failure_payload({"detail": "connection failed"}, fallback="The Beacon Relay address could not be used.")
+        if not body.license_key.strip() and not body.activation_grant.strip():
+            return {
+                "ok": False,
+                "status": "license_key_required",
+                "error": "Enter the Relay Access license key from your Beacon Tools purchase email.",
+            }
+        if body.license_key.strip() and not _request_is_loopback(request):
+            return {
+                "ok": False,
+                "status": "license_key_local_only",
+                "error": "For safety, enter a one-time activation code when setup is open from another device.",
+            }
+        if not activation_storage_ready():
+            return {
+                "ok": False,
+                "status": "credential_storage_unavailable",
+                "error": "Secure local credential storage is unavailable. Fix its permissions and try again.",
+            }
+        entered_value = body.license_key.strip()
+        activation_grant = body.activation_grant.strip() or (entered_value if entered_value.startswith("lfrag_") else "")
+        license_key = "" if activation_grant else entered_value
+        try:
+            response = await asyncio.to_thread(
+                _req.post,
+                _access_activate_url(relay_url),
+                json={
+                    "install_id": get_install_id(),
+                    "device_kind": "desktop",
+                    "device_name": body.display_name.strip() or "Local Flight Desktop",
+                    "license_key": license_key,
+                    "activation_grant": activation_grant,
+                    "confirm_move_token": body.confirm_move_token.strip(),
+                },
+                headers={"Accept": "application/json"},
+                timeout=12,
+            )
+        except Exception:
+            return _relay_failure_payload(
+                {"detail": "Relay activation could not be completed. Check the relay address and try again."},
+                fallback="Beacon Relay activation failed.",
+            )
+        payload = _relay_json_response(response)
+        if response.status_code == 409 and isinstance(payload, dict):
+            receiver = payload.get("current_receiver") if isinstance(payload.get("current_receiver"), dict) else {}
+            return {
+                "ok": False,
+                "status": "seat_in_use",
+                "error": "Relay Access is currently used by another main device.",
+                "move_token": str(payload.get("move_token") or ""),
+                "current_receiver": receiver,
+                "current_main_device_description": str(receiver.get("device_name") or receiver.get("device_kind") or "another main device"),
+            }
+        if response.status_code >= 400:
+            _mark_access_failure(payload, http_status=response.status_code)
+            return _relay_failure_payload(payload, http_status=response.status_code, fallback="Beacon Relay activation failed.", response=response)
+        credential = str(payload.get("credential") or "") if isinstance(payload, dict) else ""
+        if not credential.startswith("lfr_"):
+            return {"ok": False, "status": "relay_error", "error": "Beacon Relay did not return a device credential."}
+        if payload.get("ok") is not True or str(payload.get("activation_state") or "") != "pending_commit":
+            try:
+                await asyncio.to_thread(
+                    _req.post,
+                    _access_deactivate_url(relay_url),
+                    json={"install_id": get_install_id()},
+                    headers={"Accept": "application/json", "Authorization": f"Bearer {credential}"},
+                    timeout=12,
+                )
+            except Exception:
+                pass
+            return {
+                "ok": False,
+                "status": "invalid_activation_response",
+                "error": "Beacon Relay did not return a safely prepared activation.",
+            }
+        try:
+            set_activation_token(credential)
+            if get_stored_activation_token() != credential:
+                raise OSError("credential verification failed")
+        except Exception:
+            try:
+                clear_activation_token()
+            except Exception:
+                pass
+            # Activation is server-authoritative. Compensate immediately when
+            # local durable storage fails so a moved license is not orphaned.
+            try:
+                await asyncio.to_thread(
+                    _req.post,
+                    _access_deactivate_url(relay_url),
+                    json={"install_id": get_install_id()},
+                    headers={"Accept": "application/json", "Authorization": f"Bearer {credential}"},
+                    timeout=12,
+                )
+            except Exception:
+                pass
+            return {
+                "ok": False,
+                "status": "credential_storage_failed",
+                "error": "Relay Access was not kept on this desktop because its credential could not be saved.",
+            }
+        try:
+            commit_response = await asyncio.to_thread(
+                _req.post,
+                _access_activate_commit_url(relay_url),
+                json={"install_id": get_install_id()},
+                headers={"Accept": "application/json", "Authorization": f"Bearer {credential}"},
+                timeout=12,
+            )
+            commit_payload = _relay_json_response(commit_response)
+        except Exception:
+            commit_response = None
+            commit_payload = {"code": "relay_unreachable"}
+        committed = bool(
+            commit_response is not None
+            and commit_response.status_code < 400
+            and commit_payload.get("ok") is True
+            and commit_payload.get("activated") is True
+            and str(commit_payload.get("activation_state") or "") == "active"
+            and str((commit_payload.get("license") or {}).get("access_state") or "") == "active"
+        )
+        if not committed:
+            try:
+                await asyncio.to_thread(
+                    _req.post,
+                    _access_deactivate_url(relay_url),
+                    json={"install_id": get_install_id()},
+                    headers={"Accept": "application/json", "Authorization": f"Bearer {credential}"},
+                    timeout=12,
+                )
+            except Exception:
+                pass
+            try:
+                clear_activation_token()
+            except Exception:
+                pass
+            _mark_access_failure(commit_payload, http_status=int(getattr(commit_response, "status_code", 503) or 503))
+            failure = _relay_failure_payload(
+                commit_payload,
+                http_status=int(getattr(commit_response, "status_code", 503) or 503),
+                fallback="Relay Access could not finish activation safely.",
+                response=commit_response,
+            )
+            failure["status"] = "activation_commit_failed"
+            return failure
+        payload = commit_payload
+        try:
+            set_relay_access_mode("managed")
+        except Exception:
+            pass
+        _cache_access_payload(payload, relay_state="active")
+        return {
+            "ok": True,
+            "status": "active",
+            "activation_token_present": True,
+            "activation_token_prefix": str(payload.get("credential_prefix") or credential[:12]),
+            "license": payload.get("license") if isinstance(payload.get("license"), dict) else {},
+            "receiver": payload.get("receiver") if isinstance(payload.get("receiver"), dict) else {},
+            "access_state": str((payload.get("license") or {}).get("access_state") or "active") if isinstance(payload.get("license"), dict) else "active",
+        }
+
+    return {
+        "ok": False,
+        "status": "activation_mode_unsupported",
+        "error": "Relay activation is only used for the Beacon Relay data route.",
+    }
 
 
 @app.post("/api/setup/client-status")
@@ -1003,13 +1497,67 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
     import requests as _req
     from localflight.sources.web.relay_heartbeat import relay_client_metadata
     from localflight.storage.config import load_config
-    from localflight.storage.install import get_activation_token, get_install_id
+    from localflight.storage.install import get_install_id, get_stored_activation_token
 
     try:
         relay_url = _validated_setup_relay_url(body.relay_url)
     except ValueError:
         return _relay_failure_payload({"detail": "connection failed"}, fallback="The relay address could not be used.")
-    activation_token = (body.activation_token or "").strip() or get_activation_token().strip()
+    activation_token = (body.activation_token or "").strip() or get_stored_activation_token().strip()
+    if activation_token and not activation_token.startswith(("lfr_", "lfm_")):
+        return {
+            "ok": False,
+            "status": "token_invalid",
+            "error": "Activate the Relay Access key first; only a device credential can be checked.",
+        }
+    if activation_token.startswith("lfr_"):
+        try:
+            response = await asyncio.to_thread(
+                _req.get,
+                _access_status_url(relay_url),
+                params={"install_id": get_install_id()},
+                headers={"Accept": "application/json", "Authorization": f"Bearer {activation_token}"},
+                timeout=12,
+            )
+        except Exception:
+            _mark_access_failure({"code": "relay_unreachable"}, http_status=503)
+            return _relay_failure_payload({"detail": "Relay status could not be checked."}, fallback="Relay status check failed.")
+        payload = _relay_json_response(response)
+        if response.status_code >= 400:
+            _mark_access_failure(payload, http_status=response.status_code)
+            return _relay_failure_payload(payload, http_status=response.status_code, fallback="Relay status check failed.", response=response)
+        access_state = str(payload.get("access_state") or "").strip().lower()
+        active = payload.get("ok") is True and payload.get("active") is True and access_state == "active"
+        inactive_status = access_state if access_state in {"suspended", "refunded", "revoked"} else "invalid_status_response"
+        if active:
+            _cache_access_payload(payload, relay_state="active")
+        elif inactive_status in {"suspended", "refunded", "revoked"}:
+            _cache_access_payload(payload, relay_state="inactive")
+            _mark_access_failure({**payload, "code": inactive_status})
+        else:
+            _mark_access_failure({**payload, "code": inactive_status})
+        return {
+            **payload,
+            "ok": active,
+            "status": "active" if active else inactive_status,
+            "error": "" if active else {
+                "suspended": "Relay Access is suspended.",
+                "refunded": "Relay Access was refunded.",
+                "revoked": "Relay Access was revoked.",
+            }.get(inactive_status, "Beacon Relay returned an invalid access status."),
+            "activation_token_present": True,
+            "activation_token_prefix": activation_token[:12],
+        }
+    from localflight.sources.web.relay_activation import legacy_relay_compat_enabled
+
+    if not legacy_relay_compat_enabled():
+        _mark_access_failure({"code": "credential_not_found"}, http_status=401)
+        return {
+            "ok": False,
+            "status": "credential_not_found",
+            "error": "This desktop needs a current Relay Access device credential.",
+        }
+
     metadata = relay_client_metadata()
     try:
         cfg = load_config()
@@ -1025,7 +1573,8 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
     except Exception:
         pass
     try:
-        response = _req.post(
+        response = await asyncio.to_thread(
+            _req.post,
             _client_checkin_url(relay_url),
             json={
                 "install_id": get_install_id(),
@@ -1035,8 +1584,8 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
             headers={"Accept": "application/json"},
             timeout=12,
         )
-    except Exception as exc:
-        return _relay_failure_payload({"detail": f"Relay status check failed: {exc}"}, fallback="Relay status check failed.")
+    except Exception:
+        return _relay_failure_payload({"detail": "Relay status could not be checked."}, fallback="Relay status check failed.")
 
     payload = _relay_json_response(response)
     if response.status_code >= 400:
@@ -1049,8 +1598,8 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
 
 
 @app.post("/api/setup/request-activation")
-async def setup_request_activation_compat(body: ActivationSetupIn) -> Dict[str, Any]:
-    return await setup_activate(body)
+async def setup_request_activation_compat(body: ActivationSetupIn, request: Request) -> Dict[str, Any]:
+    return await setup_activate(body, request)
 
 
 @app.post("/api/setup/request-activation/status")
@@ -1062,15 +1611,58 @@ async def setup_request_activation_status_compat(body: ClientStatusSetupIn) -> D
 async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
     import requests as _req
     from localflight.sources.web.relay_heartbeat import relay_client_metadata
-    from localflight.storage.install import get_activation_token, get_install_id
+    from localflight.storage.install import get_install_id, get_stored_activation_token
 
     try:
         relay_url = _validated_setup_relay_url(body.relay_url)
     except ValueError:
         return _relay_failure_payload({"detail": "connection failed"}, fallback="The relay address could not be used.")
-    token = body.activation_token.strip() or get_activation_token().strip()
+    token = get_stored_activation_token().strip()
     if not token:
-        return {"ok": False, "status": "token_invalid", "error": "Managed activation token is not loaded on this machine yet."}
+        return {"ok": False, "status": "token_invalid", "error": "A Relay Access device credential is not loaded on this machine yet."}
+    if token.startswith("lfr_"):
+        try:
+            response = await asyncio.to_thread(
+                _req.get,
+                _access_status_url(relay_url),
+                params={"install_id": get_install_id()},
+                headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+                timeout=12,
+            )
+        except Exception:
+            _mark_access_failure({"code": "relay_unreachable"}, http_status=503)
+            return _relay_failure_payload({"detail": "Relay verification could not be completed."}, fallback="Relay verification failed.")
+        payload = _relay_json_response(response)
+        if response.status_code >= 400:
+            _mark_access_failure(payload, http_status=response.status_code)
+            return _relay_failure_payload(payload, http_status=response.status_code, fallback="Relay verification failed.", response=response)
+        access_state = str(payload.get("access_state") or "").strip().lower()
+        active = payload.get("ok") is True and payload.get("active") is True and access_state == "active"
+        inactive_status = access_state if access_state in {"suspended", "refunded", "revoked"} else "invalid_status_response"
+        if active:
+            _cache_access_payload(payload, relay_state="active")
+        elif inactive_status in {"suspended", "refunded", "revoked"}:
+            _cache_access_payload(payload, relay_state="inactive")
+            _mark_access_failure({**payload, "code": inactive_status})
+        else:
+            _mark_access_failure({**payload, "code": inactive_status})
+        return {
+            **payload,
+            "ok": active,
+            "status": "active" if active else inactive_status,
+            "error": "" if active else {
+                "suspended": "Relay Access is suspended.",
+                "refunded": "Relay Access was refunded.",
+                "revoked": "Relay Access was revoked.",
+            }.get(inactive_status, "Beacon Relay returned an invalid access status."),
+            "activation_token_prefix": token[:12],
+        }
+    if not token.startswith("lfm_"):
+        return {"ok": False, "status": "token_invalid", "error": "The saved Relay Access credential is not valid."}
+    from localflight.sources.web.relay_activation import legacy_relay_compat_enabled
+
+    if not legacy_relay_compat_enabled():
+        return {"ok": False, "status": "credential_not_found", "error": "This desktop needs a current Relay Access device credential."}
     try:
         response = _req.get(
             _client_status_url(relay_url),
@@ -1078,8 +1670,8 @@ async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
             headers={"Accept": "application/json"},
             timeout=12,
         )
-    except Exception as exc:
-        return _relay_failure_payload({"detail": f"Relay verification failed: {exc}"}, fallback="Relay verification failed.")
+    except Exception:
+        return _relay_failure_payload({"detail": "Relay verification could not be completed."}, fallback="Relay verification failed.")
 
     payload = _relay_json_response(response)
 
@@ -1105,29 +1697,30 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
         airport_iata=airport_iata,
         airport_icao=airport_icao,
     )
-    source = data.get("source") or "real"
-    setup_mode = str(data.get("setup_mode") or "").strip().lower()
-    if setup_mode == "virtual":
-        source = "virtual"
-    elif setup_mode in {"community", "managed", "byok"}:
-        source = "real"
-    if source not in ALLOWED_SOURCES:
-        source = "real"
+    old_cfg = load_config()
+    setup_mode = str(data.get("data_route") or data.get("setup_mode") or old_cfg.data_route).strip().lower()
+    setup_mode = {"virtual": "vatsim", "community": "relay", "managed": "relay"}.get(setup_mode, setup_mode)
+    if setup_mode not in ALLOWED_DATA_ROUTES:
+        return JSONResponse(
+            {"ok": False, "status": "data_route_invalid", "error": "Choose Beacon Relay, Bring Your Own Keys, or VATSIM."},
+            status_code=422,
+        )
+    source = "virtual" if setup_mode == "vatsim" else "real"
     diagnostics_mode = str(data.get("diagnostics_mode") or DEFAULT_DIAGNOSTICS_MODE).strip().lower()
     if diagnostics_mode not in ALLOWED_DIAGNOSTICS_MODES:
         diagnostics_mode = DEFAULT_DIAGNOSTICS_MODE
 
     env_path = provider_env_path()
     existing = read_provider_env(env_path)
+    original_env = dict(existing)
     adb_key = data.get("aerodatabox_key", "").strip()
     adb_marketplace = normalize_aerodatabox_marketplace(data.get("aerodatabox_marketplace", "apimarket"))
     adb_monthly_limit = data.get("aerodatabox_monthly_units_limit", AERODATABOX_DEFAULT_MONTHLY_UNITS)
     adb_daily_limit = data.get("aerodatabox_daily_units_limit", "")
     as_key = data.get("aviationstack_key", "").strip()
     rp_key = data.get("rapidapi_key", "").strip()
-    activation_token = data.get("activation_token", "").strip()
     relay_url = data.get("relay_url", "").strip()
-    if setup_mode in {"managed", "community"}:
+    if setup_mode == "relay":
         try:
             relay_url = _validated_setup_relay_url(relay_url)
         except ValueError as exc:
@@ -1135,100 +1728,124 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     os_id = data.get("opensky_id", "").strip()
     os_sec = data.get("opensky_secret", "").strip()
 
-    if setup_mode in {"managed", "community"} and not activation_token:
-        try:
-            from localflight.storage.install import get_activation_token
+    from localflight.storage.install import get_relay_access_summary, get_stored_activation_token
 
-            activation_token = get_activation_token().strip()
-        except Exception:
-            activation_token = ""
-
-    if setup_mode in {"managed", "community"}:
-        from localflight.sources.web.relay_activation import ensure_relay_link
-
-        relay_link = ensure_relay_link(
-            relay_url=relay_url,
-            display_name=str(data.get("display_name") or "Local Flight device"),
-            airport_iata=airport_iata,
-            airport_icao=airport_icao,
-            requested_mode="community" if setup_mode == "community" else "managed",
-            activation_token=activation_token,
-            force=False,
-        )
-        if not relay_link.get("linked"):
-            return {
-                **relay_link,
-                "choices": [
-                    {"mode": "retry", "label": "Retry relay connection"},
-                    {"mode": "virtual", "label": "Use VATSIM"},
-                    {"mode": "byok", "label": "Bring Your Own Keys"},
-                ],
-            }
-        try:
-            from localflight.storage.install import get_activation_token
-
-            activation_token = get_activation_token().strip()
-        except Exception:
-            activation_token = ""
-        if not activation_token:
-            return {
-                "ok": False,
-                "linked": False,
-                "status": "relay_link_required",
-                "error": "Community Relay setup needs a verified relay link before it can finish.",
-            }
+    activation_token = get_stored_activation_token().strip()
+    release_result: Dict[str, Any] | None = None
 
     removed_keys: set[str] = set()
-    if setup_mode == "managed":
+    if setup_mode == "relay":
+        if not activation_token.startswith("lfr_"):
+            return JSONResponse(
+                {"ok": False, "status": "relay_license_required", "error": "Activate this desktop with a Relay Access license before finishing."},
+                status_code=403,
+            )
+        status = await setup_test_activation(
+            ActivationTokenTestIn(relay_url=relay_url, activation_token=activation_token)
+        )
+        if not status.get("ok"):
+            return JSONResponse(status, status_code=403)
         removed_keys |= apply_relay_values(existing, activation_token=activation_token, relay_url=relay_url, community=False)
     elif setup_mode == "byok":
-        if not (adb_key or as_key):
+        existing_adb = str(existing.get("AERODATABOX_API_KEY") or "").strip()
+        existing_as = str(existing.get("AVIATIONSTACK_API_KEY") or "").strip()
+        replacing_schedule_keys = bool(adb_key or as_key)
+        effective_adb = adb_key if replacing_schedule_keys else existing_adb
+        effective_as = as_key if replacing_schedule_keys else existing_as
+        if not (effective_adb or effective_as):
             return JSONResponse(
-                {"ok": False, "error": "Use Your Own Keys needs an AeroDataBox or AviationStack schedule key."},
+                {"ok": False, "error": "Bring Your Own Keys needs an AeroDataBox or AviationStack schedule key."},
                 status_code=400,
             )
         removed_keys |= apply_byok_values(
             existing,
-            aerodatabox_key=adb_key,
-            aerodatabox_marketplace=adb_marketplace,
-            aerodatabox_monthly_units_limit=adb_monthly_limit,
+            aerodatabox_key=effective_adb,
+            aerodatabox_marketplace=adb_marketplace or existing.get("LOCALFLIGHT_AERODATABOX_MARKETPLACE", "apimarket"),
+            aerodatabox_monthly_units_limit=adb_monthly_limit or existing.get("LOCALFLIGHT_AERODATABOX_MONTHLY_UNITS_LIMIT", AERODATABOX_DEFAULT_MONTHLY_UNITS),
             aerodatabox_daily_units_limit=adb_daily_limit,
-            aviationstack_key=as_key,
-            rapidapi_key=rp_key,
-            opensky_id=os_id,
-            opensky_secret=os_sec,
+            aviationstack_key=effective_as,
+            rapidapi_key=rp_key or ("" if replacing_schedule_keys else existing.get("RAPIDAPI_KEY", "")),
+            opensky_id=os_id or ("" if replacing_schedule_keys else existing.get("OPENSKY_CLIENT_ID", "")),
+            opensky_secret=os_sec or ("" if replacing_schedule_keys else existing.get("OPENSKY_CLIENT_SECRET", "")),
         )
-    elif setup_mode == "community":
-        removed_keys |= apply_relay_values(existing, activation_token=activation_token, relay_url=relay_url, community=True)
     else:
         removed_keys |= apply_virtual_values(existing)
+
+    from localflight.storage.route_transition import (
+        begin_route_transition,
+        complete_route_transition,
+        update_route_transition,
+    )
+
+    transition_started = setup_mode != old_cfg.data_route or bool(activation_token and setup_mode != "relay")
+    if transition_started:
+        try:
+            begin_route_transition(old_cfg.data_route, setup_mode)
+        except Exception as exc:
+            logger.error("Setup: could not start route transition: %s", exc)
+            return JSONResponse(
+                {"ok": False, "status": "route_transition_failed", "error": "The data route change could not be started safely."},
+                status_code=500,
+            )
 
     try:
         write_provider_env(existing, removed=removed_keys, path=env_path)
         reload_provider_env(env_path)
         logger.info("Setup provider env saved: mode=%s path=%s", setup_mode or source, env_path)
-        try:
-            from localflight.storage.install import set_activation_token
-
-            set_activation_token(existing.get("LOCALFLIGHT_ACTIVATION_TOKEN", ""))
-        except Exception:
-            pass
     except Exception as exc:
         logger.error("Setup: could not write .env: %s", exc)
+        try:
+            write_provider_env(original_env, removed=set(existing).difference(original_env), path=env_path)
+            reload_provider_env(env_path)
+            if transition_started:
+                complete_route_transition()
+        except Exception:
+            pass
         return JSONResponse({"ok": False, "error": f"Could not save config: {exc}"}, status_code=500)
+    if transition_started:
+        update_route_transition("provider_saved")
 
-    initial_refresh_seconds = 1800 if setup_mode == "community" else (28800 if source == "real" else 900)
-    cfg = AppConfig(
+    initial_refresh_seconds = 1800 if setup_mode == "relay" else (28800 if setup_mode == "byok" else 900)
+    cfg_values = asdict(old_cfg)
+    cfg_values.update(
         airport_iata=airport_iata,
         airport_icao=airport_icao,
         timezone=timezone_str,
         source=source,
-        display_name=str(data.get("display_name") or "Local Flight").strip()[:40] or "Local Flight",
+        data_route=setup_mode,
+        display_name=str(data.get("display_name") or old_cfg.display_name or "Local Flight").strip()[:40] or "Local Flight",
         refresh_seconds=_coerce_refresh_for_policy(initial_refresh_seconds, source),
         diagnostics_mode=diagnostics_mode,
     )
-    save_config(cfg)
-    logger.info("Setup complete: %s/%s source=%s", airport_iata, airport_icao, source)
+    cfg = AppConfig(**cfg_values)
+    try:
+        save_config(cfg)
+    except Exception as exc:
+        logger.error("Setup: could not save route config: %s", exc)
+        try:
+            write_provider_env(
+                original_env,
+                removed=set(existing).difference(original_env),
+                path=env_path,
+            )
+            reload_provider_env(env_path)
+            complete_route_transition()
+        except Exception:
+            # Keep the journal in place. For a transition away from Relay its
+            # target route continues to block credential use until recovery.
+            pass
+        return JSONResponse(
+            {"ok": False, "status": "route_transition_failed", "error": "The data route change could not be saved safely."},
+            status_code=500,
+        )
+    if transition_started:
+        update_route_transition("route_saved")
+
+    if setup_mode != "relay" and activation_token:
+        release_result = await asyncio.to_thread(_deactivate_local_relay, relay_url or _relay_url_default())
+    if transition_started:
+        complete_route_transition()
+    logger.info("Setup complete: %s/%s data_route=%s source=%s", airport_iata, airport_icao, setup_mode, source)
 
     _mark_setup_complete()
     from localflight.ui.events import notify_config_updated, restart_scheduler_and_notify
@@ -1241,7 +1858,15 @@ async def setup_complete(request: Request, background_tasks: BackgroundTasks) ->
     except Exception:
         pass
 
-    return {"ok": True, "status": "preparing", "message": "Setup saved. Preparing your first board."}
+    access = get_relay_access_summary()
+    return {
+        "ok": True,
+        "status": "preparing",
+        "message": "Setup saved. Preparing your first board.",
+        "data_route": setup_mode,
+        "relay_state": access["relay_state"],
+        "release_pending": bool(release_result and release_result.get("status") == "release_pending"),
+    }
 
 
 # â”€â”€ Pages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1296,6 +1921,7 @@ def settings_page(
             "show_provider_key_settings": show_provider_key_settings(provider_key_status),
             "settings_options": _settings_options_for_policy(schedule_policy),
             "schedule_policy": schedule_policy,
+            "data_route_label": _data_route_label(cfg.data_route),
             "saved": (saved == "1"),
             "profile_msg": profile_msg,
         },
@@ -1512,9 +2138,9 @@ async def save_settings(
     radar_surface_mode: Optional[str] = Form(DEFAULT_RADAR_SURFACE_MODE),
     remote_companion_enabled: Optional[str] = Form(None),
 ) -> RedirectResponse:
-    src = (source or DEFAULT_SOURCE).strip().lower()
-    if src not in ALLOWED_SOURCES:
-        src = DEFAULT_SOURCE
+    old_cfg = load_config()
+    data_route = old_cfg.data_route
+    src = "virtual" if data_route == "vatsim" else "real"
     rs = int(refresh_seconds) if int(refresh_seconds) in ALLOWED_REFRESH_SECONDS else DEFAULT_REFRESH_SECONDS
     rs = _coerce_refresh_for_policy(rs, src)
 
@@ -1538,8 +2164,6 @@ async def save_settings(
     form_data = await request.form()
     raw_outputs = form_data.getlist("display_outputs")
     display_outputs = [o for o in raw_outputs if o in ALLOWED_OUTPUTS] or list(DEFAULT_OUTPUTS)
-    old_cfg = load_config()
-
     cfg = AppConfig(
         airport_icao=airport_icao.upper().strip(),
         airport_iata=airport_iata.upper().strip(),
@@ -1547,6 +2171,7 @@ async def save_settings(
         display_name=display_name.strip()[:40] or "Local Flight",
         theme=(theme or "dark").strip() or "dark",
         source=src,
+        data_route=data_route,
         timezone=resolve_airport_timezone(
             timezone,
             airport_iata=airport_iata,
@@ -1621,7 +2246,12 @@ def profiles_save(profile_name: str = Form(...)) -> RedirectResponse:
 @app.post("/profiles/load")
 def profiles_load(background_tasks: BackgroundTasks, profile_name: str = Form(...)) -> RedirectResponse:
     old_cfg = load_config()
-    cfg = load_profile(profile_name)
+    loaded_cfg = load_profile(profile_name)
+    # Profiles customize a board; they are not a licensing or data-route
+    # transition mechanism. Preserve the current authoritative route.
+    loaded_values = asdict(loaded_cfg)
+    loaded_values.update(data_route=old_cfg.data_route, source=old_cfg.source)
+    cfg = AppConfig(**loaded_values)
     save_config(cfg)
     logger.info("UI profile loaded: %s", profile_name)
 

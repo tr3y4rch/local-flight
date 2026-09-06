@@ -15,8 +15,25 @@ import * as SplashScreen from "expo-splash-screen";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LaunchOverlay } from "../components/LaunchOverlay";
+import {
+  activatePaidMobileOwnership,
+  commitPendingRelayActivation,
+  deactivateRelayReceiver,
+  EMPTY_MOBILE_RELAY_ACCESS,
+  inspectPaidMobileOwnership,
+  isExpiredPendingRelayActivationError,
+  isTerminalRelayCredentialError,
+  mobileAccessErrorPresentation,
+  mobileRelayAccessFailureSnapshot,
+  mobileRelayAccessMessage,
+  mobileRelayAccessSnapshotFromSummary,
+  protectPaidMobileOwnershipByEmail,
+  protectRelayAccessByEmail,
+  type MobileRelayAccessSnapshot
+} from "../access/paidAppAccess";
+import { pendingActivationExpired, platformUsesIncludedPaidAppAccess, routeMayUseRelayRuntime } from "../access/mobileRelayState";
 import { accessibleButton, tapTargetHitSlop, useReducedMotionPreference } from "../accessibility/mobileA11y";
-import { AirportConfigSheet, CompanionSetupScreen, FlightActionSheet, FlightDetailSheet, StandaloneAirportSheet, WeatherDetailsSheet, type ActivityStatus, type ConnectionState } from "../screens/AppScreens";
+import { AirportConfigSheet, CompanionSetupScreen, FlightActionSheet, FlightDetailSheet, StandaloneAirportSheet, WeatherDetailsSheet, type ActivityStatus, type CompanionSetupResult, type ConnectionState, type StandaloneSetupResult } from "../screens/AppScreens";
 import { ACTION_ICONS, LocalFlightIcon } from "../theme/icons";
 import {
   getConnections,
@@ -26,6 +43,7 @@ import {
   getHistorySummary,
   getLastCompanionTransport,
   getMobileSummary,
+  LocalFlightApiError,
   configureRemoteCompanionGrant,
   getRadar,
   getRadarGround,
@@ -130,6 +148,9 @@ import {
   saveCachedLanConfig,
   DEFAULT_WIDGET_PREFERENCES,
   loadRadarDrawingLayers,
+  loadMobileRelayInstallId,
+  loadPendingRelayActivation,
+  loadRelayDeviceCredential,
   loadAutoDisplayOnRotate,
   migrateStandaloneGroundLayers,
   loadWeatherDisplayMode,
@@ -137,12 +158,16 @@ import {
   type MobileRadarDrawingLayers,
   type MobileDiagnosticsMode,
   type MobileSetupState,
+  type StagedRelayActivation,
   type RemoteCompanionGrant,
   type MobileWidgetPreferences,
   type MobileWeatherDisplayMode,
   type StandaloneFlightSource,
   saveMobileDiagnosticsMode,
-  saveMobileRelayActivationToken,
+  saveMobileRelayAccessSummary,
+  stagePendingRelayActivation,
+  clearPendingRelayActivation,
+  saveRelayDeviceCredential,
   saveMobileSetupState,
   savePinnedFlight,
   saveRadarDrawingLayers,
@@ -399,6 +424,17 @@ export function AppShell() {
     terrain: true
   });
   const [mobileSetupState, setMobileSetupState] = useState<MobileSetupState>(() => incompleteMobileSetupState());
+  const [relayDeviceCredential, setRelayDeviceCredential] = useState("");
+  const [relayAccess, setRelayAccess] = useState<MobileRelayAccessSnapshot>(EMPTY_MOBILE_RELAY_ACCESS);
+  const [pendingRelayActivation, setPendingRelayActivation] = useState<StagedRelayActivation | null>(null);
+  const [setupDraftOpen, setSetupDraftOpen] = useState(false);
+  const [setupDraftSeed, setSetupDraftSeed] = useState<{
+    mode: "lan_companion" | "standalone";
+    airport?: NonNullable<MobileSetupState["standaloneAirport"]>;
+    source?: StandaloneFlightSource;
+    move?: { token: string; mainDeviceName: string };
+  } | null>(null);
+  const [relayReleaseRetryNonce, setRelayReleaseRetryNonce] = useState(0);
   const [launchHydrated, setLaunchHydrated] = useState(false);
   const [launchDataOutcome, setLaunchDataOutcome] = useState<LaunchDataOutcome>("pending");
   const [pairingUrl, setPairingUrl] = useState("");
@@ -408,6 +444,7 @@ export function AppShell() {
   const [pairingNonce, setPairingNonce] = useState(0);
   const [pairingNotice, setPairingNotice] = useState<string | null>(null);
   const [pendingExternalFlightPin, setPendingExternalFlightPin] = useState("");
+  const [pendingRelayActivationGrant, setPendingRelayActivationGrant] = useState("");
   const [serverPanelRequest, setServerPanelRequest] = useState(0);
   const [setupSuccess, setSetupSuccess] = useState<SetupSuccessState | null>(null);
 
@@ -432,6 +469,12 @@ export function AppShell() {
   const previousWidgetAirportKeyRef = useRef("");
   const standaloneBoardRef = useRef<MobileBoardResponse | null>(null);
   const standaloneBoardReadAtRef = useRef(0);
+  const relayReleaseInFlightRef = useRef<Promise<{
+    pending: boolean;
+    terminal: boolean;
+    access: MobileRelayAccessSnapshot;
+  }> | null>(null);
+  const relayAccessRef = useRef<MobileRelayAccessSnapshot>(EMPTY_MOBILE_RELAY_ACCESS);
   const companionBoardRowsRef = useRef<Record<FlightView, FidsRow[]>>({ departures: [], arrivals: [] });
   const flightDetail = useFlightDetail(serverUrl);
   const matrix = useMatrixCompanion(serverUrl);
@@ -490,7 +533,10 @@ export function AppShell() {
       savedAirport,
       identity,
       mobileDiagnosticsMode: hydratedDiagnosticsMode,
-      setupState
+      setupState,
+      relayDeviceCredential: hydratedRelayDeviceCredential,
+      relayAccessSummary,
+      pendingRelayActivation: hydratedPendingRelayActivation
     }: LaunchHydration) => {
       const effectiveSavedUrl = savedUrl || setupState.serverUrl;
       if (effectiveSavedUrl) {
@@ -512,6 +558,14 @@ export function AppShell() {
       setCompanionIdentity(identity);
       setMobileDiagnosticsMode(hydratedDiagnosticsMode);
       setMobileSetupState(setupState);
+      setRelayDeviceCredential(hydratedRelayDeviceCredential);
+      const hydratedRelayAccess = relayAccessSummary
+        ? mobileRelayAccessSnapshotFromSummary(relayAccessSummary)
+        : EMPTY_MOBILE_RELAY_ACCESS;
+      relayAccessRef.current = hydratedRelayAccess;
+      setRelayAccess(hydratedRelayAccess);
+      setPendingRelayActivation(hydratedPendingRelayActivation);
+      if (hydratedPendingRelayActivation) setSetupDraftOpen(true);
       setLaunchDataOutcome(
         isMobileSetupComplete(setupState, effectiveSavedUrl || "", hydratedDiagnosticsMode)
           ? "pending"
@@ -525,6 +579,22 @@ export function AppShell() {
   const mobileSetupComplete = launchHydrated && isMobileSetupComplete(mobileSetupState, serverUrl, mobileDiagnosticsMode);
   const dismissSetupSuccess = useCallback(() => setSetupSuccess(null), []);
   const isStandalone = mobileSetupState.mode === "standalone";
+  const standaloneSource = mobileSetupState.standaloneSource === "virtual" ? "virtual" : "real";
+  const relayRuntimeAllowed = routeMayUseRelayRuntime({
+    route: mobileSetupState.mode,
+    source: standaloneSource,
+    accessState: relayAccess.state,
+    releasePending: Boolean(mobileSetupState.relayReleasePending),
+    hasCredential: relayDeviceCredential.startsWith("lfr_")
+  });
+  const commitRelayAccess = useCallback(async (next: MobileRelayAccessSnapshot) => {
+    relayAccessRef.current = next;
+    setRelayAccess(next);
+    await saveMobileRelayAccessSummary(next);
+  }, []);
+  useEffect(() => {
+    relayAccessRef.current = relayAccess;
+  }, [relayAccess]);
   useEffect(() => {
     configureRemoteCompanionGrant(isStandalone ? null : mobileSetupState.remoteCompanion);
   }, [isStandalone, mobileSetupState.remoteCompanion]);
@@ -535,26 +605,92 @@ export function AppShell() {
   const standaloneCredentials: StandaloneCredentials | null = useMemo(() =>
     isStandalone &&
     mobileSetupState.relayInstallId &&
-    mobileSetupState.relayActivationToken &&
+    (standaloneSource === "virtual" || relayRuntimeAllowed) &&
     mobileSetupState.standaloneAirport
       ? {
           installId: mobileSetupState.relayInstallId,
-          activationToken: mobileSetupState.relayActivationToken,
+          deviceCredential: relayDeviceCredential,
           airport: mobileSetupState.standaloneAirport,
           diagnosticsMode: mobileDiagnosticsMode,
-          source: mobileSetupState.standaloneSource === "virtual" ? "virtual" : "real"
+          source: standaloneSource
         }
       : null,
     [
       isStandalone,
       mobileDiagnosticsMode,
-      mobileSetupState.relayActivationToken,
       mobileSetupState.relayInstallId,
       mobileSetupState.standaloneAirport,
-      mobileSetupState.standaloneSource
+      relayRuntimeAllowed,
+      relayDeviceCredential,
+      standaloneSource
     ]
   );
   const dataReady = isStandalone ? Boolean(standaloneCredentials) : Boolean(serverUrl);
+  const noteRelayAccessError = useCallback((accessError: unknown) => {
+    if (!isStandalone || !(accessError instanceof LocalFlightApiError)) return;
+    if (!isTerminalRelayCredentialError(accessError)) return;
+    void commitRelayAccess(mobileRelayAccessFailureSnapshot(accessError, relayAccess));
+  }, [commitRelayAccess, isStandalone, relayAccess]);
+  const releaseRelayCredential = useCallback((providedAccess?: MobileRelayAccessSnapshot) => {
+    const baseAccess = providedAccess || relayAccessRef.current;
+    if (relayReleaseInFlightRef.current) return relayReleaseInFlightRef.current;
+    if (!relayDeviceCredential.startsWith("lfr_")) {
+      return Promise.resolve({ pending: false, terminal: false, access: baseAccess });
+    }
+    const credential = relayDeviceCredential;
+    const operation = (async () => {
+      try {
+        const installId = mobileSetupState.relayInstallId || await loadMobileRelayInstallId();
+        const released = await deactivateRelayReceiver({ installId, credential });
+        await saveRelayDeviceCredential("");
+        setRelayDeviceCredential("");
+        const state = released.state === "active_elsewhere"
+          ? "active_elsewhere" as const
+          : baseAccess.licenseRef ? "available" as const : "verification_needed" as const;
+        return {
+          pending: false,
+          terminal: false,
+          access: {
+            ...baseAccess,
+            state,
+            accessState: released.accessState,
+            reasonCode: released.reasonCode,
+            currentMainDeviceDescription: released.currentMainDeviceDescription,
+            lastSuccessfulCheckAt: new Date().toISOString(),
+            deliveryClaim: "",
+            message: mobileRelayAccessMessage({ state, currentMainDeviceDescription: released.currentMainDeviceDescription })
+          }
+        };
+      } catch (releaseError) {
+        if (isTerminalRelayCredentialError(releaseError)) {
+          await saveRelayDeviceCredential("");
+          setRelayDeviceCredential("");
+          return {
+            pending: false,
+            terminal: true,
+            access: mobileRelayAccessFailureSnapshot(releaseError, baseAccess)
+          };
+        }
+        return {
+          pending: true,
+          terminal: false,
+          access: {
+            ...baseAccess,
+            state: "release_pending" as const,
+            deliveryClaim: "",
+            message: mobileRelayAccessMessage({ state: "release_pending", currentMainDeviceDescription: "" })
+          }
+        };
+      }
+    })();
+    relayReleaseInFlightRef.current = operation;
+    void operation.then(() => {
+      if (relayReleaseInFlightRef.current === operation) relayReleaseInFlightRef.current = null;
+    }, () => {
+      if (relayReleaseInFlightRef.current === operation) relayReleaseInFlightRef.current = null;
+    });
+    return operation;
+  }, [mobileSetupState.relayInstallId, relayDeviceCredential]);
   const standaloneAirportDetail: AirportResolved | null = standaloneCredentials
     ? { ...standaloneCredentials.airport, type: "large_airport" }
     : null;
@@ -592,6 +728,22 @@ export function AppShell() {
   }, [airportTimeZone]);
 
   const handlePairingUrl = useCallback((incomingUrl: string) => {
+    if (/^localflight:\/\/relay-access(?:[/?#]|$)/i.test(incomingUrl)) {
+      try {
+        const parsed = new URL(incomingUrl);
+        const fragment = new URLSearchParams(parsed.hash.replace(/^#/, ""));
+        const grant = fragment.get("grant") || "";
+        if (grant.startsWith("lfrag_")) {
+          setPendingRelayActivationGrant(grant);
+          setError(null);
+        } else {
+          setError("This Relay Access transfer link is invalid or expired.");
+        }
+      } catch {
+        setError("This Relay Access transfer link could not be read.");
+      }
+      return;
+    }
     if (/^localflight:\/\/(?:board|widgets)(?:[/?#]|$)/i.test(incomingUrl)) {
       setScreen("fids");
       navigateMobileSection("board");
@@ -687,13 +839,16 @@ export function AppShell() {
   const chooseMobileDiagnosticsMode = useCallback(async (mode: MobileDiagnosticsMode) => {
     await saveMobileDiagnosticsMode(mode);
     setMobileDiagnosticsMode(mode);
-    if (isStandalone && mobileSetupState.relayInstallId && mobileSetupState.relayActivationToken && mobileSetupState.standaloneAirport && mode !== "unset") {
+    if (isStandalone && mobileSetupState.relayInstallId && (mobileSetupState.standaloneSource === "virtual" || relayDeviceCredential) && mobileSetupState.standaloneAirport && mode !== "unset") {
       const nextSetupState = completeStandaloneMobileSetupState({
         relayInstallId: mobileSetupState.relayInstallId,
-        relayActivationToken: mobileSetupState.relayActivationToken,
         airport: mobileSetupState.standaloneAirport,
         diagnosticsMode: mode,
-        standaloneSource: mobileSetupState.standaloneSource
+        standaloneSource: mobileSetupState.standaloneSource,
+        relayCredentialPresent: mobileSetupState.standaloneSource === "virtual"
+          ? Boolean(mobileSetupState.relayReleasePending)
+          : Boolean(relayDeviceCredential),
+        relayReleasePending: Boolean(mobileSetupState.relayReleasePending)
       });
       await saveMobileSetupState(nextSetupState);
       setMobileSetupState(nextSetupState);
@@ -708,7 +863,7 @@ export function AppShell() {
       await saveMobileSetupState(nextSetupState);
       setMobileSetupState(nextSetupState);
     }
-  }, [isStandalone, mobileSetupState, pendingRemoteCompanionGrant, serverUrl]);
+  }, [isStandalone, mobileSetupState, pendingRemoteCompanionGrant, relayDeviceCredential, serverUrl]);
 
   useEffect(() => {
     let alive = true;
@@ -769,6 +924,7 @@ export function AppShell() {
     const subscription = NativeAppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
         setWidgetForceWriteNonce((value) => value + 1);
+        setRelayReleaseRetryNonce((value) => value + 1);
       }
     });
     return () => subscription.remove();
@@ -1115,6 +1271,7 @@ export function AppShell() {
                 setCompanionTransport(getLastCompanionTransport());
               }
             } catch (exc) {
+              noteRelayAccessError(exc);
               if (isCurrentDashboardRequest()) {
                 setConnected(false);
                 if (isCurrentForegroundRefresh()) {
@@ -1149,6 +1306,7 @@ export function AppShell() {
               setCompanionTransport(getLastCompanionTransport());
             }
           } catch (exc) {
+            noteRelayAccessError(exc);
             if (isCurrentForegroundRefresh()) {
               setRefreshErrorByTarget((previous) => ({ ...previous, [target]: errorMessage(exc) }));
             }
@@ -1187,6 +1345,7 @@ export function AppShell() {
       historyDirection,
       historyHours,
       isStandalone,
+      noteRelayAccessError,
       radarRadius,
       screen,
       standaloneCredentials,
@@ -1304,57 +1463,243 @@ export function AppShell() {
     }
   }, [dataReady, radarDrawingLayers.terrain, refreshScreen, screen]);
 
+  const commitStandaloneCredential = useCallback(async (result: StandaloneSetupResult): Promise<{
+    credential: string;
+    access: MobileRelayAccessSnapshot;
+  }> => {
+    if (!result.relayDeviceCredential.startsWith("lfr_") || !result.relayAccess || !result.relayOrigin) {
+      throw new LocalFlightApiError(
+        "Standalone setup did not return a Relay Access credential.",
+        undefined,
+        "credential_write_failed"
+      );
+    }
+    const samePendingCredential = pendingRelayActivation?.credential === result.relayDeviceCredential;
+    const pendingLifetimeSeconds = typeof result.pendingExpiresIn === "number" && Number.isFinite(result.pendingExpiresIn)
+      ? Math.max(0, result.pendingExpiresIn)
+      : 600;
+    const expiresAt = result.activationState === "pending_commit"
+      ? samePendingCredential && pendingRelayActivation?.expiresAt
+        ? pendingRelayActivation.expiresAt
+        : new Date(Date.now() + pendingLifetimeSeconds * 1000).toISOString()
+      : "";
+    const staged: StagedRelayActivation = {
+      installId: result.relayInstallId,
+      relayOrigin: result.relayOrigin,
+      airport: result.airport,
+      standaloneSource: "real",
+      diagnosticsMode: result.diagnosticsMode,
+      access: result.relayAccess,
+      activationState: result.activationState === "pending_commit" ? "pending_commit" : "active",
+      expiresAt,
+      createdAt: samePendingCredential && pendingRelayActivation?.createdAt ? pendingRelayActivation.createdAt : new Date().toISOString(),
+      credential: result.relayDeviceCredential
+    };
+    if (staged.activationState === "pending_commit" && pendingActivationExpired(staged.expiresAt)) {
+      await clearPendingRelayActivation();
+      setPendingRelayActivation(null);
+      throw new LocalFlightApiError("The pending Relay activation expired.", 422, "activation_pending_expired");
+    }
+    if (pendingRelayActivation?.credential !== staged.credential) {
+      try {
+        await stagePendingRelayActivation(staged);
+        setPendingRelayActivation(staged);
+      } catch (storageError) {
+        throw new LocalFlightApiError(
+          "This device could not safely stage the Relay credential.",
+          undefined,
+          "credential_write_failed",
+          storageError
+        );
+      }
+    }
+
+    let access = result.relayAccess;
+    if (staged.activationState === "pending_commit") {
+      try {
+        access = await commitPendingRelayActivation({
+          installId: staged.installId,
+          credential: staged.credential,
+          relayOrigin: staged.relayOrigin
+        }) || access;
+      } catch (commitError) {
+        if (isExpiredPendingRelayActivationError(commitError) || isTerminalRelayCredentialError(commitError)) {
+          await clearPendingRelayActivation();
+          setPendingRelayActivation(null);
+          throw new LocalFlightApiError(
+            "The pending Relay activation is no longer valid. Verify access again.",
+            commitError instanceof LocalFlightApiError ? commitError.status : 422,
+            "activation_pending_expired",
+            commitError
+          );
+        }
+        throw new LocalFlightApiError(
+          "Relay activation is safely staged and waiting for Beacon Relay.",
+          commitError instanceof LocalFlightApiError ? commitError.status : undefined,
+          "activation_commit_pending",
+          commitError
+        );
+      }
+    }
+    try {
+      await saveRelayDeviceCredential(staged.credential);
+    } catch (storageError) {
+      throw new LocalFlightApiError(
+        "This device could not safely store the Relay credential.",
+        undefined,
+        "credential_write_failed",
+        storageError
+      );
+    }
+    return {
+      credential: staged.credential,
+      access: {
+        ...access,
+        state: "active_here",
+        accessState: "active",
+        currentMainDeviceDescription: "this phone",
+        message: mobileRelayAccessMessage({ state: "active_here", currentMainDeviceDescription: "this phone" })
+      }
+    };
+  }, [pendingRelayActivation]);
+
   const completeCompanionSetup = useCallback(async ({
     mode,
     serverUrl: nextServerUrl,
     diagnosticsMode,
     config,
     relayInstallId,
-    relayActivationToken,
+    relayDeviceCredential: nextRelayDeviceCredential,
+    relayAccess: activatedRelayAccess,
+    relayOrigin,
+    activationState,
+    pendingExpiresIn,
     airport,
-    standaloneSource = "real"
+    standaloneSource: nextStandaloneSource = "real",
+    activationStatus = ""
   }: {
     mode: "lan_companion" | "standalone";
     serverUrl?: string;
     diagnosticsMode: MobileDiagnosticsMode;
     config?: AppConfig;
     relayInstallId?: string;
-    relayActivationToken?: string;
+    relayDeviceCredential?: string;
+    relayAccess?: MobileRelayAccessSnapshot;
+    relayOrigin?: string;
+    activationState?: "active" | "pending_commit";
+    pendingExpiresIn?: number;
     airport?: NonNullable<MobileSetupState["standaloneAirport"]>;
     standaloneSource?: StandaloneFlightSource;
+    activationStatus?: string;
   }) => {
     if (mode === "standalone") {
-      if (!relayInstallId || !relayActivationToken || !airport) {
-        throw new Error("Standalone setup did not return a relay token and airport.");
+      if (!relayInstallId || !airport) {
+        throw new Error("Standalone setup did not return an install ID and airport.");
       }
+      if (nextStandaloneSource === "virtual") {
+        const release = relayDeviceCredential.startsWith("lfr_")
+          ? await releaseRelayCredential(relayAccess)
+          : { pending: false, terminal: false, access: relayAccess };
+        const nextSetupState = completeStandaloneMobileSetupState({
+          relayInstallId,
+          airport,
+          diagnosticsMode,
+          standaloneSource: "virtual",
+          relayCredentialPresent: release.pending,
+          relayReleasePending: release.pending
+        });
+        await Promise.all([
+          saveServerUrl(""),
+          saveStandaloneAirport(airport),
+          saveMobileDiagnosticsMode(diagnosticsMode),
+          saveMobileSetupState(nextSetupState),
+          saveMobileRelayAccessSummary(release.access)
+        ]);
+        setServerUrl("");
+        setDraftUrl("");
+        setMobileDiagnosticsMode(diagnosticsMode);
+        setMobileSetupState(nextSetupState);
+        setRelayAccess(release.access);
+        setAirportDetail({ ...airport, type: "large_airport" });
+        setConnected(true);
+        setError(null);
+        setScreen("fids");
+        setSetupDraftOpen(false);
+        setSetupDraftSeed(null);
+        setPendingRelayActivationGrant("");
+        setPendingRemoteCompanionGrant(null);
+        configureRemoteCompanionGrant(null);
+        setSetupSuccess({
+          mode: "standalone",
+          title: "You are ready",
+          body: release.pending
+            ? "Free VATSIM Standalone is ready. Freeing the previous Relay main device will retry when Beacon Relay is reachable."
+            : "Free VATSIM Standalone is ready and uses no Relay Access.",
+          meta: airport.iata || airport.icao || airport.name
+        });
+        hapticSuccess();
+        return;
+      }
+      if (mobileSetupState.relayReleasePending) {
+        throw new LocalFlightApiError(
+          "Finish freeing the previous Relay main device before activating Standalone.",
+          undefined,
+          "activation_commit_pending"
+        );
+      }
+      if (!nextRelayDeviceCredential || !activatedRelayAccess || !relayOrigin) {
+        throw new Error("Standalone setup did not return a Relay Access credential and airport.");
+      }
+      const committed = await commitStandaloneCredential({
+        mode: "standalone",
+        relayInstallId,
+        relayDeviceCredential: nextRelayDeviceCredential,
+        relayAccess: activatedRelayAccess,
+        relayOrigin,
+        activationState,
+        pendingExpiresIn,
+        airport,
+        standaloneSource: "real",
+        diagnosticsMode,
+        activationStatus
+      });
       const nextSetupState = completeStandaloneMobileSetupState({
         relayInstallId,
-        relayActivationToken,
         airport,
         diagnosticsMode,
-        standaloneSource
+        standaloneSource: "real",
+        relayCredentialPresent: true
       });
       await Promise.all([
         saveServerUrl(""),
-        saveMobileRelayActivationToken(relayActivationToken),
         saveStandaloneAirport(airport),
         saveMobileDiagnosticsMode(diagnosticsMode),
-        saveMobileSetupState(nextSetupState)
+        saveMobileSetupState(nextSetupState),
+        saveMobileRelayAccessSummary(committed.access)
       ]);
+      await clearPendingRelayActivation();
       setServerUrl("");
       setDraftUrl("");
       setMobileDiagnosticsMode(diagnosticsMode);
       setMobileSetupState(nextSetupState);
+      setRelayDeviceCredential(committed.credential);
+      setRelayAccess(committed.access);
+      setPendingRelayActivation(null);
       setAirportDetail({ ...airport, type: "large_airport" });
       setConnected(true);
       setError(null);
       setScreen("fids");
+      setSetupDraftOpen(false);
+      setSetupDraftSeed(null);
       setSetupSuccess({
         mode: "standalone",
         title: "You are ready",
         body: "Standalone is set up for this device.",
         meta: airport.iata || airport.icao || airport.name
       });
+      setPendingRelayActivationGrant("");
+      setPendingRemoteCompanionGrant(null);
+      configureRemoteCompanionGrant(null);
       hapticSuccess();
       return;
     }
@@ -1382,63 +1727,201 @@ export function AppShell() {
     } else if (remoteGrant) {
       configureRemoteCompanionGrant(remoteGrant);
     }
-    const nextSetupState = completeMobileSetupState(normalized, diagnosticsMode, remoteGrant);
+    const includedInstallId = await loadMobileRelayInstallId();
+    let companionAccess: MobileRelayAccessSnapshot = relayAccess;
+    if (platformUsesIncludedPaidAppAccess(Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "other")) {
+      try {
+        companionAccess = await inspectPaidMobileOwnership({
+          installId: includedInstallId,
+          intent: "companion"
+        });
+      } catch (verificationError) {
+        // Companion is powered by its paired host. A cancelled or unavailable
+        // StoreKit check must never undo successful LAN/Remote pairing.
+        companionAccess = mobileRelayAccessFailureSnapshot(verificationError, relayAccess);
+      }
+    }
+    const release = relayDeviceCredential.startsWith("lfr_")
+      ? await releaseRelayCredential(companionAccess)
+      : { pending: false, terminal: false, access: companionAccess };
+    const relayReleasePending = release.pending;
+    companionAccess = release.access;
+    const nextSetupState = completeMobileSetupState(normalized, diagnosticsMode, remoteGrant, relayReleasePending);
     await Promise.all([
       saveServerUrl(normalized),
       saveMobileDiagnosticsMode(diagnosticsMode),
       saveMobileSetupState(nextSetupState),
-      saveCachedLanConfig(config)
+      saveCachedLanConfig(config),
+      saveMobileRelayAccessSummary(companionAccess)
     ]);
     setServerUrl(normalized);
     setDraftUrl(normalized);
     setMobileDiagnosticsMode(diagnosticsMode);
     setMobileSetupState(nextSetupState);
+    setRelayAccess(companionAccess);
     setSnapshot((prev) => ({ ...prev, config }));
     setConnected(true);
     setCompanionTransport("lan");
     setError(null);
     setPairingNotice(
       remoteGrant
-        ? "LAN connection and encrypted Remote Companion backup verified."
-        : "LAN connection ready. Remote Companion was not added."
+        ? `LAN connection and encrypted Remote Companion backup verified.${relayReleasePending ? " Freeing Relay Access from this phone is pending." : ""}`
+        : `LAN connection ready. Remote Companion was not added.${relayReleasePending ? " Freeing Relay Access from this phone is pending." : ""}`
     );
     setPairingUrl("");
     setPairingRemoteInvite(null);
+    setPendingRelayActivationGrant("");
+    setSetupDraftOpen(false);
+    setSetupDraftSeed(null);
     setScreen("fids");
     setSetupSuccess({
       mode: "lan_companion",
       title: "You are connected",
-      body: "This device is paired with your Local Flight host.",
+      body: relayReleasePending
+        ? "This phone is paired with your Local Flight host. Relay Access will be freed from Standalone when Beacon Relay is reachable."
+        : Platform.OS === "android"
+          ? "This phone is paired with your Local Flight host. Companion follows that host and does not require Relay Access."
+          : "This phone is paired with your Local Flight host. Companion follows that host and does not use the included Relay Access.",
       meta: normalized
     });
     hapticSuccess();
     void refreshScreen({ nextUrl: normalized, target: "fids" });
-  }, [pairingRemoteInvite, pendingRemoteCompanionGrant, refreshScreen]);
+  }, [commitStandaloneCredential, mobileSetupState.relayReleasePending, pairingRemoteInvite, pendingRemoteCompanionGrant, refreshScreen, relayAccess, relayDeviceCredential, releaseRelayCredential]);
 
   const rerunCompanionSetup = useCallback(async () => {
-    const nextSetupState = incompleteMobileSetupState(isStandalone ? "" : serverUrl, mobileDiagnosticsMode);
-    await saveMobileSetupState(nextSetupState);
-    setMobileSetupState(nextSetupState);
-    if (isStandalone) {
-      await Promise.all([
-        saveMobileRelayActivationToken(""),
-        saveStandaloneAirport(null),
-        clearStandaloneHistory()
-      ]);
-      setConnected(false);
-      setServerUrl("");
-      setDraftUrl("");
-    }
+    setSetupDraftSeed(null);
     setActionRow(null);
     setConfigSheetVisible(false);
     closeFlightDetail();
     setError(null);
     setSetupSuccess(null);
-    setPendingRemoteCompanionGrant(null);
     setPairingRemoteInvite(null);
-    configureRemoteCompanionGrant(null);
-    setCompanionTransport("lan");
-  }, [closeFlightDetail, isStandalone, mobileDiagnosticsMode, serverUrl]);
+    setSetupDraftOpen(true);
+  }, [closeFlightDetail]);
+
+  useEffect(() => {
+    if (!pendingRelayActivationGrant || !mobileSetupComplete) return;
+    setSetupDraftOpen(true);
+  }, [mobileSetupComplete, pendingRelayActivationGrant]);
+
+  const retryPendingRelayRelease = useCallback(async (): Promise<boolean> => {
+    if (!mobileSetupState.relayReleasePending) return true;
+    const release = await releaseRelayCredential();
+    await commitRelayAccess(release.access);
+    if (release.pending) return false;
+    const releasedState = {
+      ...mobileSetupState,
+      relayCredentialPresent: false,
+      relayReleasePending: false
+    };
+    await saveMobileSetupState(releasedState);
+    setMobileSetupState(releasedState);
+    return true;
+  }, [commitRelayAccess, mobileSetupState, releaseRelayCredential]);
+
+  useEffect(() => {
+    if (
+      !launchHydrated
+      || !mobileSetupState.relayReleasePending
+    ) return;
+    let cancelled = false;
+    void retryPendingRelayRelease().catch(() => undefined).then(() => {
+      if (cancelled) return;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [launchHydrated, mobileSetupState.relayReleasePending, relayReleaseRetryNonce, retryPendingRelayRelease]);
+
+  const refreshRelayAccess = useCallback(async (): Promise<string> => {
+    if (mobileSetupState.relayReleasePending) {
+      const released = await retryPendingRelayRelease();
+      return released
+        ? "Relay Access was freed and is available for another main device."
+        : "Beacon Relay is still unreachable. The credential remains protected for another release retry.";
+    }
+    if (Platform.OS === "android" && !(isStandalone && standaloneSource === "real")) {
+      setSetupDraftSeed({
+        mode: "standalone",
+        airport: mobileSetupState.standaloneAirport || undefined,
+        source: "real"
+      });
+      setSetupDraftOpen(true);
+      return "Choose real-flight Standalone to get or restore Relay Access.";
+    }
+    setRelayAccess((current) => ({
+      ...current,
+      state: "checking",
+      message: Platform.OS === "android" ? "Checking Google Play Relay Access…" : "Checking the App Store purchase…"
+    }));
+    try {
+      const installId = mobileSetupState.relayInstallId || await loadMobileRelayInstallId();
+      if (isStandalone && standaloneSource === "real" && mobileSetupState.standaloneAirport) {
+        const activation = await activatePaidMobileOwnership({ installId });
+        if (!activation.activated) {
+          await commitRelayAccess(activation.access);
+          setSetupDraftSeed({
+            mode: "standalone",
+            airport: mobileSetupState.standaloneAirport,
+            source: "real",
+            move: activation.moveToken ? {
+              token: activation.moveToken,
+              mainDeviceName: activation.currentMainDeviceDescription || "another main device"
+            } : undefined
+          });
+          setSetupDraftOpen(true);
+          return `Relay Access is used by ${activation.currentMainDeviceDescription || "another main device"}. Review setup to confirm moving it here.`;
+        }
+        const committed = await commitStandaloneCredential({
+          mode: "standalone",
+          relayInstallId: installId,
+          relayDeviceCredential: activation.credential,
+          relayAccess: activation.access,
+          relayOrigin: activation.relayOrigin,
+          activationState: activation.activationState,
+          pendingExpiresIn: activation.pendingExpiresIn,
+          airport: mobileSetupState.standaloneAirport,
+          standaloneSource: "real",
+          diagnosticsMode: mobileDiagnosticsMode,
+          activationStatus: activation.status
+        });
+        const nextSetupState = completeStandaloneMobileSetupState({
+          relayInstallId: installId,
+          airport: mobileSetupState.standaloneAirport,
+          standaloneSource: "real",
+          diagnosticsMode: mobileDiagnosticsMode,
+          relayCredentialPresent: true
+        });
+        await Promise.all([
+          saveMobileSetupState(nextSetupState),
+          saveMobileRelayAccessSummary(committed.access)
+        ]);
+        await clearPendingRelayActivation();
+        setPendingRelayActivation(null);
+        setRelayDeviceCredential(committed.credential);
+        setMobileSetupState(nextSetupState);
+        setRelayAccess(committed.access);
+        return "Relay Access was restored on this phone.";
+      }
+      const next = await inspectPaidMobileOwnership({
+        installId,
+        intent: "inspect",
+        allowPurchase: Platform.OS === "android"
+      });
+      await commitRelayAccess(next);
+      return Platform.OS === "android"
+        ? "Google Play Relay Access is ready for a desktop or real-flight Standalone mode."
+        : "The Relay Access included with this app was verified.";
+    } catch (accessError) {
+      const failed = mobileRelayAccessFailureSnapshot(accessError, relayAccessRef.current);
+      await commitRelayAccess(failed);
+      const recoveryCode = accessError instanceof LocalFlightApiError ? accessError.code : "";
+      if (pendingRelayActivation || recoveryCode === "activation_commit_pending" || recoveryCode === "credential_write_failed") {
+        setSetupDraftOpen(true);
+      }
+      return mobileAccessErrorPresentation(accessError).body;
+    }
+  }, [commitRelayAccess, commitStandaloneCredential, isStandalone, mobileDiagnosticsMode, mobileSetupState, pendingRelayActivation, retryPendingRelayRelease, standaloneSource]);
 
   const forgetRemoteCompanion = useCallback(async () => {
     if (isStandalone || !mobileSetupState.complete || mobileSetupState.mode !== "lan_companion") {
@@ -2165,23 +2648,70 @@ export function AppShell() {
     else setScreen(isStandalone ? "settings" : "control");
   };
 
-  if (!mobileSetupComplete) {
+  const pendingStandaloneSetupResult: StandaloneSetupResult | null = pendingRelayActivation
+    ? {
+        mode: "standalone",
+        relayInstallId: pendingRelayActivation.installId,
+        relayDeviceCredential: pendingRelayActivation.credential,
+        relayAccess: mobileRelayAccessSnapshotFromSummary(pendingRelayActivation.access),
+        relayOrigin: pendingRelayActivation.relayOrigin,
+        activationState: pendingRelayActivation.activationState,
+        pendingExpiresIn: pendingRelayActivation.expiresAt
+          ? Math.max(0, Math.round((Date.parse(pendingRelayActivation.expiresAt) - Date.now()) / 1000))
+          : 0,
+        airport: pendingRelayActivation.airport,
+        standaloneSource: "real",
+        diagnosticsMode: pendingRelayActivation.diagnosticsMode,
+        activationStatus: pendingRelayActivation.activationState
+      }
+    : null;
+  const hydratedCompanionSummary: CompanionSetupResult | null = mobileSetupState.mode === "lan_companion" && serverUrl && snapshot.config && snapshot.state
+    ? {
+        mode: "lan_companion",
+        serverUrl,
+        diagnosticsMode: mobileDiagnosticsMode,
+        config: snapshot.config,
+        state: snapshot.state
+      }
+    : null;
+
+  if (!mobileSetupComplete || setupDraftOpen) {
     return (
       <SafeAreaView style={styles.setupSafe} edges={["top", "bottom", "left", "right"]}>
         <StatusBar barStyle={statusBarStyle} hidden={false} />
         {launchHydrated ? (
           <CompanionSetupScreen
             initialUrl={draftUrl || serverUrl}
+            initialMode={pendingRelayActivation ? "standalone" : setupDraftSeed?.mode || mobileSetupState.mode}
+            initialStandaloneAirport={pendingRelayActivation?.airport || setupDraftSeed?.airport || mobileSetupState.standaloneAirport || null}
+            initialStandaloneSource={pendingRelayActivation ? "real" : setupDraftSeed?.source || mobileSetupState.standaloneSource || "real"}
+            initialCompanionSummary={hydratedCompanionSummary}
+            initialPendingStandaloneResult={pendingStandaloneSetupResult}
+            initialStandaloneMove={setupDraftSeed?.move || null}
+            setupChange={mobileSetupComplete}
+            relayReleasePending={Boolean(mobileSetupState.relayReleasePending)}
             pairingUrl={pairingUrl}
             pairingNonce={pairingNonce}
             pairingExpectedServerFingerprint={pairingExpectedServerFingerprint}
             initialDiagnosticsMode={mobileDiagnosticsMode}
+            initialRelayActivationGrant={pendingRelayActivationGrant}
             onPairingLoaded={(pairing) => {
               setPairingUrl(pairing.serverUrl);
               setPairingExpectedServerFingerprint(pairing.expectedServerFingerprint || "");
               setPairingRemoteInvite(pairing.remoteCompanionInvite || null);
             }}
             onComplete={completeCompanionSetup}
+            onCancel={() => {
+              setSetupDraftOpen(false);
+              setSetupDraftSeed(null);
+              setDraftUrl(serverUrl);
+              setPendingRelayActivationGrant("");
+              setPairingRemoteInvite(null);
+              setPendingRemoteCompanionGrant(null);
+              configureRemoteCompanionGrant(isStandalone ? null : mobileSetupState.remoteCompanion);
+            }}
+            onRetryRelayRelease={retryPendingRelayRelease}
+            onDiscardRelayActivationGrant={() => setPendingRelayActivationGrant("")}
           />
         ) : null}
         <LaunchOverlay
@@ -2388,7 +2918,30 @@ export function AppShell() {
             },
             onDiagnosticsModeChange: (next) => void chooseMobileDiagnosticsMode(next),
             onOpenAirport: () => isStandalone ? setStandaloneAirportSheetVisible(true) : setConfigSheetVisible(true),
-            onRerunSetup: rerunCompanionSetup
+            onRerunSetup: rerunCompanionSetup,
+            relayAccess,
+            relayProtectionAvailable: Platform.OS !== "android" || (
+              isStandalone
+              && standaloneSource === "real"
+              && relayDeviceCredential.startsWith("lfr_")
+              && !mobileSetupState.relayReleasePending
+            ),
+            onVerifyRelayAccess: refreshRelayAccess,
+            onProtectRelayAccess: async (email) => {
+              const credential = relayDeviceCredential;
+              if (isStandalone && credential.startsWith("lfr_")) {
+                return protectRelayAccessByEmail({ email, credential });
+              }
+              if (Platform.OS === "android") {
+                throw new LocalFlightApiError(
+                  "Activate Relay Access in real-flight Standalone before adding recovery email.",
+                  undefined,
+                  "relay_credential_required"
+                );
+              }
+              const installId = await loadMobileRelayInstallId();
+              return protectPaidMobileOwnershipByEmail({ email, installId });
+            }
           }}
         />
       </MobileSessionProvider>
@@ -2447,17 +3000,37 @@ export function AppShell() {
 
       <StandaloneAirportSheet
         visible={standaloneAirportSheetVisible}
-        currentAirport={standaloneCredentials?.airport || null}
-        currentSource={standaloneCredentials?.source || "real"}
+        currentAirport={mobileSetupState.standaloneAirport || null}
+        currentSource={mobileSetupState.standaloneSource || "real"}
         onClose={() => setStandaloneAirportSheetVisible(false)}
-        onApplied={async (airport, standaloneSource) => {
-          if (!mobileSetupState.relayInstallId || !mobileSetupState.relayActivationToken) return;
+        onApplied={async (airport, nextSource) => {
+          if (!mobileSetupState.relayInstallId) return;
+          if (nextSource === "real" && !relayRuntimeAllowed) {
+            setStandaloneAirportSheetVisible(false);
+            setSetupDraftSeed({ mode: "standalone", airport, source: "real" });
+            setSetupDraftOpen(true);
+            return;
+          }
+          if (nextSource === "virtual" && mobileSetupState.standaloneSource !== "virtual") {
+            setStandaloneAirportSheetVisible(false);
+            await completeCompanionSetup({
+              mode: "standalone",
+              relayInstallId: mobileSetupState.relayInstallId,
+              relayDeviceCredential: "",
+              airport,
+              standaloneSource: "virtual",
+              diagnosticsMode: mobileDiagnosticsMode,
+              activationStatus: "not_required"
+            });
+            return;
+          }
           const nextSetupState = completeStandaloneMobileSetupState({
             relayInstallId: mobileSetupState.relayInstallId,
-            relayActivationToken: mobileSetupState.relayActivationToken,
             airport,
             diagnosticsMode: mobileDiagnosticsMode,
-            standaloneSource
+            standaloneSource: nextSource,
+            relayCredentialPresent: nextSource === "real" ? true : Boolean(mobileSetupState.relayReleasePending),
+            relayReleasePending: Boolean(mobileSetupState.relayReleasePending)
           });
           await Promise.all([saveStandaloneAirport(airport), saveMobileSetupState(nextSetupState)]);
           setMobileSetupState(nextSetupState);
@@ -3174,7 +3747,7 @@ function createStyles() {
     lineHeight: 20
   },
   companionSetupSecondary: {
-    minHeight: 38,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -3295,6 +3868,55 @@ function createStyles() {
     borderWidth: 1,
     borderColor: accent14,
     backgroundColor: palette.row
+  },
+  companionSetupAccessCard: {
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: success25,
+    backgroundColor: success08
+  },
+  companionSetupAccessHeading: {
+    minHeight: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9
+  },
+  companionSetupAccessTitle: {
+    flex: 1,
+    fontFamily: UI_FONT_FAMILY,
+    color: palette.text,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "800"
+  },
+  companionSetupAccessBody: {
+    marginTop: 7,
+    fontFamily: UI_FONT_FAMILY,
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 19
+  },
+  companionSetupWarningCard: {
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: warn18,
+    backgroundColor: warn08
+  },
+  companionSetupWarningTitle: {
+    fontFamily: UI_FONT_FAMILY,
+    color: palette.amber,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800"
+  },
+  companionSetupWarningBody: {
+    marginTop: 5,
+    fontFamily: UI_FONT_FAMILY,
+    color: palette.text,
+    fontSize: 13,
+    lineHeight: 19
   },
   companionSetupError: {
     marginTop: 14,

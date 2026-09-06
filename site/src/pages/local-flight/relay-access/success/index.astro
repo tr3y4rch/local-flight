@@ -1,0 +1,136 @@
+---
+import SiteLayout from "../../../../layouts/SiteLayout.astro";
+import { relayOrigin } from "../../../../data/site";
+---
+
+<SiteLayout
+  title="Relay Access purchase"
+  description="Confirm a Stripe purchase and retrieve its portable Beacon Relay Access license key once."
+  active="relay"
+>
+  <section class="section relay-access-result" data-checkout-result data-relay-origin={relayOrigin}>
+    <div class="terminal-frame">
+      <div class="form-shell relay-access-shell">
+        <div class="form-context">
+          <span class="section-index">PURCHASE RESULT</span>
+          <h1>Preparing your portable Relay license.</h1>
+          <p id="resultLead">Stripe may take a moment to send its signed payment confirmation. Keep this tab open while Beacon Relay verifies it.</p>
+        </div>
+        <div class="support-form">
+          <p class="form-status form-status--prominent" id="resultStatus" role="status" aria-live="polite">Waiting for payment confirmation…</p>
+          <div class="license-delivery" id="licenseResult" hidden>
+            <span class="feature-index">SAVE ONCE</span>
+            <h2>Your universal Relay Access key</h2>
+            <label for="licenseKey">Beacon Relay Access license key</label>
+            <div class="relay-key-row">
+              <input class="mono" id="licenseKey" readonly autocomplete="off" spellcheck="false" />
+              <button class="action-button" id="copyLicense" type="button">Copy key</button>
+            </div>
+            <p class="form-note">This browser reveals the key once. Beacon Tools also sends it to the Stripe checkout email. Keep it private; Local Flight exchanges it for a revocable device credential.</p>
+          </div>
+
+          <div class="receiver-next-steps" id="receiverNextSteps" hidden>
+            <article>
+              <span class="feature-index">DESKTOP</span>
+              <h2>Activate Beacon Relay</h2>
+              <p>Download the free desktop app, choose Beacon Relay in setup, and paste the <code>LFRA-…</code> key.</p>
+              <a class="action-link" href="/local-flight/#downloads">Choose a desktop download</a>
+            </article>
+            <article>
+              <span class="feature-index">MOBILE</span>
+              <h2>Move it to Local Flight Mobile</h2>
+              <p>The key never goes into the app. Use passwordless license management to create a one-use handoff; iOS verifies the paid app and Android verifies the official app before accepting it.</p>
+              <a class="action-link" href="/local-flight/relay-access/manage/">Open license management</a>
+            </article>
+          </div>
+
+          <div class="form-actions relay-result-actions">
+            <a class="action-button action-button--primary" href="/local-flight/relay-access/manage/">Recover or manage access</a>
+            <a class="action-link" href="/local-flight/relay-access/terms/">License terms</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script is:inline>
+    (() => {
+      const root = document.querySelector("[data-checkout-result]");
+      const relay = root?.dataset.relayOrigin || "";
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("checkout_ref") || "";
+      const secretKey = `beacon.relay.checkout.${ref}`;
+      const secret = ref ? sessionStorage.getItem(secretKey) : "";
+      const status = document.getElementById("resultStatus");
+      const result = document.getElementById("licenseResult");
+      const nextSteps = document.getElementById("receiverNextSteps");
+      const keyField = document.getElementById("licenseKey");
+      const copyButton = document.getElementById("copyLicense");
+      let attempts = 0;
+
+      const showRecoveredState = (message) => {
+        status.textContent = message;
+        status.dataset.tone = "pending";
+        nextSteps.hidden = false;
+      };
+
+      async function poll() {
+        if (!ref || !secret) {
+          status.textContent = "This browser no longer has the private checkout result secret. Use the checkout email to recover the license.";
+          status.dataset.tone = "bad";
+          return;
+        }
+        attempts += 1;
+        try {
+          const response = await fetch(`${relay}/v1/access/stripe/result`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ checkout_ref: ref, result_secret: secret }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data?.detail?.message || "The purchase result could not be checked.");
+          if (data.state === "active") {
+            sessionStorage.removeItem(secretKey);
+            nextSteps.hidden = false;
+            if (typeof data.license_key === "string" && data.license_key.startsWith("LFRA-")) {
+              keyField.value = data.license_key;
+              result.hidden = false;
+              status.textContent = "Payment confirmed. Your portable Relay Access license is ready.";
+              status.dataset.tone = "ok";
+            } else {
+              showRecoveredState("Payment is confirmed. This browser already revealed the key; use the checkout email to recover or move the license.");
+            }
+            return;
+          }
+          if (["failed", "expired"].includes(data.state)) {
+            sessionStorage.removeItem(secretKey);
+            status.textContent = "The checkout did not complete. No Relay Access license was created.";
+            status.dataset.tone = "bad";
+            return;
+          }
+          status.textContent = "Payment reached Stripe; waiting for signed confirmation…";
+          if (attempts < 90) window.setTimeout(poll, 2000);
+          else showRecoveredState("Confirmation is taking longer than expected. Check the checkout email before starting another purchase.");
+        } catch (error) {
+          status.textContent = error instanceof Error ? error.message : "The purchase result could not be checked.";
+          status.dataset.tone = "bad";
+        }
+      }
+
+      copyButton?.addEventListener("click", async () => {
+        if (!keyField.value) return;
+        try {
+          await navigator.clipboard.writeText(keyField.value);
+          status.textContent = "License key copied. Use it in desktop Beacon Relay setup or keep it for recovery.";
+          status.dataset.tone = "ok";
+        } catch {
+          keyField.focus();
+          keyField.select();
+          status.textContent = "Copy was blocked by the browser. The key is selected so you can copy it manually.";
+          status.dataset.tone = "pending";
+        }
+      });
+      poll();
+    })();
+  </script>
+</SiteLayout>

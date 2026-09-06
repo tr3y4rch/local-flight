@@ -558,14 +558,14 @@
       el("budgetCadence").textContent = mode === "virtual"
         ? "Virtual mode does not use a schedule request budget."
         : sharedMode
-          ? `${mainBudget.scope_label || "Shared by all community relay real-data users"}${accessLimit ? ` | Your install: ${accessUsed} / ${accessLimit} accesses used.` : ""}`
+          ? `${mainBudget.scope_label || "Shared by all Beacon Relay real-data users"}${accessLimit ? ` | Your install: ${accessUsed} / ${accessLimit} accesses used.` : ""}`
           : mode === "byok"
             ? "Uses your personal provider allowance directly."
             : "Managed access is active for this install.";
       el("budgetCadence").className = "stat-val";
       if (sharedMode) {
         if (humanSnapshotState(shared.cache_state || "")) {
-          el("budgetCadence").textContent = `${humanSnapshotState(shared.cache_state || "miss")} | ${mainBudget.scope_label || "Shared by all community relay real-data users"}${accessLimit ? ` | Your install: ${accessUsed} / ${accessLimit} accesses used.` : ""}`;
+          el("budgetCadence").textContent = `${humanSnapshotState(shared.cache_state || "miss")} | ${mainBudget.scope_label || "Shared by all Beacon Relay real-data users"}${accessLimit ? ` | Your install: ${accessUsed} / ${accessLimit} accesses used.` : ""}`;
         }
       }
       const bar = el("budgetBar");

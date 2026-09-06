@@ -1,0 +1,228 @@
+---
+import SiteLayout from "../../../layouts/SiteLayout.astro";
+import SectionHeading from "../../../components/SectionHeading.astro";
+import { relayOrigin } from "../../../data/site";
+---
+
+<SiteLayout
+  title="Beacon Relay Access"
+  description="One portable Beacon Relay Access license can come from Stripe, the paid iOS app, or Android's one-time Relay purchase and power desktop Relay or mobile Standalone."
+  active="relay"
+>
+  <header class="terminal-hero terminal-hero--compact">
+    <div class="terminal-frame terminal-grid hero-grid">
+      <div class="hero-copy hero-copy--narrow">
+        <div class="eyebrow">Local Flight / One hosted-data license</div>
+        <h1 class="hero-title">One Relay license. <span class="accent-word">Use it across Local Flight.</span></h1>
+        <p class="hero-lede">Buy Relay Access on the web, receive it with the paid iOS app, or buy it once inside the free Android app. Every verified purchase creates the same portable license for one active main device.</p>
+        <div class="hero-actions">
+          <a class="action-button action-button--primary" href="#get-access">Choose where to buy <span aria-hidden="true">↓</span></a>
+          <a class="action-link" href="/local-flight/relay-access/manage/">Recover or manage a license</a>
+        </div>
+        <p class="hero-footnote">One-time purchase · No subscription · No Beacon account · Desktop or mobile main device</p>
+      </div>
+      <div class="hero-visual">
+        <div class="license-signal" aria-label="One Relay license moves between desktop and mobile">
+          <span class="license-signal-label">BEACON RELAY ACCESS</span>
+          <strong>1 LICENSE</strong>
+          <div><span>DESKTOP RELAY</span><i aria-hidden="true">↔</i><span>MOBILE STANDALONE</span></div>
+          <p>One active main device at a time</p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section section--raised section--ruled">
+    <div class="terminal-frame">
+      <SectionHeading index="01 / THE LICENSE" title="The purchase source changes. The Relay license does not." description="Stripe, Apple, and Google verify purchases differently, but Beacon Relay records one common product and applies the same main-device rule." />
+      <div class="feature-run" data-reveal>
+        <article class="feature"><span class="feature-index">PORTABLE</span><h3>Desktop or mobile</h3><p>Activate desktop Beacon Relay or mobile Standalone. A confirmed move keeps the old device working until the new credential is safely committed.</p></article>
+        <article class="feature"><span class="feature-index">COMPANION</span><h3>Your companion screens</h3><p>LAN Companion does not use the license separately. Encrypted Remote Companion shares the active licensed desktop host.</p></article>
+        <article class="feature"><span class="feature-index">ONE-TIME</span><h3>No recurring Beacon fee</h3><p>The license has no scheduled expiry. Refunds, disputes, abuse, provider permissions, and service availability remain subject to the terms.</p></article>
+        <article class="feature"><span class="feature-index">SEPARATE</span><h3>App downloads stay with stores</h3><p>A portable Relay license does not purchase an app from another store. Apple, Google Play, and web purchases remain separate transactions.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="get-access" data-access-catalog data-relay-origin={relayOrigin}>
+    <div class="terminal-frame">
+      <SectionHeading index="02 / GET ACCESS" title="Choose the purchase route that fits your first main device." description="Each completed purchase creates a separate one-main-device license. Prices, currency, and taxes are shown by Stripe, the App Store, or Google Play before you confirm." />
+      <p class="catalog-status" id="accessCatalogStatus" role="status" aria-live="polite">Checking current purchase availability…</p>
+      <div class="acquisition-grid" data-reveal>
+        <article class="acquisition-card" data-purchase-source="stripe">
+          <span class="feature-index">WEB / STRIPE</span>
+          <h2>Buy Relay Access directly.</h2>
+          <p>Best when desktop Beacon Relay is your first main device. Stripe confirms the one-time payment; this browser and Beacon Tools email deliver the portable <code>LFRA-…</code> key.</p>
+          <ul class="compact-checks">
+            <li>Desktop software remains free</li>
+            <li>License can later move to mobile Standalone</li>
+            <li id="stripePriceLabel">Price shown at Stripe Checkout</li>
+          </ul>
+          <p class="source-status" data-source-status>Checking secure web checkout…</p>
+          <button class="action-button action-button--primary" type="button" id="relayCheckout" disabled>Continue to Stripe Checkout</button>
+          <p class="form-status" id="relayCheckoutStatus" role="status" aria-live="polite"></p>
+        </article>
+
+        <article class="acquisition-card" data-purchase-source="apple_app">
+          <span class="feature-index">IOS / APP STORE</span>
+          <h2>Buy Local Flight Mobile for iPhone or iPad.</h2>
+          <p>The paid app verifies App Store ownership and creates the same portable Relay license automatically. Standalone can activate immediately.</p>
+          <ul class="compact-checks">
+            <li>Paid iOS app included in this purchase</li>
+            <li>Optional email protection and desktop transfer</li>
+            <li>Does not purchase the Android app</li>
+          </ul>
+          <p class="source-status" data-source-status>Confirming included license support…</p>
+          <a class="action-button" id="appleAccessLink" href="/local-flight/mobile/#availability">See iOS testing availability</a>
+        </article>
+
+        <article class="acquisition-card" data-purchase-source="google_play">
+          <span class="feature-index">ANDROID / GOOGLE PLAY</span>
+          <h2>Download Android free; add Relay once.</h2>
+          <p>Companion and VATSIM are free in the Android app. Real-flight Standalone can buy the one-time non-consumable Relay product, which creates the same portable license.</p>
+          <ul class="compact-checks">
+            <li>Free Companion and VATSIM before purchase</li>
+            <li>Existing universal licenses can move in with verified Play Integrity</li>
+            <li>Relay purchase does not purchase the paid iOS app</li>
+          </ul>
+          <p class="source-status" data-source-status>Confirming Android app and in-app purchase availability…</p>
+          <a class="action-button" id="googleAccessLink" href="/local-flight/mobile/#availability">See Android testing availability</a>
+        </article>
+      </div>
+      <p class="terms-note">By continuing with a purchase, you agree to the <a href="/local-flight/relay-access/terms/">Relay Access terms</a> and acknowledge the <a href="/privacy/">privacy policy</a>. The mobile stores also apply their own purchase terms.</p>
+    </div>
+  </section>
+
+  <section class="section section--quiet section--ruled">
+    <div class="terminal-frame terminal-grid split-story">
+      <div class="split-story-copy" data-reveal>
+        <span class="section-index">03 / ACTIVATE AND MOVE</span>
+        <h2>The same license, with the safest handoff for each device.</h2>
+        <ol class="action-checklist action-checklist--compact">
+          <li><span class="step">WEB</span><strong>Stripe purchase</strong><p>Copy the key into desktop setup. To use it in mobile, verify the purchase email and create a one-use handoff.</p></li>
+          <li><span class="step">STORE</span><strong>Mobile purchase</strong><p>iOS verifies its paid-app entitlement; Android verifies the Relay in-app product. Add an email only for recovery, a portable key, or desktop transfer.</p></li>
+          <li><span class="step">MOVE</span><strong>Change main devices</strong><p>Confirm the named device, save the new credential, then commit the move. The old device stays active if local storage fails.</p></li>
+        </ol>
+      </div>
+      <aside class="split-story-media relay-access-note" data-reveal>
+        <span class="section-index">DESKTOP STILL HAS THREE ROUTES</span>
+        <ol class="data-list relay-route-list">
+          <li><b>Beacon Relay</b><span>Uses one portable Relay Access license.</span></li>
+          <li><b>Bring Your Own Keys</b><span>Free path using your provider accounts and quotas.</span></li>
+          <li><b>VATSIM</b><span>Free public virtual-network traffic.</span></li>
+        </ol>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="terminal-frame">
+      <SectionHeading index="04 / COMMON QUESTIONS" title="Know exactly what travels with the license." description="The license belongs to Beacon Relay. App downloads, store purchases, and the free desktop download remain separate parts of the ecosystem." />
+      <div class="faq-grid" data-reveal>
+        <article><h3>Can an App Store license activate desktop?</h3><p>Yes. Protect it with an email, open the one-time link, and use the delivered key or desktop activation code.</p></article>
+        <article><h3>Can a web license activate mobile?</h3><p>Yes. Use passwordless management to create an “Open in Local Flight Mobile” handoff. iOS verifies its paid app; Android verifies the official app with Play Integrity.</p></article>
+        <article><h3>What if I buy twice?</h3><p>Each completed purchase creates a separate license. Two purchases remain two independently managed licenses, each for one main device.</p></article>
+        <article><h3>Do I need a Beacon account?</h3><p>No. Stripe supplies a delivery email; mobile asks for one only when you choose protection, recovery, or transfer.</p></article>
+      </div>
+      <div class="inline-actions relay-final-actions">
+        <a class="action-button action-button--primary" href="/local-flight/relay-access/manage/">Recover or manage access</a>
+        <a class="action-link" href="/local-flight/relay-access/terms/">Read terms and service availability</a>
+      </div>
+    </div>
+  </section>
+
+  <script is:inline>
+    (() => {
+      const root = document.querySelector("[data-access-catalog]");
+      const relay = root?.dataset.relayOrigin || "";
+      const button = document.getElementById("relayCheckout");
+      const checkoutStatus = document.getElementById("relayCheckoutStatus");
+      const catalogStatus = document.getElementById("accessCatalogStatus");
+      const stripePriceLabel = document.getElementById("stripePriceLabel");
+      const appleLink = document.getElementById("appleAccessLink");
+      const googleLink = document.getElementById("googleAccessLink");
+
+      const setSourceStatus = (source, message, tone = "") => {
+        const output = document.querySelector(`[data-purchase-source="${source}"] [data-source-status]`);
+        if (!output) return;
+        output.textContent = message;
+        output.dataset.tone = tone;
+      };
+
+      const applyStoreLink = (link, source, platformLabel) => {
+        if (!link || !source) return;
+        const state = String(source.state || (source.available ? "available" : "unavailable")).toLowerCase();
+        const available = state === "available" && source.available === true;
+        const testing = state === "testing" && source.testing_available === true;
+        const candidate = available ? source.store_url : testing ? source.testing_url : "";
+        if (typeof candidate === "string" && candidate.startsWith("https://")) link.href = candidate;
+        else link.href = "/local-flight/mobile/#availability";
+        link.textContent = available
+          ? `Open ${platformLabel}`
+          : testing
+            ? `See ${platformLabel} testing`
+            : `See ${platformLabel} availability`;
+      };
+
+      const loadCatalog = async () => {
+        try {
+          const response = await fetch(`${relay}/v1/access/catalog`, { headers: { Accept: "application/json" } });
+          const data = await response.json();
+          const product = data?.product;
+          const sources = product?.purchase_sources;
+          if (!response.ok || !data?.ok || product?.product_code !== "beacon_relay_lifetime_v1" || product?.independent_receivers !== 1) {
+            throw new Error("Beacon Relay returned an unexpected purchase description.");
+          }
+
+          const stripeReady = sources?.stripe?.available === true && product?.sales_available !== false;
+          button.disabled = !stripeReady;
+          if (typeof product?.pricing?.display_label === "string" && product.pricing.display_label.trim()) {
+            stripePriceLabel.textContent = product.pricing.display_label;
+          }
+          applyStoreLink(appleLink, sources?.apple_app, "App Store");
+          const googleSource = sources?.google_play || sources?.google_app;
+          applyStoreLink(googleLink, googleSource, "Google Play");
+          setSourceStatus("stripe", stripeReady ? "Secure web checkout is available." : "Web sales are not open yet.", stripeReady ? "ok" : "pending");
+          setSourceStatus("apple_app", sources?.apple_app?.available ? "The paid iOS app includes this portable license." : sources?.apple_app?.testing_available ? "The included license is in iOS testing." : "The iOS purchase route is not open yet.", sources?.apple_app?.available ? "ok" : "pending");
+          setSourceStatus("google_play", googleSource?.available ? "The free Android app and its one-time Relay purchase are available." : googleSource?.testing_available ? "Android Relay purchase verification is in testing." : "The Android Relay purchase route is not open yet.", googleSource?.available ? "ok" : "pending");
+          catalogStatus.textContent = stripeReady
+            ? "Current Relay Access purchase routes are ready."
+            : "The product is configured, but direct web sales are not open yet.";
+          catalogStatus.dataset.tone = stripeReady ? "ok" : "pending";
+        } catch {
+          button.disabled = true;
+          setSourceStatus("stripe", "Could not confirm web checkout availability.", "bad");
+          setSourceStatus("apple_app", "See the mobile page for current testing availability.", "pending");
+          setSourceStatus("google_play", "See the mobile page for Android app and purchase availability.", "pending");
+          catalogStatus.textContent = "Purchase availability could not be checked. No payment has been started.";
+          catalogStatus.dataset.tone = "bad";
+        }
+      };
+
+      button?.addEventListener("click", async () => {
+        button.disabled = true;
+        checkoutStatus.textContent = "Opening secure checkout…";
+        checkoutStatus.dataset.tone = "";
+        try {
+          const response = await fetch(`${relay}/v1/access/stripe/checkout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ website_context: "relay_access_page" }),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.checkout_url || !data.checkout_ref || !data.result_secret) {
+            throw new Error(data?.detail?.message || data?.error || "Checkout is not available yet.");
+          }
+          sessionStorage.setItem(`beacon.relay.checkout.${data.checkout_ref}`, data.result_secret);
+          window.location.assign(data.checkout_url);
+        } catch (error) {
+          checkoutStatus.textContent = error instanceof Error ? error.message : "Checkout is not available yet.";
+          checkoutStatus.dataset.tone = "bad";
+          button.disabled = false;
+        }
+      });
+
+      loadCatalog();
+    })();
+  </script>
+</SiteLayout>

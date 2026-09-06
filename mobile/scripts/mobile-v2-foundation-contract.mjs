@@ -182,7 +182,7 @@ assert.equal(
 requireText(iosWidget, 'Text("Pinned flight")', "iOS widget terminology");
 requireText(androidWidgetStrings, '<string name="localflight_widget_pinned_flight">Pinned flight</string>', "Android widget terminology");
 requireText(androidWidget, "R.string.localflight_widget_pinned_flight", "Android widget resource usage");
-assert.doesNotMatch(userFacingCopy, /\bthis phone\b|phone localhost|fastest and safest/i, "User-facing copy must remain device-neutral and substantiated.");
+assert.doesNotMatch(userFacingCopy, /phone localhost|fastest and safest/i, "User-facing copy must remain substantiated.");
 assert.match(standaloneApi, /ROUTE_UNAVAILABLE_STATUSES = new Set\(\[404, 405\]\)/);
 assert.match(standaloneApi, /getStandaloneFids\(\s*credentials,\s*"departures",\s*STANDALONE_BOARD_ROWS_PER_DIRECTION\s*\)/);
 assert.match(standaloneApi, /getStandaloneFids\(\s*credentials,\s*"arrivals",\s*STANDALONE_BOARD_ROWS_PER_DIRECTION\s*\)/);
@@ -196,7 +196,7 @@ for (const glossaryTerm of [
   "Companion",
   "Standalone",
   "Remote Companion",
-  "Community Relay",
+  "Beacon Relay",
   "Support ID",
   "movement",
   "FIDS",

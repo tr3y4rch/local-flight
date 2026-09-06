@@ -5,13 +5,13 @@ React Native / Expo mobile app for Local Flight.
 The mobile app is aligned to Local Flight `0.5.2` for TestFlight and Google Play internal testing. It supports two first-run paths:
 
 - **Connect to a Local Flight host:** pair with Local Flight on Windows, macOS, Linux, or Raspberry Pi over the same Wi-Fi. This is called Companion mode after setup; it uses the nearby host first and can use encrypted Remote Companion fallback after a relay-linked host grants this device access.
-- **Use without a Local Flight host:** choose an airport and use the hosted Local Flight relay directly. This is called Standalone mode after setup, with careful refresh limits that keep the shared service reliable and fairly available.
+- **Use without a Local Flight host:** choose real airline data or VATSIM and run without a computer. This is called Standalone mode after setup. The paid iOS app includes portable Relay Access for real-flight Standalone. Android is free: VATSIM needs no Relay purchase, while real-flight Standalone uses a one-time, non-consumable Relay Access product. A Relay license can power one main device: a phone using real-flight Standalone or one Local Flight desktop.
 
 For most home setups, start with Companion. Use Standalone when you want a light mobile FIDS/Radar/History app without running your own Local Flight server.
 
 Local Flight Mobile is a personal display aid. Flight, weather, radar, and airport-surface data can be delayed, incomplete, or unavailable, so it must not be used for navigation, dispatch, operational control, or safety decisions.
 
-The public front door for Mobile users is [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). Use that page for availability, install guidance, release notes, support links, source links, and store metadata. The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Remote Companion and Standalone use the Beacon Tools relay at `https://relay.beacontools.cc` for different jobs: encrypted fallback for a paired host versus direct Standalone board data.
+The public front door for Mobile users is [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). Use that page for availability, install guidance, release notes, support links, source links, and store metadata. The public privacy policy is [beacontools.cc/privacy](https://beacontools.cc/privacy). Remote Companion and Standalone use the build-profile Beacon Relay for different jobs: encrypted fallback for a paired host versus direct Standalone board data.
 
 > **Quick alternative:** if
 > you only need to glance at the board from a phone, you don't have
@@ -33,11 +33,13 @@ The public front door for Mobile users is [beacontools.cc/local-flight/mobile](h
 - iPhone/iPad connected for device builds, or an iOS simulator
 - Android phone with USB debugging enabled, or an Android Studio emulator
 - For Companion: Local Flight already running on the same Wi-Fi/LAN. Remote Companion also requires a relay-linked host, an explicit remote QR grant, and the host online.
-- For Standalone: internet access to the hosted relay
+- For Standalone: internet access to the hosted relay; real-flight Standalone also requires Relay Access, while VATSIM does not
+
+The iOS app targets iOS 16 or later because the portable-license proof uses StoreKit `AppTransaction`. Supporting iOS 15 would require a separately designed receipt-verification fallback; the paid app must not be installable on a system that cannot obtain its included Relay license.
 
 Expo SDK 55 targets React Native 0.83 and React 19.2. Run `npm run doctor` after install on the Mac to confirm the active Xcode, CocoaPods, and package versions are compatible.
 
-For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted. Copy the checked English (U.S.) customer listing from [`store/ios/en-US/`](store/ios/en-US/) and run `npm run appstore:contract` before submission. For Google Play preparation, keep [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md) aligned with the exact Android App Bundle being submitted. Store marketing links should point to `https://beacontools.cc/local-flight/mobile`, support links to `https://beacontools.cc/support`, and privacy links to `https://beacontools.cc/privacy`.
+For App Store/TestFlight preparation, keep [APP_STORE_REVIEW_NOTES.md](APP_STORE_REVIEW_NOTES.md) aligned with the exact build being submitted. Copy the checked English (U.S.) customer listing from [`store/ios/en-US/`](store/ios/en-US/) and run `npm run appstore:contract` before submission. For Google Play preparation, keep [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md) aligned with the exact Android App Bundle, copy the checked listing from [`store/android/en-US/`](store/android/en-US/), and run `npm run playstore:contract`. Store marketing links should point to `https://beacontools.cc/local-flight/mobile`, support links to `https://beacontools.cc/support`, and privacy links to `https://beacontools.cc/privacy`.
 
 The home-screen widget contract and Dynamic Island / Live Activity boundary live in [`../docs/mobile-ios-widgets-dynamic-island.md`](../docs/mobile-ios-widgets-dynamic-island.md). The current source enables a WidgetKit extension for iOS, a local `AppWidgetProvider` for Android, and a capability-gated local pinned-flight Live Activity. All three read the same bounded app-written snapshot and never fetch LAN, relay, or provider data themselves. Starting a Live Activity requires the explicit **Pin & show on Lock Screen** action; no APNs or notification service is involved.
 
@@ -153,11 +155,11 @@ Store identity and the current `0.5.2` testing counters are:
 - iOS bundle ID: `cc.beacontools.localflight`
 - iOS `buildNumber`: `12`
 - Android package ID: `cc.beacontools.localflight`
-- Android `versionCode`: `12`
+- Android `versionCode`: `15`
 
 Do not upload a store build with any old `com.localflight.*` identifier. App Store bundle IDs and Google Play package names are effectively permanent after first upload.
 
-The current widget-enabled source targets iOS `0.5.2 (9)` and Android `0.5.2 (12)`; these counters identify the refreshed V2 TestFlight and Google Play internal builds because native widget and launcher changes cannot be delivered through an over-the-air JavaScript update alone.
+The current widget- and store-proof-enabled source targets iOS `0.5.2 (12)` and Android `0.5.2 (15)`. Native proof, manifest, widget, and launcher changes require a new store binary and cannot be delivered through an over-the-air JavaScript update alone.
 
 ```bash
 cd mobile
@@ -177,19 +179,26 @@ npx eas build -p ios --profile production
 npx eas build -p android --profile production
 ```
 
-For one validated store-binary build that automatically uploads iOS to
+For one staging-isolated store-binary build that automatically uploads iOS to
 TestFlight and Android to the Google Play internal-testing track, use:
 
 ```bash
 cd mobile
-npx eas build --platform all --profile production --auto-submit --non-interactive
+npx eas build --platform all --profile beta --auto-submit --non-interactive
 ```
 
-The `production` build profile means store-signed binaries; it does not publish
-the app publicly. The checked submit profile pins Android to `internal`, while
-Apple receives the build in TestFlight for review/testing.
+The build profiles intentionally isolate store evidence and license data:
 
-The release build must keep Companion able to reach `http://localflight.local:8000` and private LAN IP addresses, while Remote Companion and Standalone relay traffic stay HTTPS-only at `https://relay.beacontools.cc`. The release manifest should include camera, internet, and vibration only where needed; microphone, storage, and overlay permissions should not ship.
+| EAS profile | Relay origin | Accepted purchase environments |
+| --- | --- | --- |
+| `development`, `preview`, `beta` | `https://relay-staging.beacontools.cc` | Apple `sandbox`; Google `test` |
+| `production` | `https://relay.beacontools.cc` | `production` only |
+
+The staging and production relays must use separate databases and secrets. Origins are public build configuration in `eas.json`; provider keys, App Store credentials, Google Play Developer API credentials, Play Integrity decryption credentials, and database credentials remain server-only. Optional failover origins can be supplied as a comma-separated `EXPO_PUBLIC_LOCALFLIGHT_RELAY_FAILOVER_ORIGINS` value and must be HTTPS origins. The `production` profile means a production-configured, store-signed binary; the checked submit profile still pins Android submission to the internal track while Apple receives the build in TestFlight.
+
+Every build must keep Companion able to reach `http://localflight.local:8000` and private LAN IP addresses, while Remote Companion and Standalone relay traffic stay on the profile’s configured HTTPS origins. Android uses `com.android.vending.BILLING` and must not ship the obsolete `com.android.vending.CHECK_LICENSE`; microphone, storage, and overlay permissions must not ship.
+
+Before producing an Android store build, set `LOCALFLIGHT_PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` in the selected EAS environment. After producing the AAB, run `npm run android-manifest:contract`. The check reads Gradle’s merged release manifest, requires Billing plus the Relay product and nonzero Integrity-project metadata, rejects `CHECK_LICENSE`, and rejects microphone, legacy external-storage, and overlay permissions.
 
 Before leaving Internal Testing, complete the Play Console setup:
 
@@ -198,6 +207,7 @@ Before leaving Internal Testing, complete the Play Console setup:
 - Data Safety answers from [PLAY_STORE_REVIEW_NOTES.md](PLAY_STORE_REVIEW_NOTES.md)
 - Content rating and target audience
 - Safety disclaimer in the store description: Local Flight is not for navigation, dispatch, operational control, or safety decisions
+- Non-consumable managed product `cc.beacontools.localflight.relay_access`, backend purchase-token verification/acknowledgement, Play Integrity API linking, and an explicit migration/acquisition policy for existing paid-download customers
 
 On first launch, choose how this device should work.
 
@@ -222,7 +232,13 @@ The Companion connection panel also has **Test Remote Backup** after a remote gr
 
 ### Standalone
 
-Choose **Use without a Local Flight host** when this device should use the hosted relay directly. The app calls this Standalone mode after setup.
+Choose **Use without a Local Flight host** when this device should work on its own. VATSIM opens without Relay activation and sends only the normal install/network information used for abuse limits on the sanitized virtual-data endpoints. For real airline data, only the named final action requests fresh proof: **Verify App Store purchase & open Board** on iOS or **Get or restore Relay Access & open Board** on Android. The native bridge transports a freshly refreshed Apple AppTransaction (including StoreKit's device-verification value) or a transient Google Play Billing purchase token to the configured relay. Grant-based Android transfers instead use a request-bound Play Integrity Standard token, so an existing universal license can move to Android without another Google purchase. Purchase, package, environment, app/device verdict, request-hash, and ownership checks remain server-side.
+
+Verified iOS app ownership or an Android Relay Access managed-product purchase creates the same portable license type as a verified website purchase. Each purchase stays a separate license and can power one main device. A distinct verified Family Sharing identity receives its own iOS license; an authoritative Apple refund and later repurchase for the same stable app-transaction identity restores that license. Companion follows its host and consumes no place, VATSIM bypasses Relay licensing, and Remote Companion requires Relay Access on its desktop host. Email remains optional and appears only in post-setup protection or recovery.
+
+Mobile never accepts or displays an LFRA key. A website transfer grant is usable only after fresh StoreKit ownership proof on iOS or request-bound Play Integrity proof on Android, and moving access requires a named confirmation. For real-flight Standalone, the relay first prepares a short-lived credential without disturbing the old main device; Mobile stores it in SecureStore and then commits the activation. A storage failure therefore leaves the old main device active. Switching from real-flight Standalone to Companion or VATSIM releases the phone through the relay. If release cannot reach the relay, the single encrypted device credential is retained for retry, direct Relay runtime use is prohibited, LAN Companion and VATSIM remain usable, and `release_pending` stays visible in More.
+
+Native proof failures use stable local codes so setup can render an inline state rather than generic network prose: `store_cancelled`, `store_unavailable`, `ownership_unverified`, `device_verification_missing`, `store_timeout`, `unsupported_build`, and `purchase_pending`. iOS verification is never retried automatically because `AppTransaction.refresh()` may show authentication UI.
 
 The shared first-run path is **Welcome → connection choice → pair or choose airport → privacy and review**. Standalone activation and the airport choice happen inside the third step; Companion QR scanning and manual pairing share that same step.
 
@@ -254,14 +270,14 @@ The screenshot script builds a self-contained simulator app and captures portrai
 - Consistent **Board / Radar / History / More** navigation in Companion and Standalone, with bottom tabs below 600dp and an adaptive left rail on wider windows
 - Remote Companion fallback for paired relay-linked hosts, including stored grant refs, LAN-first fallback, friendly offline/revoked messages, and a visible `LAN` / `REMOTE` / `OFFLINE` connection state.
 - Width-driven phone, tablet, foldable, and Apple-silicon Mac layouts without device-name detection
-- SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, standalone activation token, standalone airport, mobile diagnostics mode, pinned flight, profiles, mobile appearance choices, and widget preferences
+- SecureStore persistence for setup mode, server URL, mobile install ID, standalone relay install ID, one standalone device credential, pending main-device release, standalone airport, mobile diagnostics mode, pinned flight, profiles, mobile appearance choices, and widget preferences
 - Companion connection checks against `/api/health`
 - Companion dashboard data from `/api/mobile/summary` plus the existing local APIs, with encrypted relay request/response envelopes used only after LAN fetch failure when a remote grant exists
 - QR pairing from native Settings prefers the server's LAN IP and carries the server fingerprint, so the app can reject a scan that resolves to another Local Flight host on a multi-server LAN
-- Standalone summary, FIDS, Radar, and METAR data from relay `/v1/mobile/*` endpoints
+- Standalone summary, FIDS, Radar, and METAR data from relay `/v1/mobile/*` endpoints; real data requires a committed Relay credential while sanitized VATSIM uses only install/network abuse limits
 - Native FIDS list from local `/api/fids` in Companion mode and relay `/v1/mobile/fids` in Standalone mode
 - Flight details from `/api/fids/detail`, including the server's shared current-source detail model for real vs VATSIM schedule, motion, aircraft, weather, source confidence, and history fields when available. VATSIM details use the same pilot/ATC contract as desktop: callsign, filed plan, pilot track, XPDR, and recent sessions, without passenger codeshare/gate/registration fields.
-- Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Local Flight Relay shows 30-minute-or-slower choices because shared airport snapshots protect upstream schedule access.
+- Airport, source, and refresh interval editing. The server offers 15, 30, 45, and 60 minute choices plus longer 2, 4, 8, 12, and 24 hour choices where the active schedule mode allows them. Beacon Relay shows 30-minute-or-slower choices because shared airport snapshots protect upstream schedule access.
 - Pinned flight island with pin/unpin and tap-for-detail behavior
 - WebSocket listener for `/ws` `snapshot_updated`, `config_updated`, and `scheduler_restarted` events in Companion mode on LAN. Remote Companion can fall back to polling when relay event forwarding is unavailable.
 - System, warm light, and midnight dark appearance choices, with a separate high-contrast preference and migration from every legacy skin
@@ -296,9 +312,9 @@ Standalone deliberately hides Matrix, Admin, scheduler restart, server-control p
 
 ### Standalone
 
-- It talks directly to the hosted Local Flight relay.
-- The default relay URL is `https://relay.beacontools.cc`.
-- It registers a separate relay install UUID and activation token for this mobile install.
+- It talks directly to the hosted Beacon Relay.
+- The canonical relay and optional failover origins come from the EAS build profile and are exposed in `extra.localFlightRelay`; staging/beta builds must never fall back to production.
+- Real-flight Standalone registers a separate relay install UUID and stores one committed, revocable `lfr_` device credential for this mobile install. VATSIM does not require that credential. The portable license’s `LFRA-…` master key is never stored by Mobile.
 - It stores the selected airport and local deduped movement history on the device.
 - Manual reports go directly to relay `/v1/reports`.
 - Automatic reports only send when the mobile diagnostics choice is `auto` or `auto_logs`.
@@ -316,6 +332,7 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 - `src/v2/` contains the Board, Radar, History, More, Display, and shared Board row-model implementations.
 - `src/content/` contains the typed English copy catalog and terminology contract.
 - `src/api/standalone.ts` is the relay-backed mobile data/report client for Standalone mode.
+- `src/access/paidAppAccess.ts` and `modules/localflight-paid-app/` own App Store ownership or Google Play Relay-product proof, Play Integrity transfer attestation, the relay challenge exchange, and the account-free protection/transfer claim.
 - `src/api/iap.ts` and `src/iap/` own the native-store product catalog, purchase lifecycle, unfinished-transaction recovery, and relay verification client.
 - `src/domain/` contains pure helpers and constants for flights, formatting, radar, matrix, and feedback context.
 - `src/hooks/` contains stateful behavior such as launch/bootstrap, dashboard refresh, flight detail loading, and Matrix draft/save/reset.
@@ -332,20 +349,25 @@ The mobile install ID and standalone relay install ID are install-scoped. They a
 - Public Google Play production release
 - APNs, notification infrastructure, and server-pushed Live Activity updates; this release intentionally uses local best-effort updates only
 - Remote Companion physical-device validation on Android and iOS before public store rollout.
-- Per-device authorization/revoke tokens for broader mutating LAN controls. Current Companion identifies each device with an install-scoped companion ID/check-in plus optional Remote Companion grant, while Standalone uses its relay activation token.
+- Per-device authorization/revoke tokens for broader mutating LAN controls. Current Companion identifies each device with an install-scoped companion ID/check-in plus optional Remote Companion grant, while Standalone uses its revocable relay device credential.
 - Broader mobile admin control is intentionally out of scope; Companion exposes only the current allowlisted control surfaces.
 - Native crash capture before JavaScript starts
 - Full standalone flight-detail endpoint parity; Standalone currently focuses on Board, Radar, History, More, and reports
-- Subscriptions, paywalls, durable paid entitlements, and external payment links
+- Subscriptions and external payment links
 
 ---
 
 ## Release Validation
 
+- Production remains disabled until the staging and production relays have separate databases and secrets, provider permissions and catalog readiness are confirmed, the production store identities are installed server-side, device-level proof tests pass, and compatibility gates are green.
+- Relay Access proof pass: free Companion/VATSIM with zero access calls; mandatory real-flight Standalone verification, atomic SecureStore write, and activation commit; occupied access and named movement; terminal `suspended`, `refunded`, and `revoked` states; restore; and serialized `release_pending` retry.
+- Environment isolation proof: TestFlight and Play internal-track evidence reaches only `https://relay-staging.beacontools.cc`; production accepts only production evidence and shares neither credentials nor license records with staging.
+- Android merged-manifest proof: set the profile’s Play Integrity project number, run `npm run android-manifest:contract` against the final release build, and verify no legacy Licensing permission or AIDL service ships.
 - Remote Companion release-gate proof: pair on the same Wi-Fi, run **Test Remote**, confirm nearby-first behavior, block the nearby route, load Board/Radar/History/More through the relay, exercise an allowed host action, revoke the grant, and confirm remote access stops.
-- TestFlight proof pass on a fresh real iPhone and iPad: Companion LAN/Remote pairing, Standalone setup, denied camera/local-network paths, and accessibility settings
+- TestFlight proof pass on fresh real iPhone/iPad devices: Companion LAN/Remote pairing, VATSIM without activation, AppTransaction reinstall/restore, distinct Family Sharing identity, signed revocation, authoritative refund/repurchase restore, Standalone setup, denied camera/local-network paths, and accessibility settings
+- iOS archive inspection: the app-target `PrivacyInfo.xcprivacy` is included in Copy Bundle Resources and present inside the archived IPA together with the StoreKit proof module
 - App Store Connect privacy/review metadata using `APP_STORE_REVIEW_NOTES.md`
-- Google Play internal-test proof pass on a fresh Android phone: Companion LAN/Remote pairing, Standalone setup, denied camera path, permissions, and accessibility settings
+- Google Play internal-test proof pass on a fresh Android phone: free Companion/VATSIM before purchase; managed-product not-owned/owned/pending/cancelled/refunded/restored states; acknowledgement retry and RTDN replay; request-bound Play Integrity transfer without another purchase; Companion LAN/Remote pairing; real-flight Standalone setup; denied camera path; permissions; and accessibility settings
 - Play Console privacy/Data Safety/review metadata using `PLAY_STORE_REVIEW_NOTES.md`
 - App Store sandbox and Play license-tester proof: all three localized consumables load, cancellation and pending states stay friendly, relay interruption leaves the purchase unfinished, reconnect verifies once, and verified purchases can be bought again after consumption.
 - Full standalone flight-detail endpoint parity if Standalone should expose the same detail sheet depth as Companion

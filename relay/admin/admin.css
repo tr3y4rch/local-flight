@@ -606,6 +606,10 @@ tbody tr:hover td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   font-variant-numeric: normal;
 }
 .mono { font-family: var(--font-mono); }
+.access-secondary-table { max-height: 320px; }
+.access-secondary-table tbody tr { cursor: default; }
+.access-secondary-table tbody tr:hover td { background: transparent; }
+.access-secondary-table tbody tr:hover td:first-child { box-shadow: none; }
 
 /* ── Badges & dots ─────────────────────────────────────── */
 .badge {
@@ -732,6 +736,37 @@ tbody tr:hover td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   overflow-wrap: anywhere;
 }
 
+/* Relay Access operator inspector */
+.access-operator-note,
+.access-load-error {
+  margin: 0 0 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 12px;
+}
+.access-load-error {
+  border-color: var(--bad-border);
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.access-records { gap: 0; }
+.access-records > .muted { margin: 4px 0 0; }
+.access-record {
+  display: grid;
+  gap: 0;
+  margin-top: 10px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.access-record-title strong {
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  text-align: left;
+}
 /* ── Toast rail (was #notices; same ID, repositioned) ──── */
 .toast-rail {
   position: fixed;

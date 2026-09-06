@@ -121,10 +121,12 @@ store build at this stage.
    LAN health, Linux desktop/server behavior, Raspberry Pi modes, and Matrix on
    the required native and physical systems. Publish the GitHub release only
    after those gates pass.
-6. Build iOS `0.5.2 (12)` and Android `0.5.2 (15)`. Submit only the iOS build
-   to TestFlight in this hardening pass; retain the signed Android AAB without
-   uploading it to a Play track. Complete real-device checks before the public
-   site describes a build as available.
+6. Build iOS `0.5.2 (12)` and Android `0.5.2 (15)`. Submit the iOS build to
+   TestFlight and the signed Android AAB to the Play internal-testing track,
+   both against the isolated staging relay/database. Inspect the archived IPA
+   for the StoreKit module and app-target privacy manifest. Inspect the merged
+   Android release manifest for Billing and Play Integrity configuration and
+   confirm it contains no legacy Play Licensing permission or service.
 7. Deploy the Cloudflare Worker and site only after the complete GitHub release
    is public. Then verify the home, product, mobile, network, privacy, privacy
    choices, and support pages; all ten manifest entries; all checksum links;
@@ -155,7 +157,44 @@ and release inventory. It does not replace native and physical validation:
   install/upgrade/remove with retained state.
 - Raspberry Pi headless, native kiosk, browser kiosk, and Matrix paths.
 - Physical iOS and Android devices for Companion, encrypted Remote Companion,
-  Standalone, widgets, and store-build identity.
+  free VATSIM, real-flight Standalone, widgets, and store-build identity.
+- TestFlight AppTransaction reinstall/restore, distinct Family Sharing identity,
+  signed revocation, refund/repurchase restoration, and cross-device movement
+  against the staging relay.
+- Play internal-track not-owned, pending, purchased, acknowledged, restored,
+  cancelled, refunded, and voided Relay-product states; RTDN replay; and an
+  integrity-bound activation-grant move that requires no additional purchase.
 
 Alpine/musl, 32-bit Linux, RPM, Snap, Flatpak, Windows ARM64, Universal 2, and
 macOS 11 remain outside the 0.5.2 release contract.
+
+## Licensed-service cutover gate
+
+Do not enable Relay Access sales or switch production from `legacy` to
+`licensed` until all of these checks have passed together:
+
+- The configured aviation-provider permissions allow every commercial Relay
+  capability being offered. Entitlement never substitutes for provider consent.
+- Production uses distinct, versioned license-derivation, HMAC, encryption, and
+  backup secrets. Every key ID referenced by the database remains available.
+- Stripe webhook fulfillment, App Store server reconciliation, Google Play
+  Developer API verification/acknowledgement, RTDN, and voided-purchase
+  reconciliation report healthy. Test/sandbox evidence is rejected by
+  production and production evidence is rejected by staging.
+- Licensed mode issues no legacy Community credential. End-user schedule, radar,
+  and Remote Companion requests accept only an active Relay device credential;
+  Managed credentials remain restricted to operator diagnostics.
+- The operator surface can search and page through more than 600 licenses,
+  inspect masked purchase/activation/delivery/reconciliation history, retry safe
+  operations, and perform protected state changes without exposing raw email,
+  key, token, or provider identifiers.
+- WAL-consistent encrypted backups have passed one complete restore drill.
+  Retention is configured for hourly copies for seven days, daily copies for
+  ninety days, and monthly copies for twelve months. Repeat the restore drill at
+  least quarterly.
+- Catalog, checkout, email delivery, two-phase activation/commit, status,
+  deactivation, reconciliation, and operator actions pass a smoke test through
+  the public production routing before sales are made available.
+
+Production cuts over directly from `legacy` to `licensed`; there is no public
+shadow mode, grandfathered Community access, or grace period.

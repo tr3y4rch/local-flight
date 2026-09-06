@@ -105,6 +105,12 @@ class NativeApiService:
     def setup_client_info(self) -> dict[str, Any]:
         return self.client.get_json("/api/setup/client-info")
 
+    def setup_access_catalog(self, *, relay_url: str = "") -> dict[str, Any]:
+        return self.client.get_json("/api/setup/access/catalog", params={"relay_url": relay_url})
+
+    def setup_access_deactivate(self, *, relay_url: str = "") -> dict[str, Any]:
+        return self.client.post_json("/api/setup/access/deactivate", {"relay_url": relay_url})
+
     def setup_activate(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.client.post_json("/api/setup/activate", payload)
 

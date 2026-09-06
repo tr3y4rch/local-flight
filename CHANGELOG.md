@@ -17,6 +17,9 @@ in `docs/engineering-changelog.md`; the current release overview is
   scans, exact checksums, and a draft-release inventory gate.
 - A complete, user-oriented 0.5.2 feature guide for desktop, LAN, server,
   Raspberry Pi, Matrix, and mobile testing.
+- A portable Beacon Relay Access license shared by verified Stripe, paid-iOS,
+  and Android one-time-product purchases. One license can be active on one
+  desktop using Beacon Relay or one phone using real-flight Standalone.
 
 ### Improved
 
@@ -33,6 +36,11 @@ in `docs/engineering-changelog.md`; the current release overview is
   answers and user choices before technical detail.
 - iOS build 12 and Android versionCode 15 align mobile testing with the 0.5.2
   desktop/server/relay contract.
+- The Android app is prepared as a free download: Companion and VATSIM remain
+  free, while real-flight Standalone uses an optional one-time Relay Access
+  product. Existing universal licenses can move to Android through a verified
+  transfer without another Google purchase. The paid iOS app continues to
+  include Relay Access.
 
 ### Privacy, security, and reliability
 
@@ -47,6 +55,9 @@ in `docs/engineering-changelog.md`; the current release overview is
 - Preserved the local-first storage model, public Support ID boundary, optional
   diagnostics, encrypted Remote Companion envelopes, and minimal purchase
   verification records.
+- Relay activation now prepares a short-lived credential, lets the client store
+  it safely, and commits the move only afterward, so a storage failure cannot
+  silently remove access from the previous main device.
 
 ### Distribution notes
 

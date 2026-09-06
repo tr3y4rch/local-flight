@@ -1,7 +1,12 @@
 const fs = require("fs");
 const path = require("path");
 const plist = require("@expo/plist").default;
-const { withDangerousMod, withInfoPlist } = require("@expo/config-plugins");
+const {
+  IOSConfig,
+  withDangerousMod,
+  withInfoPlist,
+  withXcodeProject,
+} = require("@expo/config-plugins");
 
 const privacyManifest = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -97,6 +102,18 @@ const privacyManifest = `<?xml version="1.0" encoding="UTF-8"?>
 \t\t</dict>
 \t\t<dict>
 \t\t\t<key>NSPrivacyCollectedDataType</key>
+\t\t\t<string>NSPrivacyCollectedDataTypePurchaseHistory</string>
+\t\t\t<key>NSPrivacyCollectedDataTypeLinked</key>
+\t\t\t<true/>
+\t\t\t<key>NSPrivacyCollectedDataTypePurposes</key>
+\t\t\t<array>
+\t\t\t\t<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+\t\t\t</array>
+\t\t\t<key>NSPrivacyCollectedDataTypeTracking</key>
+\t\t\t<false/>
+\t\t</dict>
+\t\t<dict>
+\t\t\t<key>NSPrivacyCollectedDataType</key>
 \t\t\t<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
 \t\t\t<key>NSPrivacyCollectedDataTypeLinked</key>
 \t\t\t<true/>
@@ -143,10 +160,12 @@ function withLocalFlightPrivacyManifest(config) {
     return nextConfig;
   });
 
-  return withDangerousMod(config, [
+  config = withDangerousMod(config, [
     "ios",
     async (nextConfig) => {
-      const projectName = nextConfig.modRequest.projectName || "LocalFlightCompanion";
+      const projectName = IOSConfig.XcodeUtils.getProjectName(
+        nextConfig.modRequest.projectRoot
+      );
       const manifestPath = path.join(nextConfig.modRequest.platformProjectRoot, projectName, "PrivacyInfo.xcprivacy");
       fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
       fs.writeFileSync(manifestPath, privacyManifest);
@@ -161,6 +180,31 @@ function withLocalFlightPrivacyManifest(config) {
       return nextConfig;
     }
   ]);
+
+  return withXcodeProject(config, (nextConfig) => {
+    const projectName = IOSConfig.XcodeUtils.getProjectName(
+      nextConfig.modRequest.projectRoot
+    );
+    const relativePath = path.join(projectName, "PrivacyInfo.xcprivacy");
+    const absolutePath = path.join(
+      nextConfig.modRequest.platformProjectRoot,
+      relativePath
+    );
+    if (
+      !nextConfig.modResults.hasFile(absolutePath) &&
+      !nextConfig.modResults.hasFile(relativePath)
+    ) {
+      nextConfig.modResults = IOSConfig.XcodeUtils.addResourceFileToGroup({
+        filepath: relativePath,
+        groupName: projectName,
+        project: nextConfig.modResults,
+        isBuildFile: true,
+        verbose: true,
+      });
+    }
+    return nextConfig;
+  });
 }
 
 module.exports = withLocalFlightPrivacyManifest;
+module.exports.privacyManifest = privacyManifest;

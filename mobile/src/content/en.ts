@@ -119,11 +119,23 @@ export const englishCopy = {
     title: "Set up Local Flight",
     companion: {
       label: "Connect to a Local Flight host",
-      description: "Pair this device with a Local Flight host on the same Wi-Fi. This is called Companion after setup."
+      description: "Connect to your Local Flight host. This phone follows that host and does not use the Relay Access included with the app.",
+      androidDescription: "Connect to your Local Flight host. Companion is free and does not require Relay Access."
     },
     standalone: {
       label: "Use without a Local Flight host",
-      description: "This sets up Standalone mode with a conservatively refreshed mobile board."
+      description: (storeName) => `Use this phone on its own. We’ll check your ${storeName} purchase and use the included Relay Access here.`
+    },
+    relayAccess: {
+      includedHeading: "Beacon Relay Access included",
+      includedBody: "There is no subscription or extra purchase. Relay Access can be active on one phone in Standalone mode or one Local Flight desktop.",
+      companionReview: "This paid app includes Beacon Relay Access. Companion uses your desktop host, so the included access remains available for another main device.",
+      androidCompanionReview: "Companion is free and follows your desktop host. It does not require or purchase Relay Access.",
+      standaloneReview: (storeName) => `We’ll verify your ${storeName} purchase and activate the included Relay Access on this phone.`,
+      androidStandaloneReview: "Real-flight Standalone uses the one-time Relay Access product from Google Play. There is no subscription.",
+      vatsimReview: "VATSIM Standalone is free. It does not buy, verify, activate, or occupy Relay Access.",
+      verifyAndOpenBoard: (storeName) => `Verify ${storeName} purchase & open Board`,
+      getOrRestoreAndOpenBoard: "Get or restore Relay Access & open Board"
     },
     privacy: "Your setup choice is stored on this device. You can change it later in More."
   },

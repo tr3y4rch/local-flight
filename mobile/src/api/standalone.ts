@@ -1,5 +1,4 @@
 import * as Crypto from "expo-crypto";
-import { Platform } from "react-native";
 
 import type {
   AirportResolved,
@@ -12,15 +11,16 @@ import type {
   RadarMapResponse,
   RadarResponse
 } from "./types";
-import { LocalFlightApiError, normalizeServerUrl } from "./client";
+import { LocalFlightApiError } from "./client";
+import { activatePaidMobileOwnership, type MobileRelayAccessSnapshot } from "../access/paidAppAccess";
+import { mobileRelayOrigins, primaryMobileRelayOrigin } from "../access/relayOrigins";
 import { appVersion, getCompanionIdentity, mobileOsLabel, mobileReportOrigin } from "../device/identity";
 import type { MobileDiagnosticsMode, StandaloneAirport, StandaloneFlightSource } from "../storage/settings";
+import { redactSensitiveReportText } from "../utils/reportRedaction";
 
-export const DEFAULT_RELAY_URL = "https://relay.beacontools.cc";
 const CLIENT_KIND = "mobile_standalone";
 const AIRPORT_SEARCH_QUERY_LIMIT = 20;
 const RELAY_REQUEST_TIMEOUT_MS = 20_000;
-const DEFAULT_RELAY_FALLBACK_URL = "https://localflight-community-relay.fly.dev";
 const STANDALONE_BOARD_ROWS_PER_DIRECTION = 50;
 const STANDALONE_BOARD_REFRESH_SECONDS = 3_600;
 const ROUTE_UNAVAILABLE_STATUSES = new Set([404, 405]);
@@ -29,40 +29,31 @@ const VATSIM_UNAVAILABLE_MESSAGE = "VATSIM traffic is not available from this re
 export type StandaloneCredentials = {
   relayUrl?: string;
   installId: string;
-  activationToken: string;
+  deviceCredential: string;
   airport: StandaloneAirport;
   diagnosticsMode: MobileDiagnosticsMode;
   source: StandaloneFlightSource;
 };
 
 export type StandaloneActivationResult = {
-  activationToken: string;
-  tokenPrefix: string;
+  deviceCredential: string;
+  credentialPrefix: string;
   status: string;
+  activationState: "active" | "pending_commit";
+  pendingExpiresIn: number;
+  relayOrigin: string;
+  access: MobileRelayAccessSnapshot;
   decisionNote?: string;
+  moveToken?: string;
+  currentMainDeviceDescription?: string;
 };
 
-function relayBase(relayUrl?: string): string {
-  return normalizeServerUrl(relayUrl || DEFAULT_RELAY_URL);
-}
-
 function relayBases(relayUrl?: string): string[] {
-  const preferred = relayBase(relayUrl);
-  const canonical = normalizeServerUrl(DEFAULT_RELAY_URL);
-  if (preferred !== canonical) return [preferred];
-
-  // The canonical hostname is the public, documented entry point. Some iOS
-  // URLSession builds can stall before receiving its Cloudflare response,
-  // though the same HTTPS relay is reachable directly at its Fly origin. Use
-  // that official origin first on iOS and retain it as a recovery path on the
-  // other mobile platforms. Custom relay addresses are never redirected.
-  return Platform.OS === "ios"
-    ? [DEFAULT_RELAY_FALLBACK_URL, canonical]
-    : [canonical, DEFAULT_RELAY_FALLBACK_URL];
+  return mobileRelayOrigins(relayUrl);
 }
 
 export function preferredStandaloneRelayUrl(relayUrl?: string): string {
-  return relayBases(relayUrl)[0] || relayBase(relayUrl);
+  return primaryMobileRelayOrigin(relayUrl);
 }
 
 async function installFingerprint(installId: string): Promise<string> {
@@ -93,17 +84,32 @@ async function fetchRelayJson<T>(
   if (!response) throw lastError || new LocalFlightApiError("The Local Flight relay could not be reached.");
   if (!response.ok) {
     let message = `Relay HTTP ${response.status} for ${path}`;
+    let code = "";
+    let details: unknown = null;
     try {
-      const data = (await response.json()) as { detail?: unknown; error?: { info?: unknown } };
+      const data = (await response.json()) as {
+        code?: string;
+        detail?: string | { code?: string; message?: string };
+        error?: { code?: string; message?: string; info?: unknown };
+      };
+      details = data;
       if (typeof data.detail === "string" && data.detail.trim()) {
         message = data.detail;
+        code = data.code || "";
+      } else if (data.detail && typeof data.detail === "object") {
+        message = data.detail.message || message;
+        code = data.detail.code || data.code || "";
       } else if (typeof data.error?.info === "string" && data.error.info.trim()) {
         message = data.error.info;
+        code = data.error.code || data.code || "";
+      } else if (data.error?.message) {
+        message = data.error.message;
+        code = data.error.code || data.code || "";
       }
     } catch {
       // Ignore non-JSON relay errors.
     }
-    throw new LocalFlightApiError(message, response.status);
+    throw new LocalFlightApiError(message, response.status, code, details);
   }
   return response.json() as Promise<T>;
 }
@@ -135,7 +141,6 @@ async function standaloneParams(credentials: StandaloneCredentials): Promise<URL
   const identity = await getCompanionIdentity();
   const params = new URLSearchParams({
     install_id: credentials.installId,
-    activation_token: credentials.activationToken,
     app_version: appVersion(),
     client_kind: CLIENT_KIND,
     device_type: identity.deviceType,
@@ -144,8 +149,17 @@ async function standaloneParams(credentials: StandaloneCredentials): Promise<URL
     timezone: credentials.airport.timezone || "UTC",
     diagnostics_mode: credentials.diagnosticsMode
   });
+  if (credentials.source === "real" && credentials.deviceCredential && !credentials.deviceCredential.startsWith("lfr_")) {
+    params.set("activation_token", credentials.deviceCredential);
+  }
   params.set("source", credentials.source);
   return params;
+}
+
+function standaloneHeaders(credentials: StandaloneCredentials): Record<string, string> {
+  return credentials.source === "real" && credentials.deviceCredential.startsWith("lfr_")
+    ? { Authorization: `Bearer ${credentials.deviceCredential}` }
+    : {};
 }
 
 export function searchStandaloneAirports(q: string, limit = 8, relayUrl?: string): Promise<AirportResult[]> {
@@ -168,43 +182,46 @@ export async function activateStandalone(
     installId: string;
     airport: StandaloneAirport;
     relayUrl?: string;
+    activationGrant?: string;
+    confirmMoveToken?: string;
   }
 ): Promise<StandaloneActivationResult> {
-  const identity = await getCompanionIdentity();
-  const fingerprint = await installFingerprint(input.installId);
-  const payload = await fetchRelayJson<{
-    activation_token?: string;
-    token_prefix?: string;
-    status?: string;
-    decision_note?: string;
-  }>(input.relayUrl, "/v1/activate", {
-    method: "POST",
-    body: JSON.stringify({
-      install_id: input.installId,
-      install_fingerprint: fingerprint,
-      airport_iata: input.airport.iata,
-      airport_icao: input.airport.icao,
-      timezone: input.airport.timezone || "UTC",
-      device_type: identity.deviceType,
-      display_name: `Local Flight Mobile ${input.airport.iata || input.airport.icao}`,
-      requested_mode: CLIENT_KIND,
-      app_version: appVersion()
-    })
+  const activation = await activatePaidMobileOwnership({
+    installId: input.installId,
+    activationGrant: input.activationGrant,
+    relayUrl: input.relayUrl,
+    confirmMoveToken: input.confirmMoveToken
   });
-  if (!payload.activation_token) {
-    throw new LocalFlightApiError(payload.decision_note || "Relay activation is pending manual review.");
+  if (!activation.activated) {
+    return {
+      deviceCredential: "",
+      credentialPrefix: "",
+      status: "main_device_in_use",
+      activationState: "active",
+      pendingExpiresIn: 0,
+      relayOrigin: activation.relayOrigin,
+      access: activation.access,
+      decisionNote: "Relay Access is already active on another main device.",
+      moveToken: activation.moveToken,
+      currentMainDeviceDescription: activation.currentMainDeviceDescription
+    };
   }
   return {
-    activationToken: payload.activation_token,
-    tokenPrefix: payload.token_prefix || payload.activation_token.slice(0, 10),
-    status: payload.status || "issued",
-    decisionNote: payload.decision_note
+    deviceCredential: activation.credential,
+    credentialPrefix: activation.credentialPrefix,
+    status: activation.status,
+    activationState: activation.activationState,
+    pendingExpiresIn: activation.pendingExpiresIn,
+    relayOrigin: activation.relayOrigin,
+    access: activation.access
   };
 }
 
 export async function getStandaloneSummary(credentials: StandaloneCredentials): Promise<DashboardSnapshot> {
   const params = await standaloneParams(credentials);
-  const summary = await fetchRelayJson<DashboardSnapshot>(credentials.relayUrl, `/v1/mobile/summary?${params}`);
+  const summary = await fetchRelayJson<DashboardSnapshot>(credentials.relayUrl, `/v1/mobile/summary?${params}`, {
+    headers: standaloneHeaders(credentials)
+  });
   if (
     credentials.source === "virtual"
     && summary.config?.source !== "virtual"
@@ -223,7 +240,9 @@ export async function getStandaloneFids(
   const params = await standaloneParams(credentials);
   params.set("view", view);
   params.set("limit", String(limit));
-  return fetchRelayJson<FidsRow[]>(credentials.relayUrl, `/v1/mobile/fids?${params}`);
+  return fetchRelayJson<FidsRow[]>(credentials.relayUrl, `/v1/mobile/fids?${params}`, {
+    headers: standaloneHeaders(credentials)
+  });
 }
 
 export async function getStandaloneBoard(
@@ -231,7 +250,9 @@ export async function getStandaloneBoard(
 ): Promise<MobileBoardResponse> {
   const params = await standaloneParams(credentials);
   try {
-    const board = await fetchRelayJson<MobileBoardResponse>(credentials.relayUrl, `/v1/mobile/board?${params}`);
+    const board = await fetchRelayJson<MobileBoardResponse>(credentials.relayUrl, `/v1/mobile/board?${params}`, {
+      headers: standaloneHeaders(credentials)
+    });
     if (credentials.source === "virtual" && board.source !== "virtual") {
       throw new LocalFlightApiError(VATSIM_UNAVAILABLE_MESSAGE, 503);
     }
@@ -281,7 +302,9 @@ export async function getStandaloneRadar(
 ): Promise<RadarResponse> {
   const params = await standaloneParams(credentials);
   params.set("radius_nm", String(radiusNm));
-  const radar = await fetchRelayJson<RadarResponse>(credentials.relayUrl, `/v1/mobile/radar?${params}`);
+  const radar = await fetchRelayJson<RadarResponse>(credentials.relayUrl, `/v1/mobile/radar?${params}`, {
+    headers: standaloneHeaders(credentials)
+  });
   if (credentials.source === "virtual" && String(radar.source || "").toLowerCase() !== "vatsim") {
     throw new LocalFlightApiError(VATSIM_UNAVAILABLE_MESSAGE, 503);
   }
@@ -294,12 +317,16 @@ export async function getStandaloneRadarGround(
 ): Promise<RadarMapResponse> {
   const params = await standaloneParams(credentials);
   params.set("radius_nm", String(Math.max(1, Math.min(10, radiusNm))));
-  return fetchRelayJson<RadarMapResponse>(credentials.relayUrl, `/v1/airport-ground?${params}`);
+  return fetchRelayJson<RadarMapResponse>(credentials.relayUrl, `/v1/airport-ground?${params}`, {
+    headers: standaloneHeaders(credentials)
+  });
 }
 
 export async function getStandaloneMetar(credentials: StandaloneCredentials): Promise<Metar> {
   const params = await standaloneParams(credentials);
-  return fetchRelayJson<Metar>(credentials.relayUrl, `/v1/mobile/metar?${params}`);
+  return fetchRelayJson<Metar>(credentials.relayUrl, `/v1/mobile/metar?${params}`, {
+    headers: standaloneHeaders(credentials)
+  });
 }
 
 export async function submitStandaloneFeedback(
@@ -309,16 +336,17 @@ export async function submitStandaloneFeedback(
   const fingerprint = await installFingerprint(credentials.installId);
   return fetchRelayJson(credentials.relayUrl, "/v1/reports", {
     method: "POST",
+    headers: standaloneHeaders(credentials),
     body: JSON.stringify({
       report_type: "manual",
       origin: mobileReportOrigin(),
       install_id: credentials.installId,
       install_fingerprint: fingerprint,
-      activation_token: credentials.activationToken,
-      title: input.title,
-      description: input.description,
+      activation_token: credentials.source === "real" && !credentials.deviceCredential.startsWith("lfr_") ? credentials.deviceCredential : "",
+      title: redactSensitiveReportText(input.title),
+      description: redactSensitiveReportText(input.description),
       context: "mobile_standalone/manual",
-      client_context: input.client_context || "",
+      client_context: redactSensitiveReportText(input.client_context),
       app_version: appVersion(),
       platform: "mobile_standalone",
       os: mobileOsLabel(),
@@ -337,16 +365,17 @@ export async function submitStandaloneCrash(
   const fingerprint = await installFingerprint(credentials.installId);
   return fetchRelayJson(credentials.relayUrl, "/v1/reports", {
     method: "POST",
+    headers: standaloneHeaders(credentials),
     body: JSON.stringify({
       report_type: "crash",
       origin: mobileReportOrigin(),
       install_id: credentials.installId,
       install_fingerprint: fingerprint,
-      activation_token: credentials.activationToken,
-      message: input.message,
-      traceback: input.traceback || "",
-      context: input.context || "mobile_standalone/crash",
-      client_context: input.client_context || "",
+      activation_token: credentials.source === "real" && !credentials.deviceCredential.startsWith("lfr_") ? credentials.deviceCredential : "",
+      message: redactSensitiveReportText(input.message),
+      traceback: redactSensitiveReportText(input.traceback),
+      context: redactSensitiveReportText(input.context || "mobile_standalone/crash"),
+      client_context: redactSensitiveReportText(input.client_context),
       app_version: appVersion(),
       platform: "mobile_standalone",
       os: mobileOsLabel(),

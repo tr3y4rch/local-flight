@@ -1,0 +1,74 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const pageTitle = `${title} | Beacon Tools`;
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site) : Astro.url;
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#080c12" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/assets/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png" />
+    <script is:inline>
+      (() => {
+        const key = "beacontools.theme";
+        let theme = "dark";
+        try {
+          const saved = localStorage.getItem(key);
+          if (saved === "light" || saved === "dark") theme = saved;
+          else if (matchMedia("(prefers-color-scheme: light)").matches) theme = "light";
+        } catch {}
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
+  </head>
+  <body class="management-page">
+    <a class="skip-link" href="#main-content">Skip to license management</a>
+    <header class="management-header">
+      <div class="management-header-inner">
+        <div class="management-brand" aria-label="Beacon Tools license management">
+          <img src="/assets/beacon-tools-mark-96.png" alt="" width="48" height="48" />
+          <span><strong>Beacon Tools</strong><small>Relay license management</small></span>
+        </div>
+        <span class="management-isolation">PRIVATE RECOVERY SESSION</span>
+        <button class="theme-toggle" type="button" aria-label="Switch to light theme" data-theme-toggle>
+          <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
+          <span class="theme-icon theme-icon-moon" aria-hidden="true">◐</span>
+          <span class="theme-label" data-theme-label>Light</span>
+        </button>
+      </div>
+    </header>
+    <main id="main-content"><slot /></main>
+    <footer class="management-footer">
+      <div>
+        <span>License recovery and device transfer only.</span>
+        <nav aria-label="License management help">
+          <a href="/privacy/">Privacy</a>
+          <a href="/local-flight/relay-access/terms/">License terms</a>
+          <a href="/support/">Support</a>
+        </nav>
+      </div>
+    </footer>
+    <script>
+      import "../scripts/site";
+    </script>
+  </body>
+</html>

@@ -85,13 +85,17 @@ def _run_scheduler(stop_event: threading.Event, generation: int) -> None:
 
 
 def _ensure_community_relay_link(cfg: Any) -> None:
-    """Repair legacy Community installs once without blocking board fallback."""
-    if str(getattr(cfg, "source", "") or "").strip().lower() != "real":
+    """Repair legacy relay installs once without blocking board fallback."""
+    if str(getattr(cfg, "data_route", "") or "").strip().lower() != "relay":
         return
     try:
+        from localflight.sources.web.relay_activation import legacy_relay_compat_enabled
+
+        if not legacy_relay_compat_enabled():
+            return
         from localflight.sources.web.aviationstack_client import schedule_policy
 
-        policy = schedule_policy("real")
+        policy = schedule_policy("real", data_route="relay")
         if not bool(policy.get("community_shared")):
             return
         from localflight.sources.web.relay_activation import ensure_relay_link
@@ -103,11 +107,11 @@ def _ensure_community_relay_link(cfg: Any) -> None:
             force=False,
         )
         if result.get("linked"):
-            log.info("Community Relay link verified at scheduler startup")
+            log.info("Beacon Relay link verified at scheduler startup")
         else:
-            log.info("Community Relay link needs attention | status=%s", result.get("status") or "relay_link_required")
+            log.info("Beacon Relay link needs attention | status=%s", result.get("status") or "relay_link_required")
     except Exception as exc:
-        log.debug("Community Relay startup link check deferred: %s", type(exc).__name__)
+        log.debug("Beacon Relay startup link check deferred: %s", type(exc).__name__)
 
 
 def start_scheduler_thread() -> threading.Thread:

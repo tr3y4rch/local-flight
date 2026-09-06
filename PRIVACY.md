@@ -6,7 +6,7 @@ There is no Local Flight account, advertising profile, analytics tracker, or sig
 
 This policy explains what stays on your device, when Local Flight connects online, what limited information the service handles, and what you can reset or delete. Technical identifiers are tied to an installation rather than a person, and automatic diagnostics stay off unless the saved diagnostics choice allows them.
 
-Last updated: July 18, 2026.
+Last updated: September 6, 2026.
 
 Beacon Tools is responsible for the hosted Local Flight relay, website forms, and related support processing. General/support questions and public bug reports start at [beacontools.cc/support](https://beacontools.cc/support). Privacy, diagnostics, and data-request questions can go through [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices) or [privacy@beacontools.cc](mailto:privacy@beacontools.cc). The public privacy URL is [beacontools.cc/privacy](https://beacontools.cc/privacy).
 
@@ -27,6 +27,8 @@ Beacon Tools is responsible for the hosted Local Flight relay, website forms, an
 - Companion automatic diagnostics require two yeses: the mobile app's local diagnostics choice and the connected server's diagnostics mode.
 - Mobile Standalone automatic diagnostics require the phone-local diagnostics choice because there is no paired server.
 - Optional mobile support purchases are processed by Apple or Google. Local Flight never receives card details and does not keep the raw store proof after checking it.
+- Optional Beacon Relay Access is a non-expiring hosted-service entitlement with no recurring fee for one main device. Stripe purchases, verified paid-iOS entitlements, and Android Relay product purchases map to the same portable license model; support purchases remain separate and unlock nothing.
+- Relay Access uses no profile or password. Email is required for Stripe delivery and optional for mobile recovery or transfer. The relay stores an email HMAC plus an encrypted notification copy, never a plain email field.
 - Private reporting credentials stay on the hosted service, not in the app, installer, or documentation.
 - Local Flight does not collect your email address during normal app use. If you email Beacon Tools directly, your email address and message are handled by the email provider so Beacon Tools can reply to you.
 - Local Flight is an informational display aid, not a navigation, dispatch, operational-control, or safety system.
@@ -46,7 +48,7 @@ Beacon Tools is responsible for the hosted Local Flight relay, website forms, an
 - VATSIM-specific matrix presets require source `virtual` and use VATSIM-backed rows/weather only; they do not quietly switch to real-world FIDS or real METAR data.
 - Flight intelligence shown in FIDS, Radar, History, and Matrix is assembled from the current local snapshot, live radar cache, METAR/weather context, airport/surface context, and local history database. It is a display model, not a new background data-harvesting layer.
 - History displays deduped flight movements. Raw fetched observations remain local diagnostics so repeated snapshots and codeshares do not inflate public/client-facing counts.
-- Mobile Standalone stores its setup mode, relay install UUID, activation token, selected airport, appearance, diagnostics choice, pinned flight, and local deduped movement history on the device. Standalone history is not stored on the hosted relay.
+- Mobile Standalone stores its setup mode, relay install UUID, non-secret license summary, selected airport, appearance, diagnostics choice, pinned flight, any pending receiver-release marker, and local deduped movement history on the device. Real-flight Standalone additionally keeps one `relayDeviceCredential` in SecureStore; VATSIM does not require that credential. Standalone history is not stored on the hosted relay.
 - Companion stores its paired server URL, companion ID, appearance, diagnostics choice, pinned flight, local profiles, and, when paired, a Remote Companion grant locally on the phone. The remote grant includes a public grant ref, relay URL, install ref, timestamps, revoked state, and a per-device AES-256-GCM secret kept on the phone and host, not on the relay.
 - iOS and Android home-screen widgets read a bounded board snapshot written locally by the mobile app. The iOS copy lives in the Local Flight App Group and the Android copy stays in the app's private files directory. Widgets do not contact the LAN server, relay, or aviation providers themselves.
 - Unfinished App Store/Play support transactions remain managed by the platform store until Local Flight can verify and finish/consume them. The mobile app does not keep a separate purchase-history database or paid entitlement because support products unlock nothing.
@@ -66,7 +68,7 @@ The privacy goal is data minimization and separation of purpose:
 - The main window should not need a webview engine or remote web assets when the backend is already local.
 - Browser access remains available as a deliberate LAN access and display path. It is useful for headless installs, remote screens, tablets, browser-mode displays, and recovery.
 
-Native mode does not change the aviation data sources you choose. If you enable Community, BYOK, VATSIM, radar, METAR, update checks, or reports, the relevant network calls still happen as described below. The native GUI simply keeps the app window itself out of the browser-vendor data surface.
+Native mode does not change the aviation data sources you choose. If you enable Beacon Relay, BYOK, VATSIM, radar, METAR, update checks, or reports, the relevant network calls still happen as described below. The native GUI simply keeps the app window itself out of the browser-vendor data surface.
 
 ---
 
@@ -74,7 +76,11 @@ Native mode does not change the aviation data sources you choose. If you enable 
 
 ### Shared Data And Connection Service
 
-If you choose **Local Flight Relay**, the Beacon Tools connection service can provide a recent shared copy of real-world schedules and, when available, radar data. This protects provider keys and lets several Local Flight installs reuse one safe result instead of making the same paid request repeatedly. AeroDataBox is the preferred schedule source when configured; AviationStack can fill missing fields or act as a fallback.
+If you choose **Beacon Relay**, the Beacon Tools connection service can provide a recent shared copy of real-world schedules and, when available, radar data. This protects provider keys and lets several Local Flight installs reuse one safe result instead of making the same paid request repeatedly. Which commercial sources and capabilities can be enabled remains controlled separately by verified provider permissions; paying for Relay Access never overrides a provider agreement.
+
+Beacon Relay Access is a non-expiring entitlement with no recurring fee for one active main device, subject to refund, abuse controls, provider permission, and service availability. That main device can be a Local Flight desktop using Beacon Relay or an official mobile installation using real-flight Standalone. LAN and encrypted Remote Companion clients attach to a licensed desktop host and do not use another license. A confirmed move keeps the previous main device active until the new credential has been stored, then revokes the old per-device credential as the new one is committed.
+
+Stripe handles website checkout and its financial receipt. Beacon Tools sends a VST-style master license key to the checkout email and can reveal it once to the successful browser session. The desktop exchanges that key for a revocable per-device credential and does not retain the master key. On iOS, the paid download includes Relay Access: an explicit ownership action refreshes Apple’s signed AppTransaction, and the relay checks the app identity, environment, signature, revocation information, and StoreKit device-verification hash. The device-verification ID is processed only for that check and is not retained. Apple’s app-transaction identity remains stable across a refund and later repurchase for the same Apple Account, so an authoritative repurchase restores the same license; separate verified Family Sharing identities receive separate licenses. On Android, the app is free. A one-time, non-consumable Relay Access purchase creates a license only after Beacon Relay verifies the purchase token with Google Play, and a pending purchase grants nothing. The purchase token is retained only as an encrypted reconciliation handle plus one-way lookup, and the backend handles acknowledgement and trusted refund/revocation reconciliation. An existing universal license can instead move to the official Android app through a short-lived activation grant bound to fresh Play Integrity proof, without another Google purchase. Mobile accepts and displays no master key.
 
 The service keeps only the information needed to connect an installation, share capacity fairly, and recover from failures. In technical terms, that can include:
 
@@ -89,6 +95,9 @@ The service keeps only the information needed to connect an installation, share 
 - short-lived shared schedule records and freshness information
 - a small coarse install profile sent with eligible periodic heartbeats or relay activity: app version, OS family/version/architecture, requested and effective GUI mode, source mode (`real` or `virtual`), diagnostics mode, companion count, Matrix count, and Matrix-online count. Standalone activity can also include the selected airport/timezone and coarse device type. This profile supports compatibility, reliability, and capacity planning without creating a user account.
 - if the operator explicitly enables the optional surface/map overlay path: short-lived airport-surface and map-geometry cache entries derived from OpenStreetMap/Overpass so many installs looking at the same airport do not repeatedly query public map infrastructure
+- for Relay Access: a random holder and license ID, normalized-email HMAC, encrypted recovery/security-notification address, product and purchase source, status, key-secret version and master-key HMAC/masked reference, one active receiver, device-credential HMAC/masked reference, and activation/revocation timestamps
+- for Stripe, iOS paid-app ownership, or an Android Relay product: provider purchase/event HMACs, encrypted reconciliation handle where needed, product identity, environment, state/reason, acknowledgement/reconciliation status, evidence hash, verification/change timestamps, and minimal event-processing references. Replays resolve to the existing license for that external purchase.
+- for key delivery: license/holder references, key version, delivery channel and purpose, state, attempt count, coarse error code, and timestamps. The outbox never stores the key or a plain email address.
 - for an optional mobile support purchase: keyed transaction hash, short transaction reference, product ID, store platform/environment, verification status, install fingerprint, attempt timestamps, and coarse failure code. Raw Apple transaction payloads and raw Google purchase tokens are not retained.
 
 The relay does **not** store:
@@ -101,12 +110,13 @@ The relay does **not** store:
 - your local app logs, unless you explicitly allow diagnostic reports with sanitized logs
 - Remote Companion AES secrets, decrypted request paths, decrypted request bodies, decrypted responses, provider keys, local LAN URLs, or host logs
 - payment-card details, Apple/Google account identity, raw signed Apple transaction payloads, or raw Google purchase tokens
+- raw Relay Access master keys, raw per-device credentials, plain email database fields, or raw paid-app ownership evidence
 
-Local Flight Relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are suppressed before routing to keep triage useful and avoid repeated reports of the same event.
+Beacon Relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are suppressed before routing to keep triage useful and avoid repeated reports of the same event.
 
-The relay controls how often a shared airport snapshot can trigger a new upstream schedule fetch. Local Flight Relay schedule choices are hourly-or-slower, and the relay can ask clients to wait when shared limits are reached. This keeps the service fairly available when many people watch the same busy airport.
+The relay controls how often a shared airport snapshot can trigger a new upstream schedule fetch. Beacon Relay schedule choices are hourly-or-slower, and the relay can ask clients to wait when shared limits are reached. This keeps the service fairly available when many people watch the same busy airport.
 
-Mobile Standalone uses the same hosted relay but with stricter product limits: FIDS auto-refresh is 3 hours minimum, radar refresh is 5 minutes minimum, and radar ranges are limited to `1`, `3`, `5`, and `10` NM.
+Mobile Standalone uses the same hosted relay but with stricter product limits: real airline-schedule refresh is 1 hour minimum, real radar refresh is 3 minutes minimum while Radar is open, and radar ranges are limited to `1`, `3`, `5`, and `10` NM. VATSIM uses sanitized virtual-data endpoints and needs no Relay Access credential.
 
 Remote Companion uses the same hosted relay only as a routing layer for paired Companion phones. The host opens an outbound relay connection; there is no router port forwarding and no public tunnel to the host. The relay admits only active relay-linked installs and active, non-revoked grant refs. If the host is offline, the phone receives a clean offline state instead of an offline command queue.
 
@@ -202,7 +212,7 @@ If you choose `Automatic crash reports + sanitized logs`, the report can also in
 Automatic diagnostics do **not** intentionally contain:
 
 - API keys
-- activation tokens
+- provider keys, Relay Access device credentials, or master license keys
 - raw IP addresses
 - raw screenshots or screen recordings
 - stored flight history
@@ -234,12 +244,12 @@ If either side is set to manual or unset, automatic mobile reporting stays off.
 
 ### Standalone
 
-Standalone stores a separate relay install UUID, activation token, selected airport, appearance choice, pinned flight, diagnostics choice, and on-device deduped movement history database locally on the device.
+Standalone stores a separate relay install UUID, a non-secret license summary, selected airport, appearance choice, pinned flight, diagnostics choice, any pending receiver-release marker, and an on-device deduped movement history database locally on the device. Real-flight Standalone stores one Relay Access device credential in SecureStore; VATSIM does not. Legacy duplicated setup-state credentials are migrated out of setup JSON.
 
 Standalone sends relay requests with:
 
 - install UUID for relay rate limits
-- activation token for access
+- revocable device credential for real-flight access; omitted for VATSIM
 - app version
 - client kind `mobile_standalone`
 - coarse device type, such as phone or tablet
@@ -249,6 +259,14 @@ Standalone sends relay requests with:
 Standalone does not send local phone history to the relay. Manual reports go directly to the relay reporting gateway. Automatic standalone reports only send when the mobile diagnostics choice is `auto` or `auto_logs`.
 
 ### Purchases and In-App Payments (IAP)
+
+Relay Access is a non-expiring hosted-service entitlement with no recurring fee, not a subscription or an unlock for the open-source desktop application. Stripe purchasers receive a master license key on the successful browser session and by email. A verified paid-iOS entitlement includes one license. Android is free to download; its optional one-time Relay Access product creates one license for real-flight Standalone. All three sources produce the same portable license type for one active desktop Beacon Relay installation or one official mobile real-flight Standalone installation. Android Companion and VATSIM work without buying Relay Access, while Remote Companion uses the licensed desktop host. Store-download ownership remains source-specific: a web or Android purchase does not grant the paid iOS download.
+
+For Stripe, the relay stores a keyed purchase reference, product/environment/state, evidence hash, license status, email HMAC, and an encrypted recovery/security-notification address. For iOS, it stores a one-way AppTransaction lookup plus an encrypted reconciliation handle and the minimal state needed to interpret signed revocation or authoritative server results. For Android, it stores a one-way purchase-token lookup plus the token encrypted for Google acknowledgement and reconciliation. It does not retain raw master keys, raw per-device credentials, raw signed store evidence, the transient StoreKit device-verification ID, plain email database fields, card details, or store-account identities. Replayed events and repeated ownership checks return the same license for the same external purchase. A Google repurchase with a new purchase token creates a separate license. Because Apple’s appTransactionID is stable across refund and repurchase for the same Apple Account, an authoritative repurchase restores that license rather than creating another; distinct verified Family Sharing identities remain distinct licenses.
+
+Email is optional for mobile until you choose to protect, recover, or transfer its store-created license. Protecting it sends an address-confirmation link without exposing the key in the app. After confirmation, the website can reveal the existing key once and the delivery outbox sends the same key by email; initial delivery does not rotate it. One-time link secrets are placed in the URL fragment so they are not sent to the hosting service as part of the page request. These links provide short-lived license selection and transfer access without creating a password, profile, or general account. During a move, the old device remains active while the new credential is prepared and stored; a successful commit switches the main device and sends a security notice when the license has a protected email.
+
+The three consumable support products remain a separate purchase path:
 
 The mobile app can offer three optional one-time consumable support products through Apple App Store or Google Play. Support unlocks no feature, creates no account, and creates no durable entitlement. Store-owned localized pricing is shown before the system purchase sheet opens.
 
@@ -273,8 +291,9 @@ Where data-protection law applies, Beacon Tools uses the following purposes and 
 - **Diagnostics:** automatic diagnostics and optional log excerpts are processed only under the choice made in the app. You can change that choice or withdraw consent for future automatic reports at any time. Manual reports are processed because you asked Beacon Tools to investigate them.
 - **Support:** contact details and messages are processed to answer the request you chose to send and to take steps you requested.
 - **Optional purchases:** minimal transaction metadata is processed to perform the purchase you requested, prevent duplicate processing, and meet store/accounting/security requirements. Apple or Google separately processes the payment under its store terms.
+- **Relay Access and recovery:** license, purchase, receiver, and encrypted notification details are processed to provide the hosted service, enforce one active receiver, deliver or recover access, handle refunds and revocations, and send security notices. Stripe or the selected mobile store processes payment separately.
 
-Hosted operational records do not all have a fixed automatic deletion schedule yet. Shared cache records follow service freshness/stale-fallback needs; support messages, report events, dedupe records, and install profiles may remain until operational cleanup or a valid deletion request. This is a transparency boundary for the current service, not permission to reuse the data for advertising or unrelated profiling.
+Shared cache records follow service freshness and stale-fallback needs. Expired access challenges and old successful delivery/provider-event records are periodically removed; the minimal purchase, license, and activation audit is retained for service, fraud, refund, and recovery needs. Other hosted support, report, dedupe, and install-profile records may remain until operational cleanup or a valid deletion request. This is a transparency boundary for the current service, not permission to reuse the data for advertising or unrelated profiling.
 
 Depending on applicable law, you may ask to access, correct, erase, restrict, object to, or obtain a portable copy of personal data associated with you. Because Local Flight has no account system, Beacon Tools may need the public install fingerprint, report reference, approximate time, or reply email you supplied to locate a record without collecting more identity data. Contact [privacy@beacontools.cc](mailto:privacy@beacontools.cc) or use [Privacy Choices](https://beacontools.cc/privacy/choices). You may also complain to the data-protection authority responsible for your location.
 
@@ -318,10 +337,11 @@ When Local Flight fetches data, it may communicate with:
 | AWS Terrain Tiles | Optional radar terrain/relief layer requests public terrain tile data for the displayed airport area/range. It is cached locally and used only as a subtle visual layer. | [registry.opendata.aws/terrain-tiles](https://registry.opendata.aws/terrain-tiles/) |
 | Fly.io | Hosts the Beacon Tools relay and may process connection/security logs at the infrastructure layer. | [fly.io/legal/privacy-policy](https://fly.io/legal/privacy-policy/) |
 | Cloudflare | Hosts and protects the Beacon Tools public website and may process connection/security data at the infrastructure layer. | [cloudflare.com/privacypolicy](https://www.cloudflare.com/privacypolicy/) |
+| Stripe | Hosts website Relay Access checkout, processes payment and financial receipts, and sends a signed purchase event to Beacon Relay. | [stripe.com/privacy](https://stripe.com/privacy) |
 | Mailbox provider | Public website contact forms are delivered through the Beacon Tools relay to the configured support mailbox. This can include your optional name/reply email, selected category, subject, and message. Current provider details are available through the privacy contact. | Provider-specific policy available on request |
 | Linear | Manual reports, public website bug reports, and automatic diagnostics are routed there after sanitization and relay-side dedupe/rate limiting. This can include the report title/description you wrote, optional reply email for website bug reports, sanitized technical metadata, crash context/traceback, and optional sanitized log excerpts. | [linear.app/privacy](https://linear.app/privacy) |
-| Apple App Store | On iOS, Apple presents and processes optional consumable support purchases. Local Flight receives store transaction evidence, not card details. | [apple.com/legal/privacy](https://www.apple.com/legal/privacy/) |
-| Google Play | On Android, Google presents and processes optional consumable support purchases. Local Flight receives a purchase token/product result, not card details. | [policies.google.com/privacy](https://policies.google.com/privacy) |
+| Apple App Store | On iOS, Apple processes paid-app ownership and optional consumable support purchases. Local Flight receives signed app-transaction or support-purchase evidence, not card details. | [apple.com/legal/privacy](https://www.apple.com/legal/privacy/) |
+| Google Play | On Android, Google distributes the free app and processes the optional non-consumable Relay Access product and optional consumable support purchases. Local Flight sends purchase tokens for server-side verification and uses a Play Integrity token only for a grant-based transfer; it receives no card details. | [policies.google.com/privacy](https://policies.google.com/privacy) |
 
 Local Flight does not embed tracking or advertising SDKs from any of these services.
 
@@ -332,7 +352,7 @@ Local Flight does not embed tracking or advertising SDKs from any of these servi
 Local Flight is designed to avoid collecting personal data in normal use:
 
 - no user accounts
-- no email addresses unless you contact Beacon Tools directly or include a reply email in a support form
+- no plain email database fields; Relay Access uses an email HMAC and encrypted notification copy only when checkout, recovery, protection, or transfer needs email
 - no analytics profiles
 - no ad tracking
 - no raw IP storage in the Local Flight relay application database; hosting/CDN infrastructure may transiently process network logs
@@ -352,13 +372,15 @@ Your local data is under your control. To wipe desktop/Pi runtime data, stop Loc
 | Flight snapshots | Your machine | You |
 | Config and personal API keys | Your machine | You |
 | Native GUI state and appearance | Your machine | You |
-| Mobile appearance/setup choices | Your phone/tablet | You |
+| Mobile appearance/setup choices, non-secret license summary, pending receiver release | Your phone/tablet | You |
+| Mobile Relay device credential | Your phone/tablet SecureStore | You |
 | Remote Companion phone grant secret | Your phone/tablet and paired Local Flight host | You |
 | Standalone mobile history | Your phone/tablet | You |
 | Local traffic log | Your machine | You, if network tools are enabled |
 | Flight history | Your machine | You |
 | Website contact messages | Hosted relay contact gateway, then support mailbox | Beacon Tools and the relay/mailbox providers |
 | Manual reports, website bug reports, and automatic diagnostics | Hosted relay reporting gateway, then Linear developer triage inbox | Beacon Tools, relay hosting, and Linear |
-| Local Flight Relay/Standalone/Remote Companion operational metadata and shared schedule/radar cache | Relay server | Beacon Tools and relay hosting provider |
+| Beacon Relay/Standalone/Remote Companion operational metadata and shared schedule/radar cache | Relay server | Beacon Tools and relay hosting provider |
+| Relay Access license, hashed purchase/key/credential references, delivery states, email HMAC, encrypted notification address, and receiver history | Stripe or selected mobile store, then minimal relay license ledger | You, the payment/store provider, Beacon Tools, and relay hosting provider |
 | Cached radar surface/map/terrain geometry | Your machine and, for relay-backed surface/map data, short-lived hosted relay cache when optional overlays are enabled | You and relay operator |
 | Optional mobile support verification metadata | Apple App Store or Google Play, then minimal hashed relay ledger | You, the selected store, Beacon Tools, and relay hosting provider |

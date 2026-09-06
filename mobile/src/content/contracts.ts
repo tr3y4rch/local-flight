@@ -75,8 +75,19 @@ export type EnglishCopyCatalog = {
   };
   setup: {
     title: string;
-    companion: { label: string; description: string };
-    standalone: { label: string; description: string };
+    companion: { label: string; description: string; androidDescription: string };
+    standalone: { label: string; description: (storeName: "App Store" | "Google Play" | "app store") => string };
+    relayAccess: {
+      includedHeading: string;
+      includedBody: string;
+      companionReview: string;
+      androidCompanionReview: string;
+      standaloneReview: (storeName: "App Store" | "Google Play" | "app store") => string;
+      androidStandaloneReview: string;
+      vatsimReview: string;
+      verifyAndOpenBoard: (storeName: "App Store" | "Google Play" | "app store") => string;
+      getOrRestoreAndOpenBoard: string;
+    };
     privacy: string;
   };
   standalone: {

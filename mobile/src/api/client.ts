@@ -30,9 +30,15 @@ import type {
 import { getCompanionIdentity } from "../device/identity";
 import { sendRemoteCompanionRequest } from "./remoteCompanion";
 import type { RemoteCompanionGrant } from "../storage/settings";
+import { redactSensitiveReportText } from "../utils/reportRedaction";
 
 export class LocalFlightApiError extends Error {
-  constructor(message: string, public readonly status?: number) {
+  constructor(
+    message: string,
+    public readonly status?: number,
+    public readonly code: string = "",
+    public readonly details: unknown = null
+  ) {
     super(message);
     this.name = "LocalFlightApiError";
   }
@@ -631,12 +637,21 @@ export function submitFeedback(
   serverUrl: string,
   input: { title: string; description: string; client_context?: string }
 ): Promise<{ ok: boolean; url?: string | null }> {
-  return sendJson<{ ok: boolean; url?: string | null }>(serverUrl, "/api/feedback", input);
+  return sendJson<{ ok: boolean; url?: string | null }>(serverUrl, "/api/feedback", {
+    title: redactSensitiveReportText(input.title),
+    description: redactSensitiveReportText(input.description),
+    client_context: redactSensitiveReportText(input.client_context)
+  });
 }
 
 export function submitCrashReport(
   serverUrl: string,
   input: { message: string; traceback?: string; context?: string; client_context?: string }
 ): Promise<{ ok: boolean; url?: string | null }> {
-  return sendJson<{ ok: boolean; url?: string | null }>(serverUrl, "/api/feedback/crash", input);
+  return sendJson<{ ok: boolean; url?: string | null }>(serverUrl, "/api/feedback/crash", {
+    message: redactSensitiveReportText(input.message),
+    traceback: redactSensitiveReportText(input.traceback),
+    context: redactSensitiveReportText(input.context),
+    client_context: redactSensitiveReportText(input.client_context)
+  });
 }

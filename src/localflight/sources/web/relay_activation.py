@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import threading
 import time
 from typing import Any
@@ -15,9 +16,9 @@ from localflight.sources.web.relay_defaults import (
     validate_public_relay_url,
 )
 from localflight.storage.install import (
-    get_activation_token,
     get_install_fingerprint,
     get_install_id,
+    get_stored_activation_token,
     set_activation_token,
     set_relay_access_mode,
 )
@@ -28,6 +29,14 @@ _lock = threading.RLock()
 _last_auto_attempt = 0.0
 _last_auto_result: dict[str, Any] | None = None
 _last_auto_key: tuple[str, str, str, str] | None = None
+
+
+def legacy_relay_compat_enabled() -> bool:
+    """Keep pre-license auto-provisioning behind an explicit migration flag."""
+    explicit = os.getenv("LOCALFLIGHT_ENABLE_LEGACY_RELAY_COMPAT", "").strip().lower()
+    if explicit:
+        return explicit in {"1", "true", "yes", "on"}
+    return os.getenv("RELAY_ACCESS_MODE", "").strip().lower() == "legacy"
 
 
 def _metadata() -> dict[str, Any]:
@@ -57,14 +66,24 @@ def _retry_after(response: Any) -> int | None:
 
 def _status_code(response: Any, payload: dict[str, Any]) -> str:
     status = int(getattr(response, "status_code", 0) or 0)
-    detail = str(payload.get("detail") or payload.get("error") or "").casefold()
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    code = ""
+    if isinstance(detail, dict):
+        code = str(detail.get("code") or "").strip().lower()
+    if not code:
+        code = str(payload.get("code") or payload.get("reason_code") or "").strip().lower()
+    aliases = {
+        "access_rate_limited": "rate_limited",
+        "relay_credential_required": "token_invalid",
+        "license_not_found": "token_invalid",
+        "license_inactive": "license_inactive",
+        "invalid_challenge": "token_invalid",
+    }
+    if code:
+        return aliases.get(code, code)
     if status == 429:
         return "rate_limited"
-    if "manual review" in detail:
-        return "manual_review"
-    if "bound to another install" in detail:
-        return "token_bound_elsewhere"
-    if status in {401, 403} or "invalid" in detail or "revoked" in detail:
+    if status in {401, 403}:
         return "token_invalid"
     if status >= 500:
         return "relay_unreachable"
@@ -77,9 +96,10 @@ def _failure(code: str, *, response: Any = None, retry_after_s: int | None = Non
         "manual_review": "The relay paused automatic linking for safety. Choose Retry later, VATSIM, or your own provider keys.",
         "token_bound_elsewhere": "The stored relay link belongs to another Local Flight install. Request a repaired link for this install.",
         "token_invalid": "The saved relay link is no longer valid. Local Flight can request a repaired link for this install.",
-        "relay_unreachable": "The Community Relay cannot be reached right now. Your local setup has not been changed.",
-        "relay_link_required": "This Local Flight install still needs a verified Community Relay link.",
-        "relay_error": "The Community Relay could not link this install.",
+        "license_inactive": "Relay Access is not active for this desktop.",
+        "relay_unreachable": "Beacon Relay cannot be reached right now. Your local setup has not been changed.",
+        "relay_link_required": "This Local Flight install still needs an active Beacon Relay credential.",
+        "relay_error": "Beacon Relay could not verify this install.",
     }
     result: dict[str, Any] = {
         "ok": False,
@@ -108,15 +128,30 @@ def _verified_payload(payload: dict[str, Any], token: str) -> dict[str, Any]:
 
 
 def _verify_token(relay_url: str, token: str, *, timeout_s: float) -> tuple[dict[str, Any], Any]:
+    params = {"install_id": get_install_id(), **_metadata()}
+    headers = {"Accept": "application/json"}
+    if token.startswith("lfr_"):
+        headers["Authorization"] = f"Bearer {token}"
+        endpoint = "/v1/access/status"
+    else:
+        # Compatibility for pre-license managed tokens only. Portable Relay
+        # device credentials never travel in a URL.
+        params["activation_token"] = token
+        endpoint = "/v1/client/status"
     response = requests.get(
-        relay_endpoint_url(relay_url, "/v1/client/status"),
-        params={"install_id": get_install_id(), "activation_token": token, **_metadata()},
-        headers={"Accept": "application/json"},
+        relay_endpoint_url(relay_url, endpoint),
+        params=params,
+        headers=headers,
         timeout=timeout_s,
     )
     payload = _json(response)
-    if response.status_code < 400 and payload.get("ok"):
+    valid = payload.get("ok") is True
+    if token.startswith("lfr_"):
+        valid = valid and payload.get("active") is True and payload.get("access_state") == "active"
+    if response.status_code < 400 and valid:
         return _verified_payload(payload, token), response
+    if response.status_code < 400:
+        return _failure(_status_code(response, payload) if payload else "relay_error", response=response), response
     return _failure(_status_code(response, payload), response=response), response
 
 
@@ -141,7 +176,9 @@ def ensure_relay_link(
 
     with _lock:
         now = time.monotonic()
-        stored_token = get_activation_token().strip()
+        # Read the stored value even when runtime use is route-gated. An LFRA
+        # credential is never replaced by the legacy repair endpoint.
+        stored_token = get_stored_activation_token().strip()
         token = str(activation_token or stored_token).strip()
         token_marker = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12] if token else "none"
         attempt_key = (relay_root, get_install_id(), str(requested_mode or "community").strip().lower(), token_marker)
@@ -169,9 +206,17 @@ def ensure_relay_link(
                 set_relay_access_mode(requested_mode)
                 _last_auto_result = verified
                 return dict(verified)
+            if token.startswith("lfr_"):
+                _last_auto_result = verified
+                return dict(verified)
             if verified.get("status") not in {"token_invalid", "token_bound_elsewhere"}:
                 _last_auto_result = verified
                 return dict(verified)
+
+        if not legacy_relay_compat_enabled():
+            result = _failure("relay_link_required")
+            _last_auto_result = result
+            return dict(result)
 
         try:
             response = requests.post(
@@ -203,11 +248,17 @@ def ensure_relay_link(
             _last_auto_result = result
             return dict(result)
         issued_token = str(payload.get("activation_token") or "").strip()
-        if not issued_token:
+        if not issued_token.startswith("lfm_"):
             result = _failure("relay_link_required")
             _last_auto_result = result
             return dict(result)
 
+        # Re-check under the same lock before writing: an LFRA credential always
+        # wins over an obsolete auto-issued token.
+        if get_stored_activation_token().startswith("lfr_"):
+            result = _failure("token_invalid")
+            _last_auto_result = result
+            return dict(result)
         set_activation_token(issued_token)
         set_relay_access_mode(requested_mode)
         try:

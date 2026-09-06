@@ -73,6 +73,8 @@ assert.match(iosPlugin, /LiveActivityViewV2\.swift/);
 assert.match(iosPlugin, /NSSupportsLiveActivities = true/);
 assert.match(iosPlugin, /ensureTargetDependency/);
 assert.match(iosPlugin, /PBXTargetDependency/);
+assert.equal((iosPlugin.match(/IPHONEOS_DEPLOYMENT_TARGET: IOS_DEPLOYMENT_TARGET/g) || []).length, 2);
+assert.match(iosPlugin, /const IOS_DEPLOYMENT_TARGET = "16\.0"/);
 assert.doesNotMatch(privacyPlugin, /delete infoPlist\.NSSupportsLiveActivities/);
 assert.doesNotMatch(
   [iosSnapshot, iosWidget, iosLiveActivity, read("native/ios-widget/SmallWidgetViewV2.swift"), read("native/ios-widget/MediumWidgetViewV2.swift")].join("\n"),

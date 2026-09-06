@@ -1,21 +1,21 @@
 Your airport board, wherever you are.
 
-Local Flight brings a focused flight board to your iPhone, iPad, and compatible Apple-silicon Mac. Pair on the same Wi-Fi with a Local Flight host on macOS, Windows, Linux, or Raspberry Pi to see arrivals, departures, nearby traffic, movement history, and relevant host controls.
+Local Flight brings a focused flight board to your iPhone and iPad. Pair on the same Wi-Fi with a Local Flight host on macOS, Windows, Linux, or Raspberry Pi to see arrivals, departures, nearby traffic, and movement history.
 
 Choose “Connect to a Local Flight host” during setup. This becomes Companion mode and connects directly to your host nearby. If you explicitly enable Remote Companion, the same paired device can continue through end-to-end encrypted relay routing away from home, as long as your host remains online. The nearby connection is always preferred, and remote access can be revoked from the host.
 
 NO HOST? USE STANDALONE.
 
-Choose “Use without a Local Flight host” for a simpler airport board through the Beacon Tools service. This becomes Standalone mode. Choose an airport and start browsing Airline schedules or VATSIM traffic without running Local Flight elsewhere. Careful refresh limits keep shared aviation-data access reliable and fairly available.
+Choose “Use without a Local Flight host” for a simpler airport board. This becomes Standalone mode. Your paid App Store download includes Beacon Relay Access for real airline data. There is no subscription or extra purchase. Relay Access can be active on one phone using real-flight Standalone or one Local Flight desktop. Verification starts only after you choose the explicit real-flight setup or restore action, and Mobile never asks for or displays an LFRA key. VATSIM virtual traffic does not use Relay Access.
 
 BUILT FOR DAILY GLANCES
 
 • Arrivals and departures with airport-local times
 • Status, delay, terminal, and gate details when supplied by the selected data source
 • A responsive radar-style view of nearby aircraft
-• Deduplicated movement history that avoids counting repeated snapshots and known codeshares as separate flights
-• Flight detail sheets using the data available for each movement
-• Pinned-flight and airport-board Home Screen widgets using the latest snapshot prepared by the app
+• Deduplicated movement history
+• Flight detail sheets using available movement data
+• Pinned-flight and airport-board Home Screen widgets
 • A best-effort pinned-flight Live Activity on supported iPhones, started only when you ask for it
 • Warm light, midnight dark, device-matched, and high-contrast appearances
 • Adaptive Board / Radar / History / More navigation for iPhone and iPad
@@ -23,7 +23,7 @@ BUILT FOR DAILY GLANCES
 
 FOR AVIATION ENTHUSIASTS
 
-Local Flight keeps the technical depth close without forcing it into every screen. Companion can reflect real-flight sources configured on your host, or a VATSIM-focused virtual view with callsigns, aircraft, filed routes, altitude, speed, and network freshness when available.
+Companion can reflect real-flight sources configured on your host, or a VATSIM-focused virtual view with callsigns, aircraft, filed routes, altitude, speed, and network freshness when available.
 
 LOCAL-FIRST BY DESIGN
 
@@ -33,6 +33,8 @@ LOCAL-FIRST BY DESIGN
 • Remote Companion traffic is end-to-end encrypted
 • Standalone movement history stays on your device
 • Automatic diagnostics are an explicit choice
+• Companion follows your Local Flight host and leaves the included Relay Access available for another main device
+• Email stays optional and appears only if you later choose protection or recovery
 • Camera access is used only for optional pairing QR codes; manual entry remains available
 
 OPTIONAL SUPPORT
@@ -41,7 +43,7 @@ Three one-time App Store support choices are available in More. They unlock noth
 
 WHAT YOU NEED
 
-Companion requires a Local Flight desktop, Linux server, or Raspberry Pi host. Remote Companion additionally requires explicit pairing, relay access, and an online host.
+Companion requires a Local Flight desktop, Linux server, or Raspberry Pi host. Remote Companion additionally requires explicit pairing, Relay Access on that host, and an online host. Companion follows the host and does not use the Relay Access included with the app. Moving included access to a different main device always requires fresh paid-app verification and a named confirmation; the previous main device stays active until the receiving device stores and commits its new credential.
 
 Standalone requires internet access and intentionally refreshes less frequently than Companion.
 

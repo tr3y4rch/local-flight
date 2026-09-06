@@ -10,6 +10,7 @@ const read = (relativePath) => fs.readFileSync(path.join(mobileRoot, relativePat
 const app = read("App.tsx");
 const shell = read("src/app/AppShell.tsx");
 const appScreens = read("src/screens/AppScreens.tsx");
+const englishCopy = read("src/content/en.ts");
 const navigator = read("src/navigation/MobileNavigatorV2.tsx");
 const nativeShortcutHost = read("src/navigation/NativeShortcutHost.tsx");
 const board = read("src/v2/BoardScreenV2.tsx");
@@ -27,6 +28,7 @@ const launchOverlay = read("src/components/LaunchOverlay.tsx");
 const launchHook = read("src/hooks/useLaunchOverlay.ts");
 const launchPresentation = read("src/domain/launchPresentation.ts");
 const standaloneApi = read("src/api/standalone.ts");
+const relayOrigins = read("src/access/relayOrigins.ts");
 const companionApi = read("src/api/client.ts");
 
 for (const tab of ["Board", "Radar", "History", "More"]) {
@@ -171,6 +173,7 @@ const setupStart = appScreens.indexOf("type CompanionSetupStep");
 const setupEnd = appScreens.indexOf("function SettingsScreen", setupStart);
 assert.ok(setupStart >= 0 && setupEnd > setupStart, "missing mobile onboarding implementation");
 const setup = appScreens.slice(setupStart, setupEnd);
+const onboardingCopy = `${setup}\n${englishCopy}`;
 assert.match(setup, /\["welcome", "mode", "airport", "source", "updates", "privacy", "review"\]/);
 assert.match(setup, /\["welcome", "mode", "pairing", "updates", "privacy", "review"\]/);
 assert.doesNotMatch(setup, /step === "(?:server|policy|diagnostics|ready)"/);
@@ -187,7 +190,7 @@ for (const onboardingTerm of [
   "No pilot names or VATSIM account identifiers are stored.",
   "Privacy and diagnostics"
 ]) {
-  assert.ok(setup.includes(onboardingTerm), `onboarding missing ${onboardingTerm}`);
+  assert.ok(onboardingCopy.includes(onboardingTerm), `onboarding missing ${onboardingTerm}`);
 }
 assert.doesNotMatch(setup, /companionSetupLogoRing|companionSetupLogoPlate/);
 assert.match(setup, /type AirportSearchState = "idle" \| "loading" \| "results" \| "empty" \| "error"/);
@@ -198,8 +201,9 @@ assert.match(setup, /standaloneAirportLookupErrorMessage/);
 assert.match(standaloneApi, /AIRPORT_SEARCH_QUERY_LIMIT = 20/);
 assert.match(standaloneApi, /slice\(0, AIRPORT_SEARCH_QUERY_LIMIT\)/);
 assert.match(standaloneApi, /RELAY_REQUEST_TIMEOUT_MS/);
-assert.match(standaloneApi, /DEFAULT_RELAY_FALLBACK_URL/);
-assert.match(standaloneApi, /Platform\.OS === "ios"/);
+assert.match(relayOrigins, /SAFE_DEFAULT_RELAY_ORIGIN = "https:\/\/relay-staging\.beacontools\.cc"/);
+assert.match(relayOrigins, /EXPO_PUBLIC_LOCALFLIGHT_RELAY_ORIGIN/);
+assert.match(relayOrigins, /EXPO_PUBLIC_LOCALFLIGHT_RELAY_FAILOVER_ORIGINS/);
 assert.match(standaloneApi, /preferredStandaloneRelayUrl/);
 assert.match(standaloneApi, /params\.set\("source", credentials\.source\)/);
 assert.match(standaloneApi, /VATSIM traffic is not available from this relay yet/);

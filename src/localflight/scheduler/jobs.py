@@ -169,7 +169,7 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
 
     airport_iata = cfg.airport_iata
     airport_icao = cfg.airport_icao
-    if _relay_uses_shared_schedule(cfg.source):
+    if _relay_uses_shared_schedule(cfg.source, data_route=cfg.data_route):
         records, _relay_meta = fetch_relay_schedule_records(
             airport_iata=airport_iata,
             timezone_name=cfg.timezone,

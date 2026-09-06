@@ -164,6 +164,13 @@ def test_mobile_iap_verification_is_idempotent_and_stores_no_raw_proof(tmp_path:
         }
     ]
     assert "transaction_ref" not in overview["iap"]
+    conn = relay_main._connect()
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM relay_licenses").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM purchase_records").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM relay_activations").fetchone()[0] == 0
+    finally:
+        conn.close()
 
 
 def test_mobile_iap_android_verification_never_persists_purchase_token(tmp_path: Path, monkeypatch) -> None:
@@ -179,6 +186,13 @@ def test_mobile_iap_android_verification_never_persists_purchase_token(tmp_path:
     assert response.status_code == 200
     assert response.json()["environment"] == "test"
     assert b"google-play-test-token-do-not-store" not in (tmp_path / "relay.db").read_bytes()
+    conn = relay_main._connect()
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM relay_licenses").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM purchase_records").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM relay_activations").fetchone()[0] == 0
+    finally:
+        conn.close()
 
 
 def test_mobile_iap_rejects_unknown_product_and_bundle(tmp_path: Path, monkeypatch) -> None:
@@ -418,7 +432,7 @@ def test_client_status_exposes_safe_shared_schedule_budget(tmp_path: Path, monke
     assert shared["limit"] == 10000
     assert shared["remaining"] == 9963
     assert shared["reset_at"]
-    assert shared["scope_label"] == "Shared by all community relay real-data users"
+    assert shared["scope_label"] == "Shared by all Beacon Relay real-data users"
     assert access["used"] == 2
     assert access["limit"] == relay_main._community_schedule_limit()
     serialized = json.dumps(payload)
@@ -1459,9 +1473,9 @@ def test_relay_root_serves_safe_browser_landing_page(tmp_path: Path, monkeypatch
     assert response.headers["x-frame-options"] == "DENY"
     assert '<meta name="robots" content="noindex, nofollow">' in response.text
     assert '<link rel="canonical" href="https://beacontools.cc/network/">' in response.text
-    assert "Local Flight Community Relay" in response.text
+    assert "Local Flight Beacon Relay" in response.text
     assert "Relay endpoint reached" in response.text
-    assert "Community Relay / Beacon Tools shared service" in response.text
+    assert "Beacon Relay / Beacon Tools shared service" in response.text
     assert "Only the feature you choose uses this path." in response.text
     assert "What reaching this page means." in response.text
     assert "End-to-end encrypted messages" in response.text
@@ -1813,23 +1827,55 @@ def test_relay_reports_redact_secrets_before_linear(tmp_path: Path, monkeypatch)
     )
     client = TestClient(relay_main.app)
     install_id = "00000000-0000-0000-0000-000000000309"
+    relay_secrets = (
+        "LFRA-0000-0000-0000-0000-0000-0000-000",
+        "LFRA000000000000000000000000000",
+        "lfr_device-credential_fixture",
+        "lfrs_result-secret_fixture",
+        "lfrclaim_delivery-claim_fixture",
+        "lfrws_websocket-ticket_fixture",
+        "lfrm_move-token_fixture",
+        "lfrml_management-link_fixture",
+        "lfrhs_management-session_fixture",
+        "lfrag_activation-grant_fixture",
+    )
     payload = _report_payload(
         install_id,
         report_type="manual",
         origin="web",
-        title="Secret report",
-        description="RAPIDAPI_KEY=supersecret lin_api_abcdef access_key=abc 192.168.1.44",
+        title=f"Secret report {relay_secrets[3]}",
+        description=(
+            "RAPIDAPI_KEY=supersecret lin_api_abcdef access_key=abc 192.168.1.44 "
+            + " ".join(relay_secrets)
+        ),
         message="",
+        context=f"web/report/{relay_secrets[8]}",
+        client_context=f"client {relay_secrets[6]}",
     )
+    payload["app_version"] = f"0.5.2 {relay_secrets[4]}"
+    payload["platform"] = f"Darwin {relay_secrets[5]}"
 
     response = client.post("/v1/reports", json=payload)
 
     assert response.status_code == 200
+    title = filed[0]["title"]
     description = filed[0]["description"]
     assert "supersecret" not in description
     assert "lin_api_abcdef" not in description
     assert "access_key=abc" not in description
     assert "192.168.1.44" not in description
+    for secret in relay_secrets:
+        assert secret not in title
+        assert secret not in description
+    conn = relay_main._connect()
+    try:
+        stored_context = conn.execute(
+            "SELECT context FROM report_events ORDER BY id DESC LIMIT 1"
+        ).fetchone()["context"]
+    finally:
+        conn.close()
+    assert relay_secrets[8] not in stored_context
+    assert "[redacted-relay-token]" in stored_context
 
 
 def test_relay_reports_require_linear_configuration(tmp_path: Path, monkeypatch) -> None:
@@ -4297,7 +4343,7 @@ def test_mobile_standalone_radar_limits_radii_and_serves_cache(tmp_path: Path, m
     assert second.status_code == 200
     assert second.headers["x-lf-mobile-standalone-cache"] == "hit"
     assert second.json()["radar_map"]["surface_features"]
-    assert unauthenticated_cache_probe.status_code == 403
+    assert unauthenticated_cache_probe.status_code == 401
     assert len(upstream_calls) == 1
 
 

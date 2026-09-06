@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, List
@@ -19,6 +20,9 @@ DEFAULT_REFRESH_SECONDS = 3600
 
 ALLOWED_SOURCES = set(SOURCE_IDS)
 DEFAULT_SOURCE  = "real"
+
+ALLOWED_DATA_ROUTES = {"relay", "byok", "vatsim"}
+DEFAULT_DATA_ROUTE = "relay"
 
 ALLOWED_SKINS = set(SKIN_IDS)
 DEFAULT_SKIN  = "standard"
@@ -45,6 +49,10 @@ class AppConfig:
     display_name:    str       = "Local Flight"
     theme:           str       = "dark"
     source:          str       = DEFAULT_SOURCE
+    # ``source`` remains the scheduler-facing real/virtual switch. ``data_route``
+    # is the user-facing, additive route contract and distinguishes hosted real
+    # data from direct provider keys.
+    data_route:      str       = ""
     timezone:        str       = "Europe/Zurich"
     skin:            str       = DEFAULT_SKIN
     display_outputs: List[str] = field(default_factory=lambda: list(DEFAULT_OUTPUTS))
@@ -58,6 +66,11 @@ class AppConfig:
     remote_companion_enabled: bool = False
 
     def __post_init__(self) -> None:
+        route = str(self.data_route or "").strip().lower()
+        if route not in ALLOWED_DATA_ROUTES:
+            route = "vatsim" if str(self.source or "").strip().lower() == "virtual" else DEFAULT_DATA_ROUTE
+        object.__setattr__(self, "data_route", route)
+        object.__setattr__(self, "source", "virtual" if route == "vatsim" else "real")
         surface_mode = str(self.radar_surface_mode or "").strip().lower()
         if surface_mode not in ALLOWED_RADAR_SURFACE_MODES:
             surface_mode = "relay" if self.radar_surface_enabled else DEFAULT_RADAR_SURFACE_MODE
@@ -96,10 +109,48 @@ def _to_bool(value: Any, default: bool) -> bool:
     return default
 
 
+def _legacy_data_route(path: Path, *, source: str) -> str:
+    """Infer the additive route for configs written before ``data_route``.
+
+    Provider configuration historically lived beside the config in packaged
+    builds and at the repository root in source checkouts. Environment values
+    are also considered because startup may already have loaded that file.
+    """
+    if source == "virtual":
+        return "vatsim"
+
+    values = dict(os.environ)
+    env_file = path.parent / ".env" if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[3] / ".env"
+    try:
+        for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            values[key.strip()] = value.strip()
+    except Exception:
+        pass
+
+    disabled = {"0", "false", "no", "off"}
+    direct_enabled = any(
+        str(values.get(key) or "").strip()
+        and str(values.get(enabled_key) or "").strip().lower() not in disabled
+        for key, enabled_key in (
+            ("AERODATABOX_API_KEY", "LOCALFLIGHT_AERODATABOX_ENABLED"),
+            ("AVIATIONSTACK_API_KEY", "LOCALFLIGHT_AVIATIONSTACK_ENABLED"),
+        )
+    )
+    if direct_enabled:
+        return "byok"
+    if (path.parent / "activation_token").exists() or str(values.get("LOCALFLIGHT_ACTIVATION_TOKEN") or "").strip():
+        return "relay"
+    return DEFAULT_DATA_ROUTE
+
+
 def load_config() -> AppConfig:
     path = config_path()
     if not path.exists():
-        return AppConfig()
+        return AppConfig(data_route=_legacy_data_route(path, source=DEFAULT_SOURCE))
 
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -178,14 +229,17 @@ def load_config() -> AppConfig:
         radar_surface_mode = DEFAULT_RADAR_SURFACE_MODE
     radar_surface_enabled = radar_surface_mode != "off"
     remote_companion_enabled = _to_bool(raw.get("remote_companion_enabled", False), False)
+    raw_data_route = str(raw.get("data_route") or "").strip().lower()
+    migrated_data_route = raw_data_route if raw_data_route in ALLOWED_DATA_ROUTES else _legacy_data_route(path, source=source)
 
-    return AppConfig(
+    cfg = AppConfig(
         airport_icao=airport_icao,
         airport_iata=airport_iata,
         refresh_seconds=refresh,
         display_name=str(raw.get("display_name", "Local Flight")).strip()[:40] or "Local Flight",
         theme=theme,
         source=source,
+        data_route=migrated_data_route,
         timezone=timezone,
         skin=skin,
         display_outputs=display_outputs,
@@ -198,6 +252,13 @@ def load_config() -> AppConfig:
         radar_surface_mode=radar_surface_mode,
         remote_companion_enabled=remote_companion_enabled,
     )
+    if raw_data_route not in ALLOWED_DATA_ROUTES:
+        try:
+            raw["data_route"] = cfg.data_route
+            path.write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+    return cfg
 
 
 def save_config(cfg: AppConfig) -> None:

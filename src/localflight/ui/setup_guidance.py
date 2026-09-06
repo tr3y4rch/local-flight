@@ -31,42 +31,42 @@ WELCOME_CARDS: tuple[dict[str, str], ...] = (
     {
         "icon": "\U0001F4E1",  # 📡
         "title": "Choose a data source",
-        "body": "Start with the Local Flight relay, use your own provider keys, or choose VATSIM-only virtual traffic.",
+        "body": "Use Beacon Relay with Relay Access, bring your own provider keys, or choose VATSIM virtual traffic.",
     },
     {
         "icon": "\U0001F510",  # 🔐
         "title": "Private by choice",
-        "body": "Keys stay masked, relay tokens stay local, and diagnostics stay opt-in before first launch.",
+        "body": "Keys stay masked, Relay Access device credentials stay local, and diagnostics stay opt-in before first launch.",
     },
 )
 
 SOURCE_OPTIONS: tuple[dict[str, str], ...] = (
     {
-        "mode": "community",
-        "title": "Local Flight Relay",
-        "short_title": "Community",
+        "mode": "relay",
+        "title": "Beacon Relay",
+        "short_title": "Relay",
         "icon": "\U0001F4E1",  # 📡
-        "body": "Recommended first run. Uses the hosted Local Flight relay for real-flight boards without asking you to paste personal schedule keys into this setup.",
-        "note": "The Local Flight relay is selected. This device stays key-free during setup and uses the shared relay allowance for board refreshes.",
-        "finish_label": "Local Flight relay",
+        "body": "Hosted real-flight data from Beacon Tools. Relay Access is a one-time purchase with no subscription. It can be active on one desktop or one phone in Standalone mode.",
+        "note": "Beacon Relay is selected. Get Relay Access or enter an existing key or one-time activation code.",
+        "finish_label": "Beacon Relay",
     },
     {
         "mode": "byok",
-        "title": "Use Your Own Keys",
+        "title": "Bring Your Own Keys",
         "short_title": "BYOK",
         "icon": "\U0001F511",  # 🔑
-        "body": "Use your own provider accounts when you want your own quotas and direct real-data keys on this device.",
+        "body": "Use your own supported provider keys on this device. Your provider account and usage limits apply.",
         "note": "Use your own keys is selected. The next step collects AeroDataBox or AviationStack for schedules, plus optional ADS-B Exchange radar.",
         "finish_label": "Your own provider keys",
     },
     {
-        "mode": "virtual",
-        "title": "VATSIM Only",
+        "mode": "vatsim",
+        "title": "VATSIM",
         "short_title": "VATSIM",
         "icon": "\U0001F6E9",  # 🛩
-        "body": "No real-flight provider keys. Good for simulator traffic, testing, or a privacy-first first launch.",
+        "body": "Use virtual VATSIM traffic. No Relay Access or real-flight provider keys are needed.",
         "note": "VATSIM only is selected. Local Flight skips real-flight provider keys and uses virtual-network traffic only.",
-        "finish_label": "VATSIM only",
+        "finish_label": "VATSIM",
     },
 )
 
