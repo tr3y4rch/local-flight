@@ -167,11 +167,11 @@ const mainResources = xcodeProject.match(
 assert.ok(mainResources, "main iOS application Resources phase is missing");
 assert.match(mainResources[1], /PrivacyInfo\.xcprivacy in Resources/);
 
-assert.match(readme, /iOS `0\.5\.2 \(12\)` and Android `0\.5\.2 \(15\)`/);
-assert.match(appStoreReviewNotes, /Build number: `12`/);
+assert.match(readme, /iOS `0\.6\.0 \(13\)` and Android `0\.6\.0 \(16\)`/);
+assert.match(appStoreReviewNotes, /Build number: `13`/);
 assert.match(appStoreReviewNotes, /Verify App Store purchase & open Board/);
 assert.match(appStoreReviewNotes, /AppTransaction\.refresh\(\)/);
-assert.match(playStoreReviewNotes, /Version code: `15`/);
+assert.match(playStoreReviewNotes, /Version code: `16`/);
 assert.match(playStoreReviewNotes, /Google Play Billing/);
 assert.match(playStoreReviewNotes, /Play Integrity/);
 assert.match(playStoreReviewNotes, /android-manifest:contract/);

@@ -16,13 +16,13 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 ## Status
 
-`0.5.2` is the current Local Flight release line for desktop, Linux server, Raspberry Pi, relay compatibility, and mobile testing:
+`0.6.0` is the current Local Flight release line for desktop, Linux server, Raspberry Pi, relay compatibility, and mobile testing:
 
 - Native desktop app for Windows, Apple silicon and Intel Macs, and 64-bit Linux, with four switchable FIDS board styles (Classic / PAX / VATSIM / Nerd)
 - Portable Linux AppImages plus integrated Ubuntu/Debian desktop and headless-server packages for x86-64 and ARM64
 - LAN browser UI that mirrors the native Qt shell — same nav, same tokens, same components — with an automatic mobile view for phones and a compact layout for 7" Raspberry Pi screens
 - Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
-- Mobile app with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. iOS build 12 and Android versionCode 15 use the same `0.5.2` feature contract during store testing.
+- Mobile app with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. iOS build 13 and Android versionCode 16 use the same `0.6.0` feature contract during store testing.
 - Interstate 75 W / HUB75 Matrix client and preview tools
 - Beacon Tools public site and privacy page for release/App Store/TestFlight metadata
 
@@ -49,7 +49,7 @@ Read the detailed guides:
 - [Install Guide](docs/install.md)
 - [Display Modes](docs/display-modes.md)
 - [Privacy & Diagnostics](PRIVACY.md)
-- [0.5.2 Full App Release Guide](docs/release-notes-0.5.2.md)
+- [0.6.0 Ecosystem Release Guide](docs/release-notes-0.6.0.md)
 - [Full Changelog](CHANGELOG.md)
 
 Historical release notes remain under [`docs/`](docs/), including the archived `0.2.x` development lines.
@@ -111,28 +111,28 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 ## Quick Install
 
-Use the **Downloads** section at [beacontools.cc/local-flight](https://beacontools.cc/local-flight#downloads) for the `0.5.2` Windows, macOS, Linux, Linux server, and Raspberry Pi packages. The page links to the official [GitHub Releases page](https://github.com/tr3y4rch/local-flight/releases) and enables each file only when its matching SHA-256 checksum is present.
+Use the **Downloads** section at [beacontools.cc/local-flight](https://beacontools.cc/local-flight#downloads) for the `0.6.0` Windows, macOS, Linux, Linux server, and Raspberry Pi packages. The page links to the official [GitHub Releases page](https://github.com/tr3y4rch/local-flight/releases) and enables each file only when its matching SHA-256 checksum is present.
 
 ### Windows
 
-Choose Windows to fetch `LocalFlight-0.5.2-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut. The 0.5.2 installer is intentionally unsigned and Windows may identify it as an unknown publisher. Verify both the official release source and checksum; the checksum is not a publisher signature.
+Choose Windows to fetch `LocalFlight-0.6.0-Setup.exe`, run the wizard, then launch Local Flight from the final installer page, Start Menu, or desktop shortcut. The 0.6.0 installer is intentionally unsigned and Windows may identify it as an unknown publisher. Verify both the official release source and checksum; the checksum is not a publisher signature.
 The release app launches as a branded desktop app without a Python or cmd console window.
 
 ### macOS
 
-Choose either `LocalFlight-0.5.2-macos-arm64.pkg` for an M-series Mac or `LocalFlight-0.5.2-macos-x86_64.pkg` for an Intel Mac. Both packages support macOS 12 or newer, are Developer ID signed and notarized, and install the same Local Flight app in Applications. No Python, Terminal, or Gatekeeper bypass is needed.
+Choose either `LocalFlight-0.6.0-macos-arm64.pkg` for an M-series Mac or `LocalFlight-0.6.0-macos-x86_64.pkg` for an Intel Mac. Both packages support macOS 12 or newer, are Developer ID signed and notarized, and install the same Local Flight app in Applications. No Python, Terminal, or Gatekeeper bypass is needed.
 
 ### Linux Desktop
 
-Choose an x86-64 or ARM64 AppImage for a portable desktop app, or the matching `localflight-desktop_0.5.2_*.deb` for an integrated Ubuntu/Debian install. The AppImage stores data in your normal `~/.localflight` folder and does not autostart. ARM64 desktop packages require Ubuntu 24.04 or Debian 13; x86-64 packages are tested on Ubuntu 22.04/24.04 and Debian 12/13.
+Choose an x86-64 or ARM64 AppImage for a portable desktop app, or the matching `localflight-desktop_0.6.0_*.deb` for an integrated Ubuntu/Debian install. The AppImage stores data in your normal `~/.localflight` folder and does not autostart. ARM64 desktop packages require Ubuntu 24.04 or Debian 13; x86-64 packages are tested on Ubuntu 22.04/24.04 and Debian 12/13.
 
 ### Linux Headless Server
 
-Install `localflight-server_0.5.2_amd64.deb` or `localflight-server_0.5.2_arm64.deb` on an always-on Ubuntu/Debian host. It serves setup and the LAN UI on port 8000 without opening a local window, and waits for setup to finish before scheduled provider work begins.
+Install `localflight-server_0.6.0_amd64.deb` or `localflight-server_0.6.0_arm64.deb` on an always-on Ubuntu/Debian host. It serves setup and the LAN UI on port 8000 without opening a local window, and waits for setup to finish before scheduled provider work begins.
 
 ### Raspberry Pi
 
-Download `LocalFlight-pi-source-0.5.2.zip` from the website Downloads section or clone the repo, then run:
+Download `LocalFlight-pi-source-0.6.0.zip` from the website Downloads section or clone the repo, then run:
 
 ```bash
 bash installers/pi/install.sh
@@ -142,7 +142,7 @@ The Pi installer asks how the Pi should run and defaults to headless.
 
 ### Mobile App
 
-Version `0.5.2` (iOS build 12 and Android versionCode 15) is in TestFlight and Google Play internal testing. Public availability and tester access are listed at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development, not ordinary installation.
+Version `0.6.0` (iOS build 13 and Android versionCode 16) is in TestFlight and Google Play internal testing. Public availability and tester access are listed at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development, not ordinary installation.
 
 ```bash
 cd mobile

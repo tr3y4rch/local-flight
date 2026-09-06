@@ -8,7 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 # ``pyproject.toml`` remains the release source of truth.  This fallback keeps
 # source bundles and the relay image useful when package metadata is not
 # installed; the release consistency test requires it to match pyproject.
-FALLBACK_VERSION = "0.5.2"
+FALLBACK_VERSION = "0.6.0"
 PRODUCT_URL = "https://beacontools.cc/local-flight"
 
 

@@ -1,6 +1,6 @@
 # Local Flight Mobile App Store / TestFlight Review Notes
 
-This file is the working checklist for the `0.5.2` TestFlight/review build. It is not legal advice; keep the final App Store Connect answers aligned with the exact submitted build.
+This file is the working checklist for the `0.6.0` TestFlight/review build. It is not legal advice; keep the final App Store Connect answers aligned with the exact submitted build.
 
 Customer-facing English (U.S.) listing copy is maintained in
 [`store/ios/en-US/`](store/ios/en-US/). The checked metadata pack contains the
@@ -11,8 +11,8 @@ Run `npm run appstore:contract` before copying it into App Store Connect.
 
 - App name: **Local Flight**
 - Bundle identifier: `cc.beacontools.localflight`
-- Version: `0.5.2`
-- Build number: `12`
+- Version: `0.6.0`
+- Build number: `13`
 - Minimum iOS version: `16.0` (`AppTransaction` ownership proof is required for the included Relay license)
 - Marketing URL: `https://beacontools.cc/local-flight/mobile`
 - Support URL: `https://beacontools.cc/support`
@@ -72,7 +72,7 @@ The bundled iOS privacy manifest declares required-reason APIs and conservative 
 
 ## Widgets And Live Activity
 
-- Build `12` includes small and medium iOS home-screen widgets and a capability-gated pinned-flight Live Activity through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
+- Build `13` includes small and medium iOS home-screen widgets and a capability-gated pinned-flight Live Activity through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
 - The app writes a bounded local board snapshot into the shared App Group. The widget does not make LAN, relay, provider, analytics, or advertising requests.
 - The small widget shows the pinned flight or a clear open-app prompt. The medium widget shows a bounded airport-board glance with stale labeling.
 - On supported iPhones, **Pin & show on Lock Screen** explicitly starts a best-effort local Live Activity for the selected flight. It reads the same snapshot, adds no push notification infrastructure, keeps missing data stale instead of switching flights, and ends on unpin, dismissal, or two hours after a terminal state. Unsupported devices retain ordinary pinning and widgets.

@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerSource = fs.readFileSync(path.join(root, "workers/beacontools.js"), "utf8");
 const workerModule = await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString("base64")}`);
 
-const version = "0.5.2";
+const version = "0.6.0";
 const asset = (name, host = "github.com") => ({
   name,
   size: 12_345_678,

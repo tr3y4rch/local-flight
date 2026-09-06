@@ -6809,7 +6809,7 @@ def test_public_downloads_use_checksum_gated_github_release_assets() -> None:
     assert "download.checksum_url" in downloads_client
 
     assert 'GITHUB_REPOSITORY = "tr3y4rch/local-flight"' in worker
-    assert 'MINIMUM_PUBLIC_VERSION = "0.5.2"' in worker
+    assert 'MINIMUM_PUBLIC_VERSION = "0.6.0"' in worker
     assert 'pathname === "/api/releases/latest"' in worker
     assert "LocalFlight-${version}-Setup.exe" in worker
     assert "LocalFlight-${version}-macos-arm64.pkg" in worker
@@ -6836,9 +6836,9 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     )
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "12"
+    assert app["ios"]["buildNumber"] == "13"
     assert app["android"]["package"] == "cc.beacontools.localflight"
-    assert app["android"]["versionCode"] == 15
+    assert app["android"]["versionCode"] == 16
     assert "./plugins/with-localflight-ios-widget" in app["plugins"]
     assert "./plugins/with-localflight-android-widget" in app["plugins"]
     assert app["ios"]["entitlements"]["com.apple.security.application-groups"] == [

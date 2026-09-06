@@ -5,6 +5,71 @@ contributors. It is intentionally not bundled or linked as end-user help.
 Private deployment records, service credentials, admin topology, artifact
 hashes, and personal build identifiers belong outside Git.
 
+## 0.6.0 engineering line
+
+### Universal Relay Access
+
+- Added a canonical fulfillment orchestrator that maps verified Stripe,
+  AppTransaction, and Google Play one-time-product purchases onto the same
+  `beacon_relay_lifetime_v1` license while rejecting unrelated support
+  consumables and replaying purchases idempotently.
+- Added additive, ordered Relay Access migrations for holders, licenses,
+  purchases, provider events, activations, challenges, pending commits,
+  delivery/notification work, provider reconciliation, and key-version
+  metadata without invalidating the initial licensing schema.
+- Replaced one-step receiver movement with an expiring prepare/store/commit
+  activation protocol. The prior main device remains active until the receiving
+  client has stored its credential and commits against the exact observed
+  activation.
+- Added purpose-separated versioned HMAC, license-derivation, encryption, and
+  backup keyrings; raw keys, credentials, emails, store proofs, and provider
+  identifiers remain outside plain database fields, logs, and operator output.
+- Added source-neutral browser delivery, passwordless email protection,
+  one-time key reveal, activation grants, deactivation, recovery rotation, and
+  notification retries without introducing accounts or passwords.
+- Added structured access and credential states, fail-closed provider
+  capability policy, purchase suspension/refund/revocation transitions, Apple
+  reconciliation hooks, Google Play Billing verification/acknowledgement/RTDN
+  handling, and durable reconciliation diagnostics.
+- Extended the operator surface with cursor pagination, masked search and
+  history, CSRF-protected actions, notification and reconciliation retry,
+  unresolved-event handling, activation movement, and key rotation.
+
+### Desktop and mobile clients
+
+- Made desktop `data_route` authoritative across runtime, profiles, provider
+  configuration, setup, and Remote Companion. Beacon Relay, Bring Your Own
+  Keys, and VATSIM are the only desktop choices; the two free routes make no
+  licensing calls.
+- Added journaled route transitions, idempotent/pending release recovery,
+  loopback-only LFRA key entry, LAN activation-code entry, hydrated reruns, and
+  asynchronous native Relay checks.
+- Added the prepare/store/commit flow to both desktop setup surfaces and mobile
+  Standalone, including occupied-device confirmation, stale-move protection,
+  terminal-state handling, and secure-write recovery.
+- Made mobile setup transactional so canceled pairing, store verification, or
+  activation cannot destroy a working configuration. VATSIM bypasses Relay
+  Access and pending release does not block LAN Companion or VATSIM.
+- Retained signed AppTransaction proof for the paid iOS app. Replaced Android
+  paid-app licensing with a free-download model using Google Play Billing for
+  the Relay non-consumable and request-bound Play Integrity for license moves.
+- Removed Android Play Licensing/LVL behavior and its legacy permission while
+  keeping optional support purchases separate.
+
+### Release, reliability, and public surfaces
+
+- Reframed the Beacon Tools website around the Local Flight ecosystem and one
+  portable one-main-device Relay license, with live catalog-driven web/store
+  availability and source-neutral passwordless management.
+- Added encrypted, WAL-consistent Relay Access backup/restore tooling with
+  retention planning and referenced-key validation.
+- Upgraded the audited Python cryptography baseline to 50.0.1 where upstream
+  wheels exist. Intel macOS retains the audited 48.0.1 wheel because 50.x is not
+  published for that target and Local Flight does not use the affected PKCS#7
+  decryption API.
+- Promoted desktop, server, Pi, site, Worker, and native mobile metadata to
+  0.6.0, with iOS build 13 and Android versionCode 16.
+
 ## 0.5.2 engineering line
 
 ### Release and platform packaging

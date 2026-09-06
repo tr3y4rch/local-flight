@@ -496,9 +496,9 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
         "external_label": "Open online",
     },
     "client-notes": {
-        "title": "0.5.2 Public Release Notes",
-        "filename": "release-notes-0.5.2.md",
-        "summary": "0.5.2 release notes for desktop, Linux server, Pi, relay-backed support, Matrix, and mobile testing.",
+        "title": "0.6.0 Public Release Notes",
+        "filename": "release-notes-0.6.0.md",
+        "summary": "0.6.0 release notes for desktop, server, Pi, Beacon Relay Access, Matrix, and mobile testing.",
         "external_url": f"{LOCAL_FLIGHT_WEB_URL}#release-notes",
         "external_label": "Open online",
     },

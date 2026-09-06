@@ -151,14 +151,14 @@ test("download board preserves gated package and checksum behavior", async ({ pa
       body: JSON.stringify({
         ok: true,
         release: {
-          version: "0.5.2",
-          release_url: "https://github.com/tr3y4rch/local-flight/releases/tag/v0.5.2",
+          version: "0.6.0",
+          release_url: "https://github.com/tr3y4rch/local-flight/releases/tag/v0.6.0",
           downloads: {
             windows: {
-              filename: "LocalFlight-0.5.2-Setup.exe",
-              url: "https://github.com/tr3y4rch/local-flight/releases/download/v0.5.2/LocalFlight-0.5.2-Setup.exe",
+              filename: "LocalFlight-0.6.0-Setup.exe",
+              url: "https://github.com/tr3y4rch/local-flight/releases/download/v0.6.0/LocalFlight-0.6.0-Setup.exe",
               size: 12_345_678,
-              checksum_url: "https://github.com/tr3y4rch/local-flight/releases/download/v0.5.2/LocalFlight-0.5.2-Setup.exe.sha256",
+              checksum_url: "https://github.com/tr3y4rch/local-flight/releases/download/v0.6.0/LocalFlight-0.6.0-Setup.exe.sha256",
             },
           },
         },

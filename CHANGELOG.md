@@ -2,7 +2,80 @@
 
 This is the public, user-facing changelog. Implementation-level history lives
 in `docs/engineering-changelog.md`; the current release overview is
-`docs/release-notes-0.5.2.md`.
+`docs/release-notes-0.6.0.md`.
+
+## 0.6.0 — universal Relay Access and explicit data routes
+
+### Added
+
+- One portable Beacon Relay Access license shared by verified Stripe,
+  paid-iOS, and Android one-time-product purchases. Each purchase creates a
+  separate license for one active main device: a desktop using Beacon Relay or
+  a phone using real-flight Standalone.
+- VST-style `LFRA-…` website license delivery, one-time browser reveal,
+  passwordless email protection/recovery, activation codes, and source-neutral
+  license management without a Local Flight account or password.
+- Provider-neutral fulfillment, replay-safe purchase records, durable
+  notification delivery, purchase reconciliation hooks, and masked operator
+  controls for license, activation, delivery, and event history.
+- Explicit mobile access states for verification, availability, active-here,
+  active-elsewhere, suspension, refund, revocation, temporary unavailability,
+  and pending release.
+
+### Improved
+
+- Desktop setup now presents exactly Beacon Relay, Bring Your Own Keys, and
+  VATSIM, with `data_route` as the authoritative runtime boundary. BYOK and
+  VATSIM bypass licensing completely.
+- Relay activation now prepares a short-lived credential, lets the client store
+  it safely, and commits the move only afterward. A local storage failure cannot
+  silently remove access from the previous main device.
+- Mobile setup keeps the current working configuration until a new pairing or
+  activation succeeds. Moves name the affected main device and always require
+  confirmation.
+- The paid iOS app verifies its included Relay Access explicitly. Android is a
+  free download with free Companion and VATSIM; real-flight Standalone uses an
+  optional one-time, non-consumable Google Play purchase.
+- Mobile-to-desktop and desktop-to-mobile movement uses the same backend license
+  while preserving store-specific app-download ownership. Mobile never accepts
+  or displays a raw license key.
+- LAN and encrypted Remote Companion continue through the desktop host without
+  another license. Remote Companion now requires the host itself to have active
+  Relay Access.
+- The Beacon Tools product, mobile, Relay Access, network, privacy, terms,
+  checkout-result, and passwordless-management pages now describe one coherent
+  Local Flight ecosystem and use live catalog availability.
+
+### Privacy, security, and reliability
+
+- Licensed mode rejects legacy Community credentials for real schedules,
+  radar, and Remote Companion; Managed credentials are limited to operator
+  diagnostics.
+- Purchase and access failures return stable, structured states instead of
+  requiring clients to interpret prose.
+- Raw license keys, device credentials, plain email fields, store proofs, and
+  provider identifiers stay out of database columns, logs, and operator JSON.
+- Purpose-separated key versions, atomic one-main-device enforcement, expiring
+  pending activations, idempotent deactivation, encrypted notification
+  destinations, and fail-closed provider capabilities harden the access path.
+- The operator surface adds protected state changes, searchable masked
+  references, cursor pagination, delivery retries, reconciliation diagnostics,
+  and activation history.
+- Existing three-tier mobile support purchases remain optional consumables and
+  create no Relay Access, durable entitlement, or subscription.
+
+### Distribution notes
+
+- Version 0.6.0 uses iOS build 13 and Android versionCode 16 for store testing.
+- Windows, separate Apple silicon/Intel macOS packages, Linux AppImages,
+  Ubuntu/Debian desktop and server packages, and the Raspberry Pi bundle retain
+  the complete architecture-specific package and checksum matrix.
+- Beacon Relay Access has no scheduled expiry or recurring fee, subject to
+  refunds, abuse controls, upstream provider permission, and service
+  availability. It is not an unconditional lifetime-service guarantee.
+- Sales and licensed production data remain disabled until store/payment
+  verification, reconciliation, backups, production secrets, physical-device
+  tests, and upstream provider permissions are confirmed.
 
 ## 0.5.2 — full desktop and Linux coverage
 
@@ -17,9 +90,6 @@ in `docs/engineering-changelog.md`; the current release overview is
   scans, exact checksums, and a draft-release inventory gate.
 - A complete, user-oriented 0.5.2 feature guide for desktop, LAN, server,
   Raspberry Pi, Matrix, and mobile testing.
-- A portable Beacon Relay Access license shared by verified Stripe, paid-iOS,
-  and Android one-time-product purchases. One license can be active on one
-  desktop using Beacon Relay or one phone using real-flight Standalone.
 
 ### Improved
 
@@ -34,13 +104,6 @@ in `docs/engineering-changelog.md`; the current release overview is
   enables each file only when its matching SHA-256 checksum is available.
 - Network, privacy, support, install, and mobile wording now leads with plain
   answers and user choices before technical detail.
-- iOS build 12 and Android versionCode 15 align mobile testing with the 0.5.2
-  desktop/server/relay contract.
-- The Android app is prepared as a free download: Companion and VATSIM remain
-  free, while real-flight Standalone uses an optional one-time Relay Access
-  product. Existing universal licenses can move to Android through a verified
-  transfer without another Google purchase. The paid iOS app continues to
-  include Relay Access.
 
 ### Privacy, security, and reliability
 
@@ -55,9 +118,6 @@ in `docs/engineering-changelog.md`; the current release overview is
 - Preserved the local-first storage model, public Support ID boundary, optional
   diagnostics, encrypted Remote Companion envelopes, and minimal purchase
   verification records.
-- Relay activation now prepares a short-lived credential, lets the client store
-  it safely, and commits the move only afterward, so a storage failure cannot
-  silently remove access from the previous main device.
 
 ### Distribution notes
 

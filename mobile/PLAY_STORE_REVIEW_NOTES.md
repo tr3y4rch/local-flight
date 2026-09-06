@@ -1,13 +1,13 @@
 # Local Flight Mobile Google Play Review Notes
 
-This file is the working checklist for the `0.5.2` Play internal-testing build. It is not legal advice; keep the final Play Console answers aligned with the exact submitted AAB.
+This file is the working checklist for the `0.6.0` Play internal-testing build. It is not legal advice; keep the final Play Console answers aligned with the exact submitted AAB.
 
 ## Reviewer Test Path
 
 - App name: **Local Flight**
 - Android package: `cc.beacontools.localflight`
-- Version name: `0.5.2`
-- Version code: `15`
+- Version name: `0.6.0`
+- Version code: `16`
 - Project / support URL: `https://beacontools.cc/local-flight/mobile`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
 - Recommended review path: choose **Use without a Local Flight host** on first launch so the app can be tested without a desktop, Linux server, or Raspberry Pi host. The app explains that this is Standalone mode after the choice.
@@ -64,7 +64,7 @@ Play Console Data Safety answers should be conservative:
 
 ## Home-Screen Widget
 
-- Version code `15` includes a resizable Android home-screen widget with compact one-row and wide up-to-three-row layouts.
+- Version code `16` includes a resizable Android home-screen widget with compact one-row and wide up-to-three-row layouts.
 - The app writes a bounded snapshot to its private files directory. The widget reads that local file only; it does not make LAN, relay, provider, analytics, or advertising requests.
 - The widget refresh action rereads local app data and does not trigger an external data fetch. Android's periodic widget update remains at 30 minutes.
 

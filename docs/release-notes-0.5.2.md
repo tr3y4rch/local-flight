@@ -1,5 +1,9 @@
 # Local Flight 0.5.2 — Full App Release Guide
 
+> Historical release guide. The portable Beacon Relay Access model, revised
+> Android acquisition path, and final licensed setup flows belong to
+> [Local Flight 0.6.0](release-notes-0.6.0.md).
+
 Local Flight 0.5.2 brings the desktop, server, Raspberry Pi, LAN, Matrix, and
 mobile-testing apps onto one release line. It also adds the first regular Linux
 desktop and server packages, completes Intel Mac coverage, and includes the
@@ -155,28 +159,11 @@ Google Play internal testing.
 
 - Connects directly to the public Local Flight service for a simpler phone-only
   board, radar, history, and settings experience.
-- VATSIM works without Relay Access. Real airline data requires one portable
-  Relay license on the phone.
+- VATSIM and the real-airline Standalone test path remain separate from a
+  paired Companion host.
 - Uses conservative board and radar refresh timing.
 - Stores deduplicated movement history on the phone.
 - Does not include server-control tools because there is no paired host.
-
-### Mobile Store And Relay Access Model
-
-- The iOS app remains a paid download and includes one portable Relay Access
-  license after App Store ownership is verified. A distinct verified Family
-  Sharing identity receives its own license; an authoritative refund and later
-  repurchase for the same stable app-transaction identity restores that license.
-- The Android app is a free download. Companion and VATSIM work without buying
-  Relay Access; real-flight Standalone uses a one-time, non-consumable Google
-  Play product.
-- A verified Stripe, iOS, or Android purchase creates the same license type for
-  one main device. Purchases remain separate rather than merging.
-- An existing universal license can move to the official Android app through a
-  short-lived activation grant plus fresh Play Integrity proof, without another
-  Google purchase. Mobile accepts and displays no raw license key.
-- A move is committed only after the receiving app securely stores its pending
-  credential, so the previous main device remains active if storage fails.
 
 ### Widgets And Optional Support
 

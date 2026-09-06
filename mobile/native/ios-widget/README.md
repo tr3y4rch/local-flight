@@ -2,7 +2,7 @@
 
 Tracked WidgetKit template for the iOS widget extension. The generated
 `mobile/ios/` directory is ignored, so keep these files as the source of truth.
-The widget-enabled `0.5.2 (12)` source enables this template through
+The widget-enabled `0.6.0 (13)` source enables this template through
 `plugins/with-localflight-ios-widget.js`. The steps below are the required
 generation/signing checks. Apple provisioning must cover the app, widget
 extension, and `group.cc.beacontools.localflight` App Group.

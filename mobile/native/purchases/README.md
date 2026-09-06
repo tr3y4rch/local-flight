@@ -8,7 +8,7 @@ The Android app is free; Companion and VATSIM require no purchase, while real-fl
 
 The paid iOS app uses the signed `AppTransaction`. Separate verified Family Sharing identities create separate licenses. A signed revocation date revokes the related license, while an authoritative refund and repurchase for the same stable app-transaction identity restores that license rather than creating a second one.
 
-Local Flight `0.5.2` implements three optional consumable support products through
+Local Flight `0.6.0` implements three optional consumable support products through
 StoreKit 2 / Google Play Billing via `expo-iap`. Support unlocks nothing, creates
 no durable entitlement, and uses store-owned localized prices.
 

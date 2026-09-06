@@ -16,11 +16,18 @@ from route_inventory import effective_route_inventory
 
 @pytest.fixture(autouse=True)
 def _release_native_qt_objects() -> None:
-    """Keep optional Qt tests isolated from native-object teardown order."""
+    """Hide optional Qt windows without racing their background callbacks.
+
+    Setup pages can still have a bounded API task finishing when the test body
+    returns. Forcing ``DeferredDelete`` delivery here can destroy the signal
+    bridge while that worker is emitting, which intermittently corrupts the Qt
+    process. Dropping the test's Python owner performs normal cleanup after the
+    worker releases it; hiding top-levels is enough to keep tests isolated.
+    """
 
     yield
     try:
-        from PySide6 import QtCore, QtWidgets
+        from PySide6 import QtWidgets
     except ImportError:
         return
     app = QtWidgets.QApplication.instance()
@@ -29,16 +36,8 @@ def _release_native_qt_objects() -> None:
     for widget in app.topLevelWidgets():
         try:
             widget.hide()
-            widget.deleteLater()
         except RuntimeError:
             pass
-    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
-    try:
-        app.processEvents()
-    except RuntimeError:
-        # A deferred callback owned by a widget created in an earlier module
-        # may observe that its C++ parent has already been released.
-        pass
 
 
 def test_auto_desktop_uses_native_when_qt_available() -> None:

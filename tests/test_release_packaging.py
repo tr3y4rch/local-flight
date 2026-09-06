@@ -602,7 +602,7 @@ def test_appimage_stage_uses_user_runtime_and_no_autostart(tmp_path: Path, monke
     )
     assert metadata == {
         "schema_version": 1,
-        "version": "0.5.2",
+        "version": "0.6.0",
         "platform": "linux",
         "architecture": "x86_64",
         "flavor": "desktop",
@@ -611,11 +611,11 @@ def test_appimage_stage_uses_user_runtime_and_no_autostart(tmp_path: Path, monke
 
 
 def test_pi_source_attestation_reads_embedded_version_and_source_identity(tmp_path: Path) -> None:
-    artifact = tmp_path / "LocalFlight-pi-source-0.5.2.zip"
-    root = "LocalFlight-pi-source-0.5.2"
+    artifact = tmp_path / "LocalFlight-pi-source-0.6.0.zip"
+    root = "LocalFlight-pi-source-0.6.0"
     metadata = {
         "schema_version": 1,
-        "version": "0.5.2",
+        "version": "0.6.0",
         "platform": "raspberry-pi",
         "architecture": "source",
         "flavor": "source",
@@ -623,7 +623,7 @@ def test_pi_source_attestation_reads_embedded_version_and_source_identity(tmp_pa
     }
     with zipfile.ZipFile(artifact, "w") as archive:
         archive.writestr(f"{root}/release-metadata.json", json.dumps(metadata))
-        archive.writestr(f"{root}/pyproject.toml", '[project]\nversion = "0.5.2"\n')
+        archive.writestr(f"{root}/pyproject.toml", '[project]\nversion = "0.6.0"\n')
     digest = sha256_file(artifact)
     (tmp_path / f"{artifact.name}.sha256").write_text(
         f"{digest}  {artifact.name}\n",

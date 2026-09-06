@@ -4,12 +4,12 @@ plugins {
 }
 
 group = "cc.beacontools.localflight"
-version = "0.5.2"
+version = "0.6.0"
 
 android {
   namespace "cc.beacontools.localflight.widgetbridge"
   defaultConfig {
     versionCode 1
-    versionName "0.5.2"
+    versionName "0.6.0"
   }
 }

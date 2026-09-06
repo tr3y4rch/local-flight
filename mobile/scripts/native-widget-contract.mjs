@@ -8,8 +8,8 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const app = JSON.parse(read("app.json")).expo;
 const plugins = app.plugins.map((plugin) => Array.isArray(plugin) ? plugin[0] : plugin);
 
-assert.equal(app.ios.buildNumber, "12");
-assert.equal(app.android.versionCode, 15);
+assert.equal(app.ios.buildNumber, "13");
+assert.equal(app.android.versionCode, 16);
 assert.ok(plugins.includes("./plugins/with-localflight-ios-widget"));
 assert.ok(plugins.includes("./plugins/with-localflight-android-widget"));
 assert.ok(plugins.includes("expo-background-task"));

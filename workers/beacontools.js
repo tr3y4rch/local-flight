@@ -2,7 +2,7 @@ const GITHUB_REPOSITORY = "tr3y4rch/local-flight";
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=20`;
 const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_REPOSITORY}/releases`;
 const RELEASE_CACHE_SECONDS = 1800;
-const MINIMUM_PUBLIC_VERSION = "0.5.2";
+const MINIMUM_PUBLIC_VERSION = "0.6.0";
 
 const DOWNLOAD_FILENAMES = {
   windows: (version) => `LocalFlight-${version}-Setup.exe`,

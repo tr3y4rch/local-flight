@@ -11,6 +11,6 @@ export const navItems: Array<{ key: NavKey; label: string; href: string }> = [
 
 export const githubUrl = "https://github.com/tr3y4rch/local-flight";
 export const releasesUrl = `${githubUrl}/releases`;
-export const currentRelease = "0.5.2";
+export const currentRelease = "0.6.0";
 export const releaseUrl = `${githubUrl}/releases/tag/v${currentRelease}`;
 export const relayOrigin = "https://relay.beacontools.cc";

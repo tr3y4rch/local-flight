@@ -1,7 +1,7 @@
-# Local Flight 0.5.2 release process
+# Local Flight 0.6.0 release process
 
 This is the public-safe contributor guide for building and publishing the
-0.5.2 release. It records the release contract without credentials, private
+0.6.0 release. It records the release contract without credentials, private
 service topology, signing material, personal paths, or operator-only recovery
 details.
 
@@ -16,16 +16,16 @@ The public release consists of ten packages and ten adjacent checksum files:
 
 | Target | Package |
 |---|---|
-| Windows x64 | `LocalFlight-0.5.2-Setup.exe` |
-| macOS Apple silicon | `LocalFlight-0.5.2-macos-arm64.pkg` |
-| macOS Intel | `LocalFlight-0.5.2-macos-x86_64.pkg` |
-| Linux AppImage x86-64 | `LocalFlight-0.5.2-linux-x86_64.AppImage` |
-| Linux AppImage ARM64 | `LocalFlight-0.5.2-linux-aarch64.AppImage` |
-| Ubuntu/Debian desktop AMD64 | `localflight-desktop_0.5.2_amd64.deb` |
-| Ubuntu/Debian desktop ARM64 | `localflight-desktop_0.5.2_arm64.deb` |
-| Ubuntu/Debian server AMD64 | `localflight-server_0.5.2_amd64.deb` |
-| Ubuntu/Debian server ARM64 | `localflight-server_0.5.2_arm64.deb` |
-| Raspberry Pi source | `LocalFlight-pi-source-0.5.2.zip` |
+| Windows x64 | `LocalFlight-0.6.0-Setup.exe` |
+| macOS Apple silicon | `LocalFlight-0.6.0-macos-arm64.pkg` |
+| macOS Intel | `LocalFlight-0.6.0-macos-x86_64.pkg` |
+| Linux AppImage x86-64 | `LocalFlight-0.6.0-linux-x86_64.AppImage` |
+| Linux AppImage ARM64 | `LocalFlight-0.6.0-linux-aarch64.AppImage` |
+| Ubuntu/Debian desktop AMD64 | `localflight-desktop_0.6.0_amd64.deb` |
+| Ubuntu/Debian desktop ARM64 | `localflight-desktop_0.6.0_arm64.deb` |
+| Ubuntu/Debian server AMD64 | `localflight-server_0.6.0_amd64.deb` |
+| Ubuntu/Debian server ARM64 | `localflight-server_0.6.0_arm64.deb` |
+| Raspberry Pi source | `LocalFlight-pi-source-0.6.0.zip` |
 
 Do not substitute an artifact from another build. Every package must be built
 on its matching operating system and CPU and must retain the filename above.
@@ -49,7 +49,7 @@ on its matching operating system and CPU and must retain the filename above.
 macOS publication additionally requires Developer ID application and installer
 identities, hardened-runtime signing, notarization, stapling, and package/app
 verification. Both packages keep the same app and package identities so an
-architecture-specific upgrade preserves Local Flight data. Windows 0.5.2 is
+architecture-specific upgrade preserves Local Flight data. Windows 0.6.0 is
 intentionally unsigned and must keep its clear unknown-publisher notice.
 
 ## Local validation before the release commit
@@ -91,7 +91,7 @@ npm audit --omit=dev --audit-level=high
 ```
 
 Run a Cloudflare build preview from the repository root, but do not deploy the
-0.5.2 Worker minimum while the complete public release is still missing:
+0.6.0 Worker minimum while the complete public release is still missing:
 
 ```bash
 npm --prefix site run build
@@ -115,13 +115,13 @@ store build at this stage.
    commit.
 4. Let the native matrix build and inspect all packages. Final assembly accepts
    only ten matching package/checksum pairs plus ten matching CI-only
-   attestations. It creates the `v0.5.2` tag server-side and a draft release,
+   attestations. It creates the `v0.6.0` tag server-side and a draft release,
    then rechecks the draft's exact 20-file public inventory.
 5. Smoke fresh installs, 0.5.1 upgrades, retained state, architecture, signing,
    LAN health, Linux desktop/server behavior, Raspberry Pi modes, and Matrix on
    the required native and physical systems. Publish the GitHub release only
    after those gates pass.
-6. Build iOS `0.5.2 (12)` and Android `0.5.2 (15)`. Submit the iOS build to
+6. Build iOS `0.6.0 (13)` and Android `0.6.0 (16)`. Submit the iOS build to
    TestFlight and the signed Android AAB to the Play internal-testing track,
    both against the isolated staging relay/database. Inspect the archived IPA
    for the StoreKit module and app-target privacy manifest. Inspect the merged
@@ -134,8 +134,8 @@ store build at this stage.
 
 If a published release needs package-only maintenance without changing the app
 version, do not move or overwrite its tag. Dispatch the same workflow with a
-validated suffix such as `r1`; it creates a separate `v0.5.2-r1` draft tied to
-the new source commit while retaining the `0.5.2` package filenames. Publish it
+validated suffix such as `r1`; it creates a separate `v0.6.0-r1` draft tied to
+the new source commit while retaining the `0.6.0` package filenames. Publish it
 as the latest release only after the normal package inspection and smoke gates.
 
 If a hosted gate fails, keep the release draft unpublished and fix the cause
@@ -166,7 +166,7 @@ and release inventory. It does not replace native and physical validation:
   integrity-bound activation-grant move that requires no additional purchase.
 
 Alpine/musl, 32-bit Linux, RPM, Snap, Flatpak, Windows ARM64, Universal 2, and
-macOS 11 remain outside the 0.5.2 release contract.
+macOS 11 remain outside the 0.6.0 release contract.
 
 ## Licensed-service cutover gate
 

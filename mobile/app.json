@@ -2,7 +2,7 @@
   "expo": {
     "name": "Local Flight",
     "slug": "localflight-mobile",
-    "version": "0.5.2",
+    "version": "0.6.0",
     "scheme": "localflight",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
@@ -56,7 +56,7 @@
     ],
     "ios": {
       "bundleIdentifier": "cc.beacontools.localflight",
-      "buildNumber": "12",
+      "buildNumber": "13",
       "icon": {
         "light": "./assets/localflight-ios-light.png",
         "dark": "./assets/localflight-ios-dark.png",
@@ -82,7 +82,7 @@
     },
     "android": {
       "package": "cc.beacontools.localflight",
-      "versionCode": 15,
+      "versionCode": 16,
       "icon": "./assets/localflight-android-legacy.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/localflight-android-foreground.png",
@@ -104,7 +104,7 @@
     },
     "extra": {
       "localFlightServerHint": "http://192.168.1.10:8000",
-      "localFlightVersion": "0.5.2",
+      "localFlightVersion": "0.6.0",
       "localFlightDeployment": "staging",
       "localFlight": {
         "deploymentEnvironment": "staging",

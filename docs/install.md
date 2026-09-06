@@ -17,7 +17,7 @@ The website [Downloads section](https://beacontools.cc/local-flight#downloads) r
 - Desktop offers exactly **Beacon Relay**, **Bring Your Own Keys**, and **VATSIM**.
 - The official hosted relay is `https://relay.beacontools.cc`.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
-- The current release is `0.5.2` across desktop, Linux server, Raspberry Pi, relay compatibility, and mobile store-testing builds.
+- The current release is `0.6.0` across desktop, Linux server, Raspberry Pi, relay compatibility, and mobile store-testing builds.
 
 ---
 
@@ -25,12 +25,12 @@ The website [Downloads section](https://beacontools.cc/local-flight#downloads) r
 
 Use this path for the easiest Windows desktop setup.
 
-1. Choose Windows in the website Downloads section, or download `LocalFlight-0.5.2-Setup.exe` and its checksum from the linked GitHub release. Windows packages are rebuilt and validated on Windows before upload.
+1. Choose Windows in the website Downloads section, or download `LocalFlight-0.6.0-Setup.exe` and its checksum from the linked GitHub release. Windows packages are rebuilt and validated on Windows before upload.
 2. Double-click the installer and follow the Local Flight wizard.
 3. Launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
 4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
 
-The 0.5.2 Windows installer is intentionally unsigned, so Windows may show an unknown-publisher warning. Only use the official GitHub release and verify its published SHA-256. The checksum shows that your file matches the release; it does not establish a signed publisher identity.
+The 0.6.0 Windows installer is intentionally unsigned, so Windows may show an unknown-publisher warning. Only use the official GitHub release and verify its published SHA-256. The checksum shows that your file matches the release; it does not establish a signed publisher identity.
 
 The installer is self-contained. You do not need Python, Node, or the source installer for normal use.
 The packaged `LocalFlight.exe` is a windowed desktop app, so it should open the branded Local Flight UI without a Python or cmd console in front.
@@ -57,7 +57,7 @@ The source installer creates a **Local Flight** desktop shortcut that launches t
 
 Use this path for the current macOS desktop setup.
 
-1. Choose `LocalFlight-0.5.2-macos-arm64.pkg` for an Apple silicon/M-series Mac or `LocalFlight-0.5.2-macos-x86_64.pkg` for an Intel Mac. Download the matching checksum from the same GitHub release.
+1. Choose `LocalFlight-0.6.0-macos-arm64.pkg` for an Apple silicon/M-series Mac or `LocalFlight-0.6.0-macos-x86_64.pkg` for an Intel Mac. Download the matching checksum from the same GitHub release.
 2. Open the package, complete the macOS installer flow, then launch `Local Flight.app` from Applications.
 3. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
 
@@ -65,7 +65,7 @@ The app launches the native Qt desktop shell. The LAN browser UI remains availab
 The Dock and menu-bar status menu can reopen Local Flight, jump to its main views, open the LAN browser, restart flight updates, or quit cleanly.
 Finder opens the app directly, so normal use shows the branded app/splash rather than Terminal. The current package is Developer ID signed and notarized by Apple. Never disable Gatekeeper globally or lower system-wide security settings. Local Flight settings, history, logs, install identity, and activation token remain in your user folder and survive replacing the app.
 
-Both packages support macOS 12 or newer. They install the same application identity in `/Applications`, so a 0.5.2 package replaces an older Local Flight app without deleting `~/.localflight`.
+Both packages support macOS 12 or newer. They install the same application identity in `/Applications`, so a 0.6.0 package replaces an older Local Flight app without deleting `~/.localflight`.
 
 ### macOS Source Checkout
 
@@ -91,29 +91,29 @@ Choose the package style first, then the architecture shown by `uname -m`:
 
 | `uname -m` | AppImage | Ubuntu/Debian package |
 |---|---|---|
-| `x86_64` | `LocalFlight-0.5.2-linux-x86_64.AppImage` | `localflight-desktop_0.5.2_amd64.deb` |
-| `aarch64` or `arm64` | `LocalFlight-0.5.2-linux-aarch64.AppImage` | `localflight-desktop_0.5.2_arm64.deb` |
+| `x86_64` | `LocalFlight-0.6.0-linux-x86_64.AppImage` | `localflight-desktop_0.6.0_amd64.deb` |
+| `aarch64` or `arm64` | `LocalFlight-0.6.0-linux-aarch64.AppImage` | `localflight-desktop_0.6.0_arm64.deb` |
 
 The AppImage is portable and does not need administrator access:
 
 ```bash
-chmod +x LocalFlight-0.5.2-linux-*.AppImage
-./LocalFlight-0.5.2-linux-*.AppImage
+chmod +x LocalFlight-0.6.0-linux-*.AppImage
+./LocalFlight-0.6.0-linux-*.AppImage
 ```
 
 If the system does not provide compatible FUSE support, use the AppImage's
 built-in fallback:
 
 ```bash
-./LocalFlight-0.5.2-linux-*.AppImage --appimage-extract-and-run
+./LocalFlight-0.6.0-linux-*.AppImage --appimage-extract-and-run
 ```
 
 For app-menu integration on Ubuntu or Debian:
 
 ```bash
-sudo apt install ./localflight-desktop_0.5.2_amd64.deb
+sudo apt install ./localflight-desktop_0.6.0_amd64.deb
 # or on ARM64
-sudo apt install ./localflight-desktop_0.5.2_arm64.deb
+sudo apt install ./localflight-desktop_0.6.0_arm64.deb
 ```
 
 The desktop package installs under `/opt/localflight`, exposes the `localflight`
@@ -123,7 +123,7 @@ command, and does not autostart. Both package styles keep user data under
 x86-64 desktop packages are tested on Ubuntu 22.04/24.04 and Debian 12/13.
 ARM64 GUI packages require Ubuntu 24.04 or Debian 13. Other 64-bit glibc desktop
 distributions may run the AppImage but are best-effort; Alpine/musl and 32-bit
-Linux are not supported by 0.5.2.
+Linux are not supported by 0.6.0.
 
 ## Ubuntu/Debian Headless Server
 
@@ -131,9 +131,9 @@ Use the server package when the computer should serve the LAN board, mobile
 Companion, and Matrix without opening a local desktop window:
 
 ```bash
-sudo apt install ./localflight-server_0.5.2_amd64.deb
+sudo apt install ./localflight-server_0.6.0_amd64.deb
 # or on ARM64
-sudo apt install ./localflight-server_0.5.2_arm64.deb
+sudo apt install ./localflight-server_0.6.0_arm64.deb
 ```
 
 Open `http://<server-lan-ip>:8000/setup` from another device to finish setup.
@@ -174,7 +174,7 @@ You can clone the repo on the Pi or choose Raspberry Pi in the website Downloads
 LocalFlight-pi-source-<version>.zip
 ```
 
-The `0.5.2` package name is `LocalFlight-pi-source-0.5.2.zip` with a matching `.sha256` file.
+The `0.6.0` package name is `LocalFlight-pi-source-0.6.0.zip` with a matching `.sha256` file.
 
 Unzip or clone on the Pi, then run:
 
@@ -226,7 +226,7 @@ lf update
 
 ## Mobile App
 
-The mobile app is aligned to `0.5.2` using iOS build 12 and Android versionCode 15 for testing. The paid iOS app includes Relay Access. Android is a free download: Companion and VATSIM work before purchase, while real-flight Standalone uses an optional one-time Relay Access product. Public availability is published at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development.
+The mobile app is aligned to `0.6.0` using iOS build 13 and Android versionCode 16 for testing. The paid iOS app includes Relay Access. Android is a free download: Companion and VATSIM work before purchase, while real-flight Standalone uses an optional one-time Relay Access product. Public availability is published at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development.
 
 Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or Android device.
 

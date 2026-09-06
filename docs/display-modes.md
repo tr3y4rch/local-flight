@@ -67,7 +67,7 @@ Use it when you want the full Local Flight app on the machine that runs the serv
 
 The browser UI is a supported access and display surface. It is not being removed.
 
-In `0.5.2`, the browser UI follows the same visual and information hierarchy as
+In `0.6.0`, the browser UI follows the same visual and information hierarchy as
 the native Qt shell: airport-local and UTC clocks, Display/FIDS/Radar/Matrix
 navigation, readable cards and status labels, appearance choices, and grouped
 Settings. It also provides the same fingerprint-bound Companion QR/manual
@@ -180,7 +180,7 @@ This is useful when the browser UI fits your display setup better or native Qt k
 
 ## Mobile App
 
-The mobile app runs on iPhone, iPad, and Android and has two modes. Testing source for iOS build 12 and Android versionCode 15 uses the same `0.5.2` data and privacy contract as desktop, Linux server, and Pi hosts.
+The mobile app runs on iPhone, iPad, and Android and has two modes. Testing source for iOS build 13 and Android versionCode 16 uses the same `0.6.0` data and privacy contract as desktop, Linux server, and Pi hosts.
 
 ### Companion
 
