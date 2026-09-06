@@ -7,7 +7,10 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
-  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{-projectName}{ext}",
+  // Chromium's text rasterization and metrics differ between macOS and Linux.
+  // Keep native baselines separate so local review and Linux CI are both
+  // meaningful instead of weakening the visual-diff threshold globally.
+  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{-projectName}-{platform}{ext}",
   use: {
     baseURL: "http://127.0.0.1:4322",
     trace: "on-first-retry",

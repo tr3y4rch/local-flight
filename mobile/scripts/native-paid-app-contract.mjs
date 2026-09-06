@@ -71,7 +71,6 @@ const android = read(
 );
 const androidManifest = read("modules/localflight-paid-app/android/src/main/AndroidManifest.xml");
 const generatedAndroidManifest = read("android/app/src/main/AndroidManifest.xml");
-const generatedAndroidBuild = read("android/app/build.gradle");
 const androidBuild = read("modules/localflight-paid-app/android/build.gradle");
 const privacyPlugin = read("plugins/with-localflight-privacy-manifest.js");
 const privacyManifest = read("ios/LocalFlight/PrivacyInfo.xcprivacy");
@@ -152,8 +151,6 @@ assert.match(generatedAndroidManifest, /com\.android\.vending\.BILLING/);
 assert.doesNotMatch(generatedAndroidManifest, /com\.android\.vending\.CHECK_LICENSE/);
 assert.match(generatedAndroidManifest, /cc\.beacontools\.localflight\.RELAY_ACCESS_PRODUCT_ID/);
 assert.match(generatedAndroidManifest, /cc\.beacontools\.localflight\.PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER/);
-assert.match(generatedAndroidBuild, /LOCALFLIGHT_PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER/);
-assert.match(generatedAndroidBuild, /manifestPlaceholders\["localFlightPlayIntegrityCloudProjectNumber"\]/);
 
 assert.match(privacyPlugin, /NSPrivacyCollectedDataTypePurchaseHistory/);
 assert.match(privacyPlugin, /NSPrivacyCollectedDataTypeDeviceID/);

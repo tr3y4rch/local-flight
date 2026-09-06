@@ -136,6 +136,14 @@ jobs:
       - name: Install mobile dependencies
         run: npm ci
 
+      - name: Generate native mobile projects
+        env:
+          # Public, non-secret test value used only to exercise the generated
+          # Play Integrity manifest contract in CI. Store builds receive the
+          # real environment-specific project number from EAS.
+          LOCALFLIGHT_PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER: "123456789012"
+        run: npx expo prebuild --clean --no-install
+
       - name: Verify mobile contracts
         run: npm run verify
 

@@ -1,0 +1,64 @@
+name: Generate Linux Site Visual Baselines
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact main-branch commit to render
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    name: Render Linux Chromium baselines
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Require the current main commit
+        shell: bash
+        working-directory: .
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          latest_main="$(git ls-remote "https://github.com/${REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
+          test "$SOURCE_SHA" = "$latest_main"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and verify the site
+        run: npm run verify
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Render Linux visual baselines
+        run: npm run test:e2e:update
+
+      - name: Upload Linux visual baselines
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: site-visual-baselines-linux
+          path: site/tests/visual.spec.ts-snapshots/*-linux.png
+          if-no-files-found: error
