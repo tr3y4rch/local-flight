@@ -105,6 +105,14 @@ def _commit(client: TestClient, prepared, install_id: str):
     return response
 
 
+def _post_stripe_webhook(client: TestClient, event: dict[str, Any]):
+    return client.post(
+        "/v1/access/stripe/webhook",
+        headers={**PUBLIC_HOST, "stripe-signature": "route-e2e-signature"},
+        content=json.dumps(event).encode(),
+    )
+
+
 def _purchase(
     external_id: str,
     *,
@@ -278,6 +286,8 @@ def test_stripe_checkout_webhook_result_recovery_and_email_are_one_flow(access_s
     )
     assert webhook.status_code == 200
     assert webhook.json() == {"ok": True, "duplicate": False}
+    assert [message for message in mailer.messages if message["kind"] == "license"] == []
+    assert relay_main._deliver_pending_license_emails(limit=1) == 1
     sent_license = [message for message in mailer.messages if message["kind"] == "license"]
     assert len(sent_license) == 1
     assert sent_license[0]["email"] == "pilot@example.test"
@@ -342,6 +352,181 @@ def test_stripe_checkout_webhook_result_recovery_and_email_are_one_flow(access_s
         assert conn.execute("SELECT COUNT(*) FROM purchase_events").fetchone()[0] == 1
     finally:
         conn.close()
+
+
+def test_stripe_delayed_payment_only_fulfills_after_authoritative_success(access_stack) -> None:
+    client, service, stripe, _mailer = access_stack
+    checkout = client.post("/v1/access/stripe/checkout", headers=PUBLIC_HOST, json={}).json()
+    session_id = stripe.sessions[checkout["checkout_ref"]]
+    session = {
+        "id": session_id,
+        "payment_intent": "pi_route_e2e_delayed",
+        "payment_status": "unpaid",
+        "livemode": True,
+        "metadata": {"checkout_ref": checkout["checkout_ref"]},
+        "customer_details": {"email": "delayed@example.test"},
+    }
+
+    pending = _post_stripe_webhook(
+        client,
+        {
+            "id": "evt_route_e2e_delayed_pending",
+            "type": "checkout.session.completed",
+            "data": {"object": session},
+        },
+    )
+    assert pending.status_code == 200
+    assert pending.json() == {"ok": True, "pending": True}
+    assert service.checkout_result(checkout["checkout_ref"], checkout["result_secret"])["state"] == "pending"
+
+    session["payment_status"] = "paid"
+    succeeded = _post_stripe_webhook(
+        client,
+        {
+            "id": "evt_route_e2e_delayed_succeeded",
+            "type": "checkout.session.async_payment_succeeded",
+            "data": {"object": session},
+        },
+    )
+    assert succeeded.status_code == 200
+    assert succeeded.json() == {"ok": True, "duplicate": False}
+    result = service.checkout_result(checkout["checkout_ref"], checkout["result_secret"])
+    assert result["state"] == "active"
+    assert result["license_key"].startswith("LFRA-")
+
+
+@pytest.mark.parametrize(
+    ("event_type", "expected_state"),
+    [
+        ("checkout.session.async_payment_failed", "failed"),
+        ("checkout.session.expired", "expired"),
+    ],
+)
+def test_stripe_unsuccessful_checkout_states_never_create_a_license(
+    access_stack,
+    event_type: str,
+    expected_state: str,
+) -> None:
+    client, service, stripe, _mailer = access_stack
+    checkout = client.post("/v1/access/stripe/checkout", headers=PUBLIC_HOST, json={}).json()
+    response = _post_stripe_webhook(
+        client,
+        {
+            "id": f"evt_route_e2e_{expected_state}",
+            "type": event_type,
+            "data": {
+                "object": {
+                    "id": stripe.sessions[checkout["checkout_ref"]],
+                    "metadata": {"checkout_ref": checkout["checkout_ref"]},
+                }
+            },
+        },
+    )
+    assert response.status_code == 200
+    result = service.checkout_result(checkout["checkout_ref"], checkout["result_secret"])
+    assert result == {"state": expected_state, "checkout_ref": checkout["checkout_ref"]}
+    conn = relay_main._connect()
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM relay_licenses").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM purchase_records").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_stripe_refund_and_dispute_webhooks_update_access_state(access_stack) -> None:
+    client, service, stripe, _mailer = access_stack
+
+    def fulfilled_checkout(reference: str, payment_intent: str, email: str) -> dict[str, Any]:
+        checkout = client.post("/v1/access/stripe/checkout", headers=PUBLIC_HOST, json={}).json()
+        event = {
+            "id": reference,
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "id": stripe.sessions[checkout["checkout_ref"]],
+                    "payment_intent": payment_intent,
+                    "payment_status": "paid",
+                    "livemode": True,
+                    "metadata": {"checkout_ref": checkout["checkout_ref"]},
+                    "customer_details": {"email": email},
+                }
+            },
+        }
+        assert _post_stripe_webhook(client, event).status_code == 200
+        return service.checkout_result(checkout["checkout_ref"], checkout["result_secret"])
+
+    refunded = fulfilled_checkout(
+        "evt_route_e2e_refund_purchase",
+        "pi_route_e2e_refund",
+        "refund@example.test",
+    )
+    install_id = "81818181-8181-4181-8181-818181818181"
+    prepared = client.post(
+        "/v1/access/activate",
+        headers=PUBLIC_HOST,
+        json={
+            "install_id": install_id,
+            "device_kind": "desktop",
+            "device_name": "Refund Test Desktop",
+            "license_key": refunded["license_key"],
+        },
+    )
+    committed = _commit(client, prepared, install_id)
+    credential = committed.json()["credential"]
+
+    refund = _post_stripe_webhook(
+        client,
+        {
+            "id": "evt_route_e2e_refunded",
+            "type": "charge.refunded",
+            "data": {
+                "object": {
+                    "payment_intent": "pi_route_e2e_refund",
+                    "refunded": True,
+                }
+            },
+        },
+    )
+    assert refund.status_code == 200
+    status = client.get(
+        "/v1/access/status",
+        headers={**PUBLIC_HOST, "authorization": f"Bearer {credential}"},
+    )
+    assert status.status_code == 403
+    assert status.json()["detail"]["access_state"] == "refunded"
+
+    disputed = fulfilled_checkout(
+        "evt_route_e2e_dispute_purchase",
+        "pi_route_e2e_dispute",
+        "dispute@example.test",
+    )
+    license_id = disputed["license"].license_id
+    opened = _post_stripe_webhook(
+        client,
+        {
+            "id": "evt_route_e2e_dispute_opened",
+            "type": "charge.dispute.created",
+            "data": {"object": {"payment_intent": "pi_route_e2e_dispute"}},
+        },
+    )
+    assert opened.status_code == 200
+    assert service.admin_license_detail(license_id)["license"].status == "suspended"
+
+    won = _post_stripe_webhook(
+        client,
+        {
+            "id": "evt_route_e2e_dispute_won",
+            "type": "charge.dispute.closed",
+            "data": {
+                "object": {
+                    "payment_intent": "pi_route_e2e_dispute",
+                    "status": "won",
+                }
+            },
+        },
+    )
+    assert won.status_code == 200
+    assert service.admin_license_detail(license_id)["license"].status == "active"
 
 
 @pytest.mark.parametrize(

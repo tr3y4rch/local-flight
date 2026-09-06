@@ -11143,14 +11143,10 @@ async def access_stripe_webhook(request: Request) -> Dict[str, Any]:
                 email=_stripe_checkout_email(value),
                 evidence_hash=hashlib.sha256(raw).hexdigest(),
             )
-            license_record, _license_key, created = _purchase_fulfillment(service).fulfill_checkout(checkout_ref, verified)
+            license_record, _license_key, _created = _purchase_fulfillment(service).fulfill_checkout(checkout_ref, verified)
             linked_license_id = license_record.license_id
             if verified.email:
                 service.queue_license_email(license_record.license_id, purpose="stripe_purchase")
-                try:
-                    _deliver_pending_license_emails(limit=1)
-                except Exception as mail_exc:
-                    detail_code = f"mail_{mail_exc.__class__.__name__.lower()}"[:80]
         elif event_type in {"checkout.session.async_payment_failed", "checkout.session.expired"}:
             checkout_ref = _stripe_checkout_ref(value)
             if checkout_ref:

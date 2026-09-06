@@ -356,8 +356,8 @@ def test_stripe_ios_entitlement_and_google_product_create_portable_distinct_lice
     stripe_payment = "pi_raw_stripe_purchase_must_not_persist"
     stripe_event = "evt_raw_stripe_event_must_not_persist"
 
-    # First delivery fails locally, while fulfillment and browser retrieval stay
-    # successful. The durable outbox then retries the same key.
+    # Webhook fulfillment only queues delivery, so SMTP latency or failure cannot
+    # delay Stripe's acknowledgement. The durable outbox sends and retries the key.
     harness.smtp.failures_remaining = 1
     first = _checkout(
         harness,
@@ -366,6 +366,11 @@ def test_stripe_ios_entitlement_and_google_product_create_portable_distinct_lice
         email=stripe_email,
     )
     service = relay_main._license_service()
+    queued = service.admin_delivery_snapshot()
+    assert len(queued) == 1
+    assert queued[0]["status"] == "pending"
+    assert queued[0]["attempt_count"] == 0
+    assert relay_main._deliver_pending_license_emails(limit=1) == 0
     failed = service.admin_delivery_snapshot()
     assert len(failed) == 1
     assert failed[0]["status"] == "failed"
@@ -425,6 +430,7 @@ def test_stripe_ios_entitlement_and_google_product_create_portable_distinct_lice
     ).json()
     assert second_result["license"]["license_ref"] != revealed.json()["license"]["license_ref"]
     assert second_result["license_key"] != stripe_key
+    assert relay_main._deliver_pending_license_emails(limit=10) == 1
 
     ios_install = "11111111-1111-4111-8111-111111111111"
     android_install = "22222222-2222-4222-8222-222222222222"

@@ -28,7 +28,7 @@ from relay.access import (
     PurchaseFulfillmentService,
     VerifiedPurchase,
 )
-from relay.access.adapters import FakePurchaseVerifier, RecordingLicenseMailer
+from relay.access.adapters import FakePurchaseVerifier, RecordingLicenseMailer, StripeAdapter
 from relay.access.backup import AccessBackupManager
 from relay.access.crypto import normalize_license_key
 from relay.access.mobile_verifiers import (
@@ -71,6 +71,50 @@ def purchase(external_id: str = "pi_test_purchase_001", *, email: str = "pilot@e
         email=email,
         evidence_hash="evidence_test_hash",
     )
+
+
+def test_stripe_checkout_uses_internal_product_and_stable_idempotency_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeSessionApi:
+        @staticmethod
+        def create(**kwargs):
+            calls.append(kwargs)
+            return {"id": "cs_test_checkout", "url": "https://checkout.stripe.test/session"}
+
+    fake_stripe = SimpleNamespace(
+        api_key="",
+        checkout=SimpleNamespace(Session=FakeSessionApi),
+    )
+    adapter = StripeAdapter(
+        api_key="sk_test_local_only",
+        webhook_secret="whsec_local_only",
+        price_id="price_relay_test",
+    )
+    monkeypatch.setattr(adapter, "_stripe", lambda: fake_stripe)
+
+    checkout = adapter.create_checkout(
+        checkout_ref="chk_internal_reference",
+        success_url="https://beacontools.cc/local-flight/relay-access/success/",
+        cancel_url="https://beacontools.cc/local-flight/relay-access/",
+    )
+
+    assert checkout.session_id == "cs_test_checkout"
+    assert fake_stripe.api_key == "sk_test_local_only"
+    assert calls == [
+        {
+            "mode": "payment",
+            "customer_creation": "always",
+            "line_items": [{"price": "price_relay_test", "quantity": 1}],
+            "metadata": {"checkout_ref": "chk_internal_reference"},
+            "payment_intent_data": {"metadata": {"checkout_ref": "chk_internal_reference"}},
+            "success_url": "https://beacontools.cc/local-flight/relay-access/success/",
+            "cancel_url": "https://beacontools.cc/local-flight/relay-access/",
+            "idempotency_key": "relay-checkout:chk_internal_reference",
+        }
+    ]
 
 
 def test_purchase_fulfillment_is_idempotent_and_key_is_valid(access_service: LicenseService) -> None:

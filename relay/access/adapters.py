@@ -79,6 +79,7 @@ class StripeAdapter:
             payment_intent_data={"metadata": {"checkout_ref": checkout_ref}},
             success_url=success_url,
             cancel_url=cancel_url,
+            idempotency_key=f"relay-checkout:{checkout_ref}",
         )
         session_id = str(getattr(session, "id", "") or session.get("id", ""))
         url = str(getattr(session, "url", "") or session.get("url", ""))
