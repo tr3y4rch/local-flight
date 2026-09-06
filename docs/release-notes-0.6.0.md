@@ -173,6 +173,9 @@ nothing, create no Relay license, and create no subscription.
   suspend, reactivate, revoke, move, and key-rotation actions.
 - Commercial provider capabilities remain fail-closed. A valid payment never
   overrides an aviation provider agreement.
+- Mobile navigation and native-project tooling now resolve to the patched URL
+  decoding and UUID dependency lines. Clean installs, dependency audit, and
+  both iOS and Android production bundles are part of the release checks.
 - Production sales and licensed-mode data routes remain disabled until payment,
   store, reconciliation, secret, backup, and provider-permission gates pass.
 

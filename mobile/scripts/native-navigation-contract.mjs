@@ -65,7 +65,10 @@ const screensPatch = fs.readFileSync(screensPatchPath, "utf8");
 // invariant on iOS. Keep this bridge exact until Expo moves screens forward.
 assert.equal(packageJson.dependencies["@react-navigation/bottom-tabs"], "7.15.13");
 assert.equal(packageJson.dependencies["react-native-screens"], "4.23.0");
-assert.equal(packageJson.scripts.postinstall, "node scripts/patch-react-native-screens.mjs");
+assert.equal(
+  packageJson.scripts.postinstall,
+  "node scripts/patch-react-native-screens.mjs && node scripts/patch-audited-transitives.mjs"
+);
 assert.equal(
   packageLock.packages["node_modules/@react-navigation/bottom-tabs"].version,
   "7.15.13"

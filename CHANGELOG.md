@@ -61,6 +61,9 @@ in `docs/engineering-changelog.md`; the current release overview is
 - The operator surface adds protected state changes, searchable masked
   references, cursor pagination, delivery retries, reconciliation diagnostics,
   and activation history.
+- Updated the mobile URL-decoding and native-project UUID dependency paths to
+  patched releases, with clean-install compatibility and platform-bundle
+  checks guarding the required upstream adapters.
 - Existing three-tier mobile support purchases remain optional consumables and
   create no Relay Access, durable entitlement, or subscription.
 

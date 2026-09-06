@@ -13,10 +13,11 @@
     "ios:device": "expo run:ios --device",
     "android": "expo run:android",
     "android:device": "expo run:android --device",
-    "postinstall": "node scripts/patch-react-native-screens.mjs",
+    "postinstall": "node scripts/patch-react-native-screens.mjs && node scripts/patch-audited-transitives.mjs",
     "layout:ios": "bash scripts/ios-layout-smoke.sh",
-    "verify": "npm run typecheck && npm run relay-state:test && npm run fonts:contract && npm run copy:contract && npm run foundation:contract && npm run v2-ui:contract && npm run launch:contract && npm run native-nav:contract && npm run widget:contract && npm run native-widget:contract && npm run native-paid-app:contract && npm run build-profile:contract && npm run remote:contract && npm run data:contract && npm run radar:contract && npm run ground:contract && npm run visual:contract && npm run iap:contract && npm run relay-access:contract && npm run report-redaction:contract && npm run appstore:contract && npm run playstore:contract && npm run doctor",
+    "verify": "npm run typecheck && npm run audited-transitives:contract && npm run relay-state:test && npm run fonts:contract && npm run copy:contract && npm run foundation:contract && npm run v2-ui:contract && npm run launch:contract && npm run native-nav:contract && npm run widget:contract && npm run native-widget:contract && npm run native-paid-app:contract && npm run build-profile:contract && npm run remote:contract && npm run data:contract && npm run radar:contract && npm run ground:contract && npm run visual:contract && npm run iap:contract && npm run relay-access:contract && npm run report-redaction:contract && npm run appstore:contract && npm run playstore:contract && npm run doctor",
     "typecheck": "tsc --noEmit",
+    "audited-transitives:contract": "node scripts/audited-transitive-contract.mjs",
     "relay-state:test": "node --no-warnings --experimental-strip-types scripts/mobile-relay-state.test.mjs",
     "fonts:contract": "node scripts/font-contract.mjs",
     "copy:contract": "node scripts/standalone-copy-contract.mjs",
@@ -77,5 +78,13 @@
     "@types/react": "~19.2.0",
     "babel-preset-expo": "~55.0.18",
     "typescript": "~5.9.2"
+  },
+  "overrides": {
+    "@react-navigation/core": {
+      "query-string": "9.5.1"
+    },
+    "xcode": {
+      "uuid": "11.1.1"
+    }
   }
 }
