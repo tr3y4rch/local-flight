@@ -186,6 +186,20 @@ _IAP_GLOBAL_DAILY_LIMIT = 1000
 _IAP_INSTALL_RPM_LIMIT = 5
 _IAP_NETWORK_RPM_LIMIT = 20
 _IAP_GLOBAL_RPM_LIMIT = 60
+_RETENTION_RUN_INTERVAL_SECONDS = 24 * 60 * 60
+_RETENTION_REQUEST_DAYS = 30
+_RETENTION_REPORT_EVENT_DAYS = 90
+_RETENTION_ACTIVATION_REQUEST_DAYS = 90
+_RETENTION_INACTIVE_INSTALL_DAYS = 90
+_RETENTION_REVOKED_TOKEN_DAYS = 90
+_RETENTION_REVOKED_REMOTE_GRANT_DAYS = 30
+_RETENTION_IAP_VERIFICATION_DAYS = 30
+_RETENTION_IAP_VERIFIED_DAYS = 24 * 31
+_RETENTION_PROVIDER_SNAPSHOT_HOURS = 48
+_RETENTION_LEGAL_ACCEPTANCE_DAYS = 10 * 365
+_RETENTION_RADAR_CACHE_MINUTES = 10
+
+
 _ADMIN_AUTH_FAILURE_LIMIT = 8
 _ADMIN_AUTH_WINDOW_SECONDS = 5 * 60
 _LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql"
@@ -683,6 +697,33 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column_def: str) -> Non
 
 def _ensure_schema() -> None:
     conn = _connect()
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS legal_holds (
+            hold_id       TEXT PRIMARY KEY,
+            category      TEXT NOT NULL,
+            record_key    TEXT NOT NULL,
+            reason        TEXT NOT NULL,
+            created_at    TEXT NOT NULL,
+            released_at   TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS retention_runs (
+            run_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at      TEXT NOT NULL,
+            finished_at     TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            deleted_total   INTEGER NOT NULL DEFAULT 0,
+            deleted_json    TEXT NOT NULL,
+            error_code      TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_legal_holds_record ON legal_holds (category, record_key, released_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_retention_runs_finished ON retention_runs (finished_at DESC)")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS usage (
@@ -1197,6 +1238,299 @@ def _utc_now() -> str:
 
 def _hours_ago(hours: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
+
+def _retention_cutoff(now: datetime, *, hours: int = 0, days: int = 0) -> str:
+    return (now - timedelta(hours=hours, days=days)).isoformat()
+
+
+def _delete_retained_rows(
+    conn: sqlite3.Connection,
+    label: str,
+    sql: str,
+    params: tuple[Any, ...],
+    deleted: Dict[str, int],
+) -> None:
+    cursor = conn.execute(sql, params)
+    deleted[label] = max(0, int(cursor.rowcount or 0))
+
+
+def _run_retention_maintenance(*, now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Apply documented hosted-data limits independently of request traffic."""
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    started_at = current.isoformat()
+    deleted: Dict[str, int] = {}
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        # Raw activation credentials are never retention evidence. Existing
+        # values from an older schema are removed regardless of age.
+        _delete_retained_rows(
+            conn,
+            "raw_activation_tokens_cleared",
+            "UPDATE activation_requests SET issued_token=NULL WHERE issued_token IS NOT NULL",
+            (),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "request_log",
+            "DELETE FROM request_log WHERE ts < ?",
+            (_retention_cutoff(current, days=_RETENTION_REQUEST_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "ground_access_events",
+            "DELETE FROM ground_access_events WHERE ts < ?",
+            (_retention_cutoff(current, days=_RETENTION_REQUEST_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "usage",
+            "DELETE FROM usage WHERE COALESCE(last_seen, '') < ?",
+            (_retention_cutoff(current, days=_RETENTION_INACTIVE_INSTALL_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "client_interests",
+            "DELETE FROM client_interests WHERE last_seen < ?",
+            (_retention_cutoff(current, days=_RETENTION_REQUEST_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "mobile_standalone_cache_non_radar",
+            "DELETE FROM mobile_standalone_cache WHERE service<>'radar' AND last_seen < ?",
+            (_retention_cutoff(current, hours=24),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "mobile_standalone_cache_radar",
+            "DELETE FROM mobile_standalone_cache WHERE service='radar' AND last_seen < ?",
+            (_retention_cutoff(current - timedelta(minutes=_RETENTION_RADAR_CACHE_MINUTES)),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "activation_requests",
+            """
+            DELETE FROM activation_requests
+            WHERE updated_at < ?
+              AND request_id NOT IN (
+                  SELECT record_key FROM legal_holds
+                  WHERE category='activation_request' AND released_at IS NULL
+              )
+            """,
+            (_retention_cutoff(current, days=_RETENTION_ACTIVATION_REQUEST_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "activation_tokens",
+            """
+            DELETE FROM activation_tokens
+            WHERE revoked_at IS NOT NULL AND revoked_at < ?
+              AND token_hash NOT IN (
+                  SELECT record_key FROM legal_holds
+                  WHERE category='activation_token' AND released_at IS NULL
+              )
+            """,
+            (_retention_cutoff(current, days=_RETENTION_REVOKED_TOKEN_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "remote_companion_grants",
+            """
+            DELETE FROM remote_companion_grants
+            WHERE revoked_at IS NOT NULL AND revoked_at < ?
+              AND grant_ref NOT IN (
+                  SELECT record_key FROM legal_holds
+                  WHERE category='remote_grant' AND released_at IS NULL
+              )
+            """,
+            (_retention_cutoff(current, days=_RETENTION_REVOKED_REMOTE_GRANT_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "install_profiles",
+            """
+            DELETE FROM install_profiles
+            WHERE last_seen < ?
+              AND install_id NOT IN (
+                  SELECT COALESCE(bound_install_id, '') FROM activation_tokens WHERE revoked_at IS NULL
+              )
+              AND install_id NOT IN (
+                  SELECT install_id FROM remote_companion_grants WHERE revoked_at IS NULL
+              )
+            """,
+            (_retention_cutoff(current, days=_RETENTION_INACTIVE_INSTALL_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "report_events",
+            """
+            DELETE FROM report_events
+            WHERE ts < ?
+              AND CAST(id AS TEXT) NOT IN (
+                  SELECT record_key FROM legal_holds
+                  WHERE category='report_event' AND released_at IS NULL
+              )
+            """,
+            (_retention_cutoff(current, days=_RETENTION_REPORT_EVENT_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "report_dedupe",
+            """
+            DELETE FROM report_dedupe
+            WHERE last_seen < ?
+              AND dedupe_key NOT IN (
+                  SELECT record_key FROM legal_holds
+                  WHERE category='report' AND released_at IS NULL
+              )
+            """,
+            (_retention_cutoff(current, days=_RETENTION_REPORT_EVENT_DAYS),),
+            deleted,
+        )
+        provider_cutoff = _retention_cutoff(current, hours=_RETENTION_PROVIDER_SNAPSHOT_HOURS)
+        _delete_retained_rows(conn, "schedule_snapshots", "DELETE FROM schedule_snapshots WHERE updated_at < ?", (provider_cutoff,), deleted)
+        _delete_retained_rows(conn, "provider_schedule_snapshots", "DELETE FROM provider_schedule_snapshots WHERE updated_at < ?", (provider_cutoff,), deleted)
+        # Historical terms evidence exists only on deployments that collected it.
+        if "last_hosted_at" in _table_columns(conn, "legal_acceptances"):
+            _delete_retained_rows(
+                conn,
+                "legal_acceptances",
+                """
+                DELETE FROM legal_acceptances
+                WHERE COALESCE(last_hosted_at, accepted_at) < ?
+                  AND acceptance_key NOT IN (
+                      SELECT record_key FROM legal_holds
+                      WHERE category='legal_acceptance' AND released_at IS NULL
+                  )
+                """,
+                (_retention_cutoff(current, days=_RETENTION_LEGAL_ACCEPTANCE_DAYS),),
+                deleted,
+            )
+        _delete_retained_rows(
+            conn,
+            "iap_verification_events",
+            "DELETE FROM iap_verification_events WHERE ts < ?",
+            (_retention_cutoff(current, days=_RETENTION_IAP_VERIFICATION_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "iap_transactions_unverified",
+            """
+            DELETE FROM iap_transactions
+            WHERE status<>'verified' AND last_seen < ?
+              AND transaction_hash NOT IN (
+                  SELECT record_key FROM legal_holds
+                  WHERE category='iap_transaction' AND released_at IS NULL
+              )
+            """,
+            (_retention_cutoff(current, days=_RETENTION_IAP_VERIFICATION_DAYS),),
+            deleted,
+        )
+        _delete_retained_rows(
+            conn,
+            "iap_transactions_verified",
+            """
+            DELETE FROM iap_transactions
+            WHERE status='verified' AND COALESCE(verified_at, last_seen) < ?
+              AND transaction_hash NOT IN (
+                  SELECT record_key FROM legal_holds
+                  WHERE category='iap_transaction' AND released_at IS NULL
+              )
+            """,
+            (_retention_cutoff(current, days=_RETENTION_IAP_VERIFIED_DAYS),),
+            deleted,
+        )
+        old_warm_cutoff = _retention_cutoff(current, days=_RETENTION_REPORT_EVENT_DAYS)
+        _delete_retained_rows(
+            conn,
+            "ground_warm_results",
+            "DELETE FROM ground_warm_results WHERE job_id IN (SELECT job_id FROM ground_warm_jobs WHERE created_at < ?)",
+            (old_warm_cutoff,),
+            deleted,
+        )
+        _delete_retained_rows(conn, "ground_warm_jobs", "DELETE FROM ground_warm_jobs WHERE created_at < ?", (old_warm_cutoff,), deleted)
+        _delete_retained_rows(conn, "ground_cache_leases", "DELETE FROM ground_cache_leases WHERE expires_at < ?", (current.isoformat(),), deleted)
+        _delete_retained_rows(
+            conn,
+            "retention_run_history",
+            "DELETE FROM retention_runs WHERE finished_at < ?",
+            (_retention_cutoff(current, days=365),),
+            deleted,
+        )
+        finished_at = datetime.now(timezone.utc).isoformat()
+        total = sum(deleted.values())
+        conn.execute(
+            """
+            INSERT INTO retention_runs (
+                started_at, finished_at, status, deleted_total, deleted_json, error_code
+            ) VALUES (?, ?, 'ok', ?, ?, NULL)
+            """,
+            (started_at, finished_at, total, json.dumps(deleted, sort_keys=True)),
+        )
+        conn.commit()
+        return {"status": "ok", "started_at": started_at, "finished_at": finished_at, "deleted_total": total, "deleted": deleted}
+    except Exception as exc:
+        conn.rollback()
+        error_code = type(exc).__name__[:80]
+        finished_at = datetime.now(timezone.utc).isoformat()
+        try:
+            conn.execute(
+                """
+                INSERT INTO retention_runs (
+                    started_at, finished_at, status, deleted_total, deleted_json, error_code
+                ) VALUES (?, ?, 'error', 0, '{}', ?)
+                """,
+                (started_at, finished_at, error_code),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        return {"status": "error", "started_at": started_at, "finished_at": finished_at, "deleted_total": 0, "deleted": {}, "error_code": error_code}
+    finally:
+        conn.close()
+
+
+def _retention_health(conn: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+    own_conn = conn is None
+    if own_conn:
+        conn = _connect()
+    assert conn is not None
+    row = conn.execute(
+        """
+        SELECT started_at, finished_at, status, deleted_total, deleted_json, error_code
+        FROM retention_runs ORDER BY run_id DESC LIMIT 1
+        """
+    ).fetchone()
+    active_holds = int(conn.execute("SELECT COUNT(*) FROM legal_holds WHERE released_at IS NULL").fetchone()[0])
+    if own_conn:
+        conn.close()
+    if row is None:
+        return {"status": "not_run", "active_legal_holds": active_holds}
+    return {
+        "status": str(row["status"] or "unknown"),
+        "started_at": str(row["started_at"] or ""),
+        "finished_at": str(row["finished_at"] or ""),
+        "deleted_total": int(row["deleted_total"] or 0),
+        "deleted": json.loads(str(row["deleted_json"] or "{}")),
+        "error_code": str(row["error_code"] or ""),
+        "active_legal_holds": active_holds,
+    }
 
 
 def _install_fingerprint(install_id: str) -> str:
@@ -6867,12 +7201,19 @@ def _admin_action_ref(conn: sqlite3.Connection, kind: str, value: str) -> str:
     return f"{clean_kind}_{digest}"
 
 
-def _provider_admin_state(conn: sqlite3.Connection, setting_key: str, env_key: str) -> Dict[str, Any]:
+def _provider_admin_state(
+    conn: sqlite3.Connection, setting_key: str, env_key: str, provider: str
+) -> Dict[str, Any]:
     value, source = _provider_status(setting_key, env_key, conn=conn)
+    capability = "radar" if provider == "adsbexchange" else "schedule"
+    authorized = _provider_access_policy().allows(capability, provider)
     return {
         "configured": bool(value),
         "source": source,
         "masked": _mask_secret(value) if value else "missing",
+        "hosted_authorized": authorized,
+        "hosted_display_enabled": bool(value) and _licensed_provider_allowed(capability, provider),
+        "access_mode": _access_mode(),
     }
 
 
@@ -10072,6 +10413,17 @@ def _render_admin(username: str, *, created_token: str = "", message: str = "") 
 </html>"""
 
 
+async def _automatic_retention_loop() -> None:
+    while True:
+        try:
+            await asyncio.to_thread(_run_retention_maintenance)
+        except Exception:
+            # The maintenance function records sanitized error state; retention
+            # failure must not prevent the relay from starting.
+            pass
+        await asyncio.sleep(_RETENTION_RUN_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     _db_path().parent.mkdir(parents=True, exist_ok=True)
@@ -10085,12 +10437,13 @@ async def _lifespan(_app: FastAPI):
             await asyncio.to_thread(_maybe_create_access_backup)
     warm_task = asyncio.create_task(_automatic_ground_warm_loop())
     access_task = asyncio.create_task(_relay_access_maintenance_loop())
+    retention_task = asyncio.create_task(_automatic_retention_loop())
     try:
         yield
     finally:
-        for task in (warm_task, access_task):
+        for task in (warm_task, access_task, retention_task):
             task.cancel()
-        for task in (warm_task, access_task):
+        for task in (warm_task, access_task, retention_task):
             try:
                 await task
             except asyncio.CancelledError:
@@ -10165,6 +10518,7 @@ async def _surface_gate(request: Request, call_next):
         response.headers["Pragma"] = "no-cache"
         response.headers["Referrer-Policy"] = "no-referrer"
     if is_admin_path:
+        response.headers["X-LocalFlight-Admin-Revision"] = hashlib.sha256(_ADMIN_SHELL.encode()).hexdigest()[:12]
         # The operator shell embeds authenticated state and performs privileged
         # mutations. Keep it out of browser/proxy caches and prevent another
         # origin from framing or extending the inline, self-contained console.
@@ -12094,6 +12448,19 @@ class AdminInstallAccessIn(BaseModel):
     reason: str = Field("revoked by admin", max_length=240)
 
     @field_validator("install_id", "install_fingerprint", "install_ref", "action", "reason", mode="before")
+    @classmethod
+    def _coerce_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AdminRetentionHoldIn(BaseModel):
+    action: str = Field(..., min_length=1, max_length=16)
+    category: str = Field(..., min_length=1, max_length=40)
+    record_key: str = Field("", max_length=160)
+    hold_id: str = Field("", max_length=80)
+    reason: str = Field("legal hold", min_length=1, max_length=240)
+
+    @field_validator("action", "category", "record_key", "hold_id", "reason", mode="before")
     @classmethod
     def _coerce_text(cls, value: Any) -> str:
         return _admin_text(value)
@@ -15243,9 +15610,9 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
     conn = _connect()
     month = _month_key()
     try:
-        aerodatabox = _provider_admin_state(conn, _SETTING_AERODATABOX_KEY, "AERODATABOX_API_KEY")
-        aviationstack = _provider_admin_state(conn, _SETTING_AVIATIONSTACK_KEY, "AVIATIONSTACK_API_KEY")
-        rapidapi = _provider_admin_state(conn, _SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY")
+        aerodatabox = _provider_admin_state(conn, _SETTING_AERODATABOX_KEY, "AERODATABOX_API_KEY", "aerodatabox")
+        aviationstack = _provider_admin_state(conn, _SETTING_AVIATIONSTACK_KEY, "AVIATIONSTACK_API_KEY", "aviationstack")
+        rapidapi = _provider_admin_state(conn, _SETTING_RAPIDAPI_KEY, "RAPIDAPI_KEY", "adsbexchange")
         fleet_rows = _admin_fleet_rows(conn, month)
         fleet_metrics = _admin_fleet_metrics(fleet_rows)
         heartbeat_summary = _admin_heartbeat_summary(fleet_rows)
@@ -15298,6 +15665,8 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
             "features": {
                 "raw_provider_debug": _raw_provider_debug_enabled(),
                 "airport_surface_overlay": _airport_surface_enabled(),
+                "airport_ground_cache": _airport_ground_enabled(),
+                "ground_prewarm": _ground_prewarm_enabled(),
                 "relay_access_mode": _access_mode(),
                 "relay_access_sales": _provider_access_policy().sales_enabled,
                 "relay_access_schedule": _provider_access_policy().allows("schedule"),
@@ -15307,6 +15676,7 @@ def admin_api_overview(username: str = Depends(_require_admin)) -> Dict[str, Any
                 "relay_access_aviationstack": _provider_access_policy().allows("schedule", "aviationstack"),
                 "relay_access_adsbexchange": _provider_access_policy().allows("radar", "adsbexchange"),
             },
+            "retention": _retention_health(conn),
             "counts": {
                 "usage_rows": _admin_count(conn, "SELECT COUNT(*) FROM usage WHERE month=?", (month,)),
                 "requests_24h": _admin_count(conn, "SELECT COUNT(*) FROM request_log WHERE ts>=?", (_hours_ago(24),)),
@@ -15611,6 +15981,125 @@ def admin_api_access_backup_action(
         raise InvalidChallenge("Backup action is not supported")
     except Exception as exc:
         raise _access_exception(exc) from exc
+
+
+@app.get("/admin/api/retention")
+def admin_api_retention(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+    conn = _connect()
+    try:
+        holds = conn.execute(
+            """
+            SELECT hold_id, category, reason, created_at
+            FROM legal_holds
+            WHERE released_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 500
+            """
+        ).fetchall()
+        return {
+            "generated_at": _utc_now(),
+            "operator": username,
+            "policy": {
+                "request_days": _RETENTION_REQUEST_DAYS,
+                "report_event_days": _RETENTION_REPORT_EVENT_DAYS,
+                "inactive_install_days": _RETENTION_INACTIVE_INSTALL_DAYS,
+                "revoked_token_days": _RETENTION_REVOKED_TOKEN_DAYS,
+                "revoked_remote_grant_days": _RETENTION_REVOKED_REMOTE_GRANT_DAYS,
+                "iap_event_days": _RETENTION_IAP_VERIFICATION_DAYS,
+                "iap_verified_days": _RETENTION_IAP_VERIFIED_DAYS,
+                "provider_snapshot_hours": _RETENTION_PROVIDER_SNAPSHOT_HOURS,
+                "radar_cache_minutes": _RETENTION_RADAR_CACHE_MINUTES,
+                "legal_acceptance_days": _RETENTION_LEGAL_ACCEPTANCE_DAYS,
+            },
+            "health": _retention_health(conn),
+            "holds": [
+                {
+                    "hold_id": str(row["hold_id"] or ""),
+                    "category": str(row["category"] or ""),
+                    "reason": str(row["reason"] or ""),
+                    "created_at": str(row["created_at"] or ""),
+                }
+                for row in holds
+            ],
+        }
+    finally:
+        conn.close()
+
+
+@app.post("/admin/api/retention/run")
+def admin_api_retention_run(username: str = Depends(_require_admin)) -> Dict[str, Any]:
+    return {
+        "generated_at": _utc_now(),
+        "operator": username,
+        "result": _run_retention_maintenance(),
+    }
+
+
+@app.post("/admin/api/retention/hold")
+def admin_api_retention_hold(
+    body: AdminRetentionHoldIn,
+    username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    allowed_categories = {
+        "activation_request",
+        "activation_token",
+        "remote_grant",
+        "report_event",
+        "report",
+        "legal_acceptance",
+        "iap_transaction",
+    }
+    action = body.action.strip().lower()
+    category = body.category.strip().lower()
+    record_key = body.record_key.strip()
+    if category not in allowed_categories:
+        raise HTTPException(status_code=422, detail="Unknown retention-hold category")
+    conn = _connect()
+    try:
+        if action == "place":
+            if not record_key:
+                raise HTTPException(status_code=422, detail="Record key is required when placing a retention hold")
+            existing = conn.execute(
+                "SELECT hold_id FROM legal_holds WHERE category=? AND record_key=? AND released_at IS NULL",
+                (category, record_key),
+            ).fetchone()
+            hold_id = str(existing["hold_id"]) if existing is not None else "lfh_" + uuid.uuid4().hex[:20]
+            if existing is None:
+                conn.execute(
+                    "INSERT INTO legal_holds (hold_id, category, record_key, reason, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (hold_id, category, record_key, body.reason.strip(), _utc_now()),
+                )
+            message = "Retention hold is active."
+        elif action == "release":
+            if body.hold_id.strip():
+                row = conn.execute(
+                    "SELECT hold_id, category FROM legal_holds WHERE hold_id=? AND released_at IS NULL",
+                    (body.hold_id.strip(),),
+                ).fetchone()
+            else:
+                if not record_key:
+                    raise HTTPException(status_code=422, detail="Hold ID or record key is required when releasing a hold")
+                row = conn.execute(
+                    "SELECT hold_id, category FROM legal_holds WHERE category=? AND record_key=? AND released_at IS NULL",
+                    (category, record_key),
+                ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Active retention hold not found")
+            hold_id = str(row["hold_id"])
+            category = str(row["category"] or category)
+            conn.execute("UPDATE legal_holds SET released_at=? WHERE hold_id=?", (_utc_now(), hold_id))
+            message = "Retention hold was released."
+        else:
+            raise HTTPException(status_code=422, detail="Retention-hold action must be place or release")
+        conn.commit()
+        return _admin_action_response(
+            message,
+            operator=username,
+            hold_id=hold_id,
+            category=category,
+        )
+    finally:
+        conn.close()
 
 
 @app.get("/admin/api/usage")
@@ -16431,9 +16920,115 @@ def admin_api_install_access(
         elif action == "unblock":
             conn.execute("DELETE FROM blocked_installs WHERE install_id=?", (install_id,))
             message = "Install access restored."
+        elif action in {"erase", "erase_data"}:
+            fingerprint = _install_fingerprint(install_id)
+            deleted: Dict[str, int] = {}
+
+            def erase(label: str, sql: str, params: tuple[Any, ...]) -> None:
+                cursor = conn.execute(sql, params)
+                deleted[label] = max(0, int(cursor.rowcount or 0))
+
+            erase("request_log", "DELETE FROM request_log WHERE install_id=?", (install_id,))
+            erase("usage", "DELETE FROM usage WHERE install_id=? OR subject_key=?", (install_id, install_id))
+            erase("client_interests", "DELETE FROM client_interests WHERE install_id=?", (install_id,))
+            erase("mobile_standalone_cache", "DELETE FROM mobile_standalone_cache WHERE install_id=?", (install_id,))
+            erase("install_profiles", "DELETE FROM install_profiles WHERE install_id=?", (install_id,))
+            erase(
+                "activation_requests",
+                """
+                DELETE FROM activation_requests WHERE install_id=?
+                  AND request_id NOT IN (
+                    SELECT record_key FROM legal_holds
+                    WHERE category='activation_request' AND released_at IS NULL
+                  )
+                """,
+                (install_id,),
+            )
+            erase(
+                "activation_tokens",
+                """
+                DELETE FROM activation_tokens WHERE bound_install_id=?
+                  AND token_hash NOT IN (
+                    SELECT record_key FROM legal_holds
+                    WHERE category='activation_token' AND released_at IS NULL
+                  )
+                """,
+                (install_id,),
+            )
+            erase(
+                "remote_companion_grants",
+                """
+                DELETE FROM remote_companion_grants WHERE install_id=?
+                  AND grant_ref NOT IN (
+                    SELECT record_key FROM legal_holds
+                    WHERE category='remote_grant' AND released_at IS NULL
+                  )
+                """,
+                (install_id,),
+            )
+            erase(
+                "report_events",
+                """
+                DELETE FROM report_events WHERE install_fingerprint=?
+                  AND CAST(id AS TEXT) NOT IN (
+                    SELECT record_key FROM legal_holds
+                    WHERE category='report_event' AND released_at IS NULL
+                  )
+                """,
+                (fingerprint,),
+            )
+            erase(
+                "report_dedupe",
+                """
+                DELETE FROM report_dedupe WHERE install_fingerprint=?
+                  AND dedupe_key NOT IN (
+                    SELECT record_key FROM legal_holds
+                    WHERE category='report' AND released_at IS NULL
+                  )
+                """,
+                (fingerprint,),
+            )
+            erase(
+                "iap_unverified",
+                """
+                DELETE FROM iap_transactions
+                WHERE install_fingerprint=? AND status<>'verified'
+                  AND transaction_hash NOT IN (
+                    SELECT record_key FROM legal_holds
+                    WHERE category='iap_transaction' AND released_at IS NULL
+                  )
+                """,
+                (fingerprint,),
+            )
+            erase("blocked_installs", "DELETE FROM blocked_installs WHERE install_id=?", (install_id,))
+            # Legal acceptance evidence and verified accounting references are
+            # intentionally not removed here. Their HMAC subject/fingerprint is
+            # returned only as a retention category, never as raw data.
+            legal_count = int(
+                conn.execute("SELECT COUNT(*) FROM legal_acceptances WHERE install_fingerprint=?", (fingerprint,)).fetchone()[0]
+                if "install_fingerprint" in _table_columns(conn, "legal_acceptances") else 0
+            )
+            verified_iap_count = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM iap_transactions WHERE install_fingerprint=? AND status='verified'",
+                    (fingerprint,),
+                ).fetchone()[0]
+            )
+            message = "Hosted operational data was erased; legally retained evidence remains scoped and pseudonymous."
         else:
             raise HTTPException(status_code=400, detail="Unknown install access action")
         conn.commit()
+        if action in {"erase", "erase_data"}:
+            return _admin_action_response(
+                message,
+                operator=username,
+                install_fingerprint=_install_fingerprint(install_id),
+                deleted=deleted,
+                retained={
+                    "legal_acceptances": legal_count,
+                    "verified_purchase_references": verified_iap_count,
+                },
+            )
         return _admin_action_response(message, operator=username, install_fingerprint=_install_fingerprint(install_id))
     finally:
         conn.close()

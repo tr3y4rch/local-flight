@@ -7,6 +7,18 @@ hashes, and personal build identifiers belong outside Git.
 
 ## 0.6.0 engineering line
 
+### Operator console restoration
+
+- Restored the responsive Network Operations workspace, filters, cursor history,
+  scoped inspectors, guarded actions, and one-time activation-token dialogs.
+- Integrated the current Relay Access license, recovery, delivery, reconciliation,
+  and backup controls into the same workspace while preserving its authentication,
+  CSRF, masking, and purchase-authority rules.
+- Restored retention status, runs, scoped holds, and install-data erasure, including
+  compatibility with databases without historical terms-acceptance records.
+- Added an authenticated console revision header and browser/API regression
+  coverage so deployments can verify the expected operator shell.
+
 ### Universal Relay Access
 
 - Added a canonical fulfillment orchestrator that maps verified Stripe,
