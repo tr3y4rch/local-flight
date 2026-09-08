@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { resolveDeployment } from "../../deployment.mjs";
 
 export type NavKey = "home" | "product" | "mobile" | "relay" | "network" | "privacy" | "support";
 export type AvailabilityState = "prelaunch" | "testing" | "live";
@@ -35,7 +36,7 @@ export const candidateRelease = projectVersion;
 // Public downloads advance only after the complete signed package matrix is published.
 export const currentRelease = "0.6.0";
 export const releaseUrl = `${githubUrl}/releases/tag/v${currentRelease}`;
-export const relayOrigin = "https://relay.beacontools.cc";
+export const relayOrigin = resolveDeployment().relayOrigin;
 
 export const availability = {
   relayAccess: "prelaunch",

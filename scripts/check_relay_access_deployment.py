@@ -11,7 +11,6 @@ import time
 import tomllib
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
@@ -151,7 +150,7 @@ def main() -> int:
                 f"sales_ready={health['access']['sales_ready']}."
             )
             return 0
-        except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
+        except (OSError, ValueError, RuntimeError) as exc:
             last_error = exc
             if attempt + 1 < max(1, args.attempts):
                 time.sleep(max(0.1, args.delay))

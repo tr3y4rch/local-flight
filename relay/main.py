@@ -2959,6 +2959,12 @@ def _collapse(value: str, *, limit: int) -> str:
     return clean[:limit]
 
 
+def _site_origin_hosts() -> set[str]:
+    if _access_deployment_environment() == "staging":
+        return {"staging.beacontools.cc"}
+    return _SITE_ALLOWED_ORIGIN_HOSTS
+
+
 def _site_origin_allowed(request: Request) -> bool:
     origin = (request.headers.get("origin") or "").strip()
     if not origin:
@@ -2968,7 +2974,7 @@ def _site_origin_allowed(request: Request) -> bool:
         host = _normalized_host(parsed.netloc or parsed.hostname or "")
     except Exception:
         return False
-    return host in _SITE_ALLOWED_ORIGIN_HOSTS or _is_local_host(host)
+    return (parsed.scheme == "https" and host in _site_origin_hosts()) or _is_local_host(host)
 
 
 def _require_site_origin(request: Request) -> None:
@@ -10236,12 +10242,16 @@ async def _lifespan(_app: FastAPI):
                 pass
 
 
+class _EnvironmentCorsMiddleware(CORSMiddleware):
+    def is_allowed_origin(self, origin: str) -> bool:
+        return origin in {f"https://{host}" for host in _site_origin_hosts()}
+
+
 app = FastAPI(title="Local Flight Network Admin", lifespan=_lifespan, docs_url=None, redoc_url=None)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(_SiteBugReportBodyLimitMiddleware)
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://beacontools.cc", "https://www.beacontools.cc"],
+    _EnvironmentCorsMiddleware,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["accept", "authorization", "content-type", "stripe-signature"],
 )
@@ -10800,9 +10810,11 @@ class AccessAdminSearchIn(BaseModel):
 
 
 def _access_site_url(path: str) -> str:
-    base = _env("RELAY_ACCESS_SITE_URL", "https://beacontools.cc").rstrip("/")
+    default = "https://staging.beacontools.cc" if _access_deployment_environment() == "staging" else "https://beacontools.cc"
+    base = _env("RELAY_ACCESS_SITE_URL", default).rstrip("/")
     parsed = urlparse(base)
-    if parsed.scheme != "https" or parsed.hostname not in _SITE_ALLOWED_ORIGIN_HOSTS:
+    if (parsed.scheme != "https" or parsed.netloc not in _site_origin_hosts()
+            or parsed.path or parsed.params or parsed.query or parsed.fragment):
         raise AccessConfigurationError("Relay Access site URL is not configured safely")
     return f"{base}/{path.lstrip('/')}"
 

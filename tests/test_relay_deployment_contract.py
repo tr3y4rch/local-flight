@@ -108,6 +108,43 @@ def test_relay_deployment_contract_rejects_production_for_staging() -> None:
                       expected_schema=schema, expected_environment="staging")
 
 
+@pytest.mark.parametrize("environment,host,other", [
+    ("production", "beacontools.cc", "staging.beacontools.cc"),
+    ("staging", "staging.beacontools.cc", "beacontools.cc"),
+])
+def test_recovery_and_cors_cannot_cross_environments(monkeypatch, environment, host, other) -> None:
+    import relay.main as relay
+    monkeypatch.setenv("RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT", environment)
+    monkeypatch.delenv("RELAY_ACCESS_SITE_URL", raising=False)
+    assert relay._access_site_url("recover/#token=fake") == f"https://{host}/recover/#token=fake"
+    cors = relay._EnvironmentCorsMiddleware(relay.app)
+    assert cors.is_allowed_origin(f"https://{host}")
+    assert not cors.is_allowed_origin(f"https://{other}")
+    for invalid in (f"https://{other}", f"https://user@{host}", f"https://{host}/unexpected",
+                    f"https://{host}?redirect=bad", f"http://{host}", f"https://{host}:444"):
+        monkeypatch.setenv("RELAY_ACCESS_SITE_URL", invalid)
+        with pytest.raises(relay.AccessConfigurationError):
+            relay._access_site_url("recover/")
+
+
+def test_smoke_check_retries_a_startup_connection_reset(monkeypatch) -> None:
+    import scripts.check_relay_access_deployment as check
+    health, catalog, _version, _schema = _payloads()
+    responses = iter([ConnectionResetError("starting"), health, catalog])
+    def fetch(*args, **kwargs):
+        item = next(responses)
+        if isinstance(item, Exception):
+            raise item
+        return item
+    sleeps = []
+    monkeypatch.setattr(check, "fetch_json", fetch)
+    monkeypatch.setattr(check.time, "sleep", sleeps.append)
+    monkeypatch.setattr("sys.argv", ["check", "http://localhost", "--attempts", "2", "--delay", "0.1",
+                                   "--expected-revision", "a" * 40])
+    assert check.main() == 0
+    assert sleeps == [0.1]
+
+
 def test_closed_relay_deployment_does_not_require_license_keyrings() -> None:
     health, catalog, version, schema = _payloads()
     health["access"]["keyrings_ready"] = False

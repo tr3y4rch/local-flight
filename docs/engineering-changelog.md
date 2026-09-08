@@ -16,6 +16,10 @@ hashes, and personal build identifiers belong outside Git.
 - Kept new support purchases readiness-gated without blocking unfinished
   transaction verification. Rate-limit responses never trigger relay fallback.
 - Extended source contracts for release-state separation and recovery behavior.
+- Isolated staging recovery origins and browser CORS from production; the site
+  build selects its matching relay rather than using production for sandbox flows.
+- Added installed-dependency/lockfile checks and bounded connection-reset retries
+  in the deployment smoke check. Refreshed matching Linux visual baselines.
   Automated contracts do not certify physical devices, store processing, email
   delivery, sandbox payments, or production readiness.
 

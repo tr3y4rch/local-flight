@@ -117,6 +117,11 @@ keyrings/database/backups, working email recovery, and sandbox-only store
 verification. Keep sales and licensed-access flags closed until their gates
 pass. Missing DNS or credentials are blockers, not permission to use production.
 
+The isolated site build uses `LOCALFLIGHT_SITE_DEPLOYMENT=staging`; its canonical
+origin and relay target must match the staging recovery origin and CORS policy.
+The default build stays production. Never deploy a staging build over the public
+website, and never send a staging recovery link to the production site.
+
 Reserve iOS build 14 and Android versionCode 17, increasing either when an
 uploaded counter requires it. Build both platforms from the same clean commit
 with Node 24 and the beta build profile. Submit each exact build ID with the
