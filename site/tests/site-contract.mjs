@@ -150,6 +150,8 @@ assert.doesNotMatch(managementHtml, /searchParams\.get\(["']token["']\)|\?token=
 assert.match(managementHtml, /\/v1\/access\/magic-links\/exchange/);
 assert.match(managementHtml, /\/v1\/access\/activation-grants/);
 assert.match(managementHtml, /\/v1\/access\/licenses\/action/);
+assert.match(managementHtml, /resend_key_email/);
+assert.match(pageText[managementRoute], /Email the license key again/);
 assert.match(managementHtml, /localflight:\/\/relay-access#grant=/);
 assert.doesNotMatch(managementHtml, /localflight:\/\/relay-access\?(?:grant|activation_grant)=/);
 assert.match(pageText["local-flight/relay-access/terms/index.html"], /Non-expiring access—not a promise that a hosted service lasts forever\./);

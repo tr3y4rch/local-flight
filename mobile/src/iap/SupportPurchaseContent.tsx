@@ -22,7 +22,7 @@ export function SupportPurchaseContent({ controller }: { controller: SupportPurc
         <LocalFlightIcon name="heart-outline" size={19} color={appearance.textMuted} />
         <View style={styles.copy}>
           <Text style={styles.title}>Optional, one-time support</Text>
-          <Text style={styles.body}>Nothing is locked or changed. Apple or Google handles the payment.</Text>
+          <Text style={styles.body}>Nothing is locked or changed. These tips do not include Relay Access. Apple or Google handles the payment.</Text>
         </View>
       </View>
 

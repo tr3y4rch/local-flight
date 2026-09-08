@@ -15,6 +15,7 @@ import relay.main as relay_main
 from relay.access import VerifiedPurchase
 from relay.access.adapters import FakePurchaseVerifier, RecordingLicenseMailer, StripeCheckout
 from relay.access.mobile_verifiers import PAID_APP_PRODUCT_ID
+from relay.access.schema import ACCESS_SCHEMA_VERSION
 
 
 PUBLIC_HOST = {"host": "relay.beacontools.cc"}
@@ -199,6 +200,64 @@ def test_access_route_manifest_host_split_cors_and_private_headers(access_stack)
     assert denied.status_code == 400
     assert "access-control-allow-origin" not in denied.headers
     _assert_private_response(denied)
+
+
+def test_health_identifies_release_and_safe_access_readiness(
+    access_stack,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _service, _stripe, _mailer = access_stack
+    revision = "abcdef0123456789abcdef0123456789abcdef01"
+    monkeypatch.setenv("LOCALFLIGHT_COMMIT_SHA", revision)
+    response = client.get("/health", headers=PUBLIC_HOST)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service"] == "beacon-relay"
+    assert payload["version"] == "0.6.0"
+    assert payload["revision"] == revision
+    assert payload["access"]["schema_version"] == ACCESS_SCHEMA_VERSION
+    assert payload["access"]["expected_schema_version"] == ACCESS_SCHEMA_VERSION
+    assert payload["access"]["catalog_ready"] is True
+    assert payload["access"]["keyrings_ready"] is True
+    assert payload["access"]["license_core_ready"] is True
+    assert payload["access"]["smtp_ready"] is True
+    assert set(payload["access"]["providers"]) == {"stripe", "apple_app", "google_play"}
+    assert "errors" not in payload["access"]
+
+
+def test_health_fails_keyring_readiness_closed_without_exposing_exception(
+    access_stack,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _service, _stripe, _mailer = access_stack
+
+    class MissingHistoricalKeyring:
+        @staticmethod
+        def verify_keyring_references() -> None:
+            raise RuntimeError("private missing key identifier")
+
+    monkeypatch.setattr(relay_main, "_license_service", lambda: MissingHistoricalKeyring())
+    payload = client.get("/health", headers=PUBLIC_HOST).json()
+    assert payload["access"]["keyrings_ready"] is False
+    assert payload["access"]["license_core_ready"] is False
+    assert "private missing key identifier" not in json.dumps(payload)
+
+
+def test_health_requires_a_healthy_backup_before_reporting_sales_ready(
+    access_stack,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _service, _stripe, _mailer = access_stack
+    monkeypatch.setattr(
+        relay_main,
+        "_access_backup_health",
+        lambda: {"configured": True, "healthy": False, "last_backup_at": ""},
+    )
+
+    payload = client.get("/health", headers=PUBLIC_HOST).json()
+
+    assert payload["access"]["backup_ready"] is False
+    assert payload["access"]["sales_ready"] is False
 
 
 def test_every_access_path_is_live_and_never_cacheable(access_stack) -> None:
@@ -551,7 +610,7 @@ def test_each_mobile_store_route_creates_portable_license_and_delivers_key_by_em
     monkeypatch.setattr(relay_main, verifier_name, lambda: FakePurchaseVerifier(verified))
 
     install_id = "22222222-2222-4222-8222-222222222222"
-    intent = "companion" if platform == "ios" else "standalone"
+    intent = "companion"
     challenge = client.post(
         "/v1/access/mobile/attestation/challenge",
         headers=PUBLIC_HOST,
@@ -586,13 +645,8 @@ def test_each_mobile_store_route_creates_portable_license_and_delivers_key_by_em
     assert ownership_body["license"]["access_state"] == "active"
     assert ownership_body["license"]["reason_code"] == "license_active"
     assert ownership_body["delivery_claim"].startswith("lfrclaim_")
-    if platform == "ios":
-        assert ownership_body["seat_state"] == "available"
-        assert "credential" not in ownership_body
-    else:
-        assert ownership_body["included_seat_state"] == "available"
-        assert ownership_body["credential"].startswith("lfr_")
-        assert ownership_body["activation_state"] == "pending_commit"
+    assert ownership_body["seat_state"] == "available"
+    assert "credential" not in ownership_body
     assert "license_key" not in ownership_body
 
     protection = client.post(
@@ -615,6 +669,34 @@ def test_each_mobile_store_route_creates_portable_license_and_delivers_key_by_em
         message["kind"] == "license"
         and message["email"] == f"{platform}-pilot@example.test"
         and message["license_key"] == delivered_key
+        for message in mailer.messages
+    )
+
+
+def test_holder_resend_action_emails_key_without_returning_it(access_stack) -> None:
+    client, service, _stripe, mailer = access_stack
+    license_record, license_key, _ = service.fulfill_purchase(
+        _purchase("pi_route_holder_resend", email="resend-route@example.test")
+    )
+    magic = service.request_magic_link("resend-route@example.test", purpose="recovery")
+    assert magic is not None
+    holder = service.exchange_magic_link(magic.token)
+
+    response = client.post(
+        "/v1/access/licenses/action",
+        headers={**PUBLIC_HOST, "authorization": f"Bearer {holder.token}"},
+        json={"license_id": license_record.license_id, "action": "resend_key_email"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["queued"] is True
+    assert payload["key_delivery"]["state"] == "sent"
+    assert "attempt_count" not in payload["key_delivery"]
+    assert "license_key" not in json.dumps(payload)
+    assert any(
+        message["kind"] == "license"
+        and message["email"] == "resend-route@example.test"
+        and message["license_key"] == license_key
         for message in mailer.messages
     )
 

@@ -1514,9 +1514,13 @@ def _access_preflight_errors(*, stripe: bool = False, mail: bool = False) -> lis
             _access_historical_secrets(env_key)
         except AccessConfigurationError:
             errors.append(env_key.lower())
-    backup_required = (
-        _access_mode() == "licensed"
-        and _access_deployment_environment() == "production"
+    backup_required = bool(
+        _access_deployment_environment() == "production"
+        and (
+            _access_mode() == "licensed"
+            or _enabled_env("RELAY_ACCESS_SALES_ENABLED")
+            or _mobile_ownership_enabled()
+        )
     )
     if backup_required or _enabled_env("RELAY_ACCESS_BACKUP_ENABLED"):
         backup_secret = _env("RELAY_ACCESS_BACKUP_SECRET")
@@ -1538,7 +1542,7 @@ def _access_preflight_errors(*, stripe: bool = False, mail: bool = False) -> lis
         errors.append("site_url")
     if stripe and not _stripe_adapter().configured():
         errors.append("stripe")
-    if mail and not _license_mailer().configured():
+    if mail and not _license_mail_ready():
         errors.append("mail")
     return errors
 
@@ -1799,6 +1803,20 @@ def _license_mailer() -> SmtpLicenseMailer:
         username=_contact_env("RELAY_LICENSE_SMTP_USERNAME", "RELAY_CONTACT_SMTP_USERNAME", "SMTP_USER"),
         password=_contact_env("RELAY_LICENSE_SMTP_PASSWORD", "RELAY_CONTACT_SMTP_PASSWORD", "SMTP_PASSWORD"),
         security=security,
+        reply_to=_contact_env("RELAY_LICENSE_REPLY_TO", "RELAY_CONTACT_REPLY_TO"),
+    )
+
+
+def _license_mail_ready(mailer: SmtpLicenseMailer | None = None) -> bool:
+    mailer = mailer or _license_mailer()
+    if not mailer.configured():
+        return False
+    secure_transport = getattr(mailer, "secure_transport", None)
+    if not callable(secure_transport) or secure_transport():
+        return True
+    host = str(getattr(mailer, "host", "")).strip().lower()
+    return _access_deployment_environment() == "staging" and (
+        host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".test")
     )
 
 
@@ -10198,13 +10216,117 @@ def root(request: Request):
     return RedirectResponse(url="/admin", status_code=307)
 
 
+def _deployment_revision() -> str:
+    value = _env("LOCALFLIGHT_COMMIT_SHA").strip().lower()
+    return value if re.fullmatch(r"[0-9a-f]{7,64}", value) else "unknown"
+
+
+def _public_access_readiness() -> Dict[str, Any]:
+    try:
+        access_mode = _access_mode()
+    except Exception:
+        access_mode = "invalid"
+    try:
+        deployment_environment = _access_deployment_environment()
+    except Exception:
+        deployment_environment = "invalid"
+    schema_version = 0
+    try:
+        conn = _connect()
+        try:
+            schema_version = access_schema_version(conn)
+        finally:
+            conn.close()
+    except Exception:
+        schema_version = 0
+
+    try:
+        catalog_ready = bool(
+            schema_version == ACCESS_SCHEMA_VERSION
+            and _purchase_catalog().public_product().get("product_code")
+            == "beacon_relay_lifetime_v1"
+        )
+    except Exception:
+        catalog_ready = False
+    try:
+        config_ready = not _access_preflight_errors()
+    except Exception:
+        config_ready = False
+    try:
+        keyrings_ready = bool(config_ready and _license_service().verify_keyring_references())
+    except Exception:
+        keyrings_ready = False
+    core_ready = bool(config_ready and keyrings_ready)
+    try:
+        smtp_ready = _license_mail_ready()
+    except Exception:
+        smtp_ready = False
+    try:
+        backup_ready = bool(_access_backup_health().get("healthy"))
+    except Exception:
+        backup_ready = False
+    try:
+        stripe_ready = bool(core_ready and _stripe_adapter().configured())
+    except Exception:
+        stripe_ready = False
+    try:
+        apple_ready = bool(
+            core_ready
+            and not _mobile_platform_preflight_errors("ios")
+            and _mobile_reconciliation_ready("ios")
+        )
+    except Exception:
+        apple_ready = False
+    try:
+        google_ready = bool(
+            core_ready
+            and not _mobile_platform_preflight_errors("android")
+            and _mobile_reconciliation_ready("android")
+        )
+    except Exception:
+        google_ready = False
+    try:
+        policy = _provider_access_policy()
+        sales_ready = bool(
+            catalog_ready
+            and policy.sales_enabled
+            and stripe_ready
+            and smtp_ready
+            and backup_ready
+        )
+    except Exception:
+        sales_ready = False
+
+    return {
+        "mode": access_mode,
+        "deployment_environment": deployment_environment,
+        "schema_version": schema_version,
+        "expected_schema_version": ACCESS_SCHEMA_VERSION,
+        "catalog_ready": catalog_ready,
+        "keyrings_ready": keyrings_ready,
+        "license_core_ready": core_ready,
+        "smtp_ready": smtp_ready,
+        "backup_ready": backup_ready,
+        "sales_ready": sales_ready,
+        "providers": {
+            "stripe": stripe_ready,
+            "apple_app": apple_ready,
+            "google_play": google_ready,
+        },
+    }
+
+
 @app.get("/health")
 def health() -> Dict[str, Any]:
     return {
         "ok": True,
+        "service": "beacon-relay",
+        "version": runtime_app_version(),
+        "revision": _deployment_revision(),
         "provider_revision": _provider_revision(),
         "public_host": _public_host(),
         "admin_host": _admin_host(),
+        "access": _public_access_readiness(),
     }
 
 
@@ -10635,7 +10757,7 @@ def _check_access_rate_limit(
 
 def _deliver_pending_license_emails(*, limit: int = 10) -> int:
     mailer = _license_mailer()
-    if not mailer.configured():
+    if not _license_mail_ready(mailer):
         return 0
     service = _license_service()
     delivered = 0
@@ -10659,7 +10781,7 @@ def _deliver_pending_license_emails(*, limit: int = 10) -> int:
 
 def _deliver_pending_notifications(*, limit: int = 10) -> int:
     mailer = _license_mailer()
-    if not mailer.configured():
+    if not _license_mail_ready(mailer):
         return 0
     service = _license_service()
     delivered = 0
@@ -11541,8 +11663,6 @@ def access_mobile_attestation_verify(body: AccessMobileVerifyIn, request: Reques
         if platform == "ios":
             verified = _apple_paid_app_verifier().verify(proof)
         elif platform == "android":
-            if intent in {"inspect", "companion"}:
-                raise InvalidChallenge("Android Companion and VATSIM do not require Relay Access verification")
             verified = _google_play_product_verifier().verify(proof)
         else:
             raise InvalidChallenge("Platform must be ios or android")
@@ -11811,6 +11931,38 @@ def access_license_action(body: AccessLicenseActionIn, request: Request) -> Dict
                 "license": _access_license_payload(refreshed["license"]) if refreshed else None,
                 "receiver": refreshed["receiver"] if refreshed else None,
                 "key_delivery": refreshed["key_delivery"] if refreshed else None,
+                "licenses": [
+                    {
+                        **_access_license_payload(item["license"]),
+                        "receiver": item["receiver"],
+                        "key_delivery": item["key_delivery"],
+                    }
+                    for item in summaries
+                ],
+            }
+        if action == "resend_key_email":
+            service = _license_service()
+            queued = service.resend_license_email(
+                holder_session,
+                body.license_id.strip(),
+            )
+            try:
+                _deliver_pending_license_emails(limit=1)
+            except Exception:
+                pass
+            summaries = service.holder_license_summaries(holder_session)
+            refreshed = next(
+                (item for item in summaries if item["license"].license_id == body.license_id.strip()),
+                None,
+            )
+            if refreshed is None:
+                raise LicenseNotFound("Relay Access license was not found")
+            return {
+                "ok": True,
+                "queued": bool(queued.get("queued")),
+                "license": _access_license_payload(refreshed["license"]),
+                "receiver": refreshed["receiver"],
+                "key_delivery": refreshed["key_delivery"],
                 "licenses": [
                     {
                         **_access_license_payload(item["license"]),

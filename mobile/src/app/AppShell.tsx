@@ -1840,15 +1840,6 @@ export function AppShell() {
         ? "Relay Access was freed and is available for another main device."
         : "Beacon Relay is still unreachable. The credential remains protected for another release retry.";
     }
-    if (Platform.OS === "android" && !(isStandalone && standaloneSource === "real")) {
-      setSetupDraftSeed({
-        mode: "standalone",
-        airport: mobileSetupState.standaloneAirport || undefined,
-        source: "real"
-      });
-      setSetupDraftOpen(true);
-      return "Choose real-flight Standalone to get or restore Relay Access.";
-    }
     setRelayAccess((current) => ({
       ...current,
       state: "checking",
@@ -1906,11 +1897,11 @@ export function AppShell() {
       const next = await inspectPaidMobileOwnership({
         installId,
         intent: "inspect",
-        allowPurchase: Platform.OS === "android"
+        allowPurchase: Platform.OS === "android" && isStandalone && standaloneSource === "real"
       });
       await commitRelayAccess(next);
       return Platform.OS === "android"
-        ? "Google Play Relay Access is ready for a desktop or real-flight Standalone mode."
+        ? "Google Play Relay Access is verified. Protect it by email before moving it to another device."
         : "The Relay Access included with this app was verified.";
     } catch (accessError) {
       const failed = mobileRelayAccessFailureSnapshot(accessError, relayAccessRef.current);
@@ -2920,24 +2911,14 @@ export function AppShell() {
             onOpenAirport: () => isStandalone ? setStandaloneAirportSheetVisible(true) : setConfigSheetVisible(true),
             onRerunSetup: rerunCompanionSetup,
             relayAccess,
-            relayProtectionAvailable: Platform.OS !== "android" || (
-              isStandalone
-              && standaloneSource === "real"
-              && relayDeviceCredential.startsWith("lfr_")
-              && !mobileSetupState.relayReleasePending
+            relayProtectionAvailable: !mobileSetupState.relayReleasePending && Boolean(
+              relayDeviceCredential.startsWith("lfr_") || relayAccess.deliveryClaim.startsWith("lfrclaim_")
             ),
             onVerifyRelayAccess: refreshRelayAccess,
             onProtectRelayAccess: async (email) => {
               const credential = relayDeviceCredential;
               if (isStandalone && credential.startsWith("lfr_")) {
                 return protectRelayAccessByEmail({ email, credential });
-              }
-              if (Platform.OS === "android") {
-                throw new LocalFlightApiError(
-                  "Activate Relay Access in real-flight Standalone before adding recovery email.",
-                  undefined,
-                  "relay_credential_required"
-                );
               }
               const installId = await loadMobileRelayInstallId();
               return protectPaidMobileOwnershipByEmail({ email, installId });

@@ -166,7 +166,12 @@ jobs:
           persist-credentials: false
 
       - name: Build the relay image
-        run: docker build --file relay/Dockerfile --tag localflight-relay:ci .
+        run: >-
+          docker build
+          --build-arg LOCALFLIGHT_COMMIT_SHA="$GITHUB_SHA"
+          --file relay/Dockerfile
+          --tag localflight-relay:ci
+          .
 
       - name: Start the relay with temporary storage
         run: |
@@ -179,23 +184,21 @@ jobs:
             --env RELAY_GROUND_PREWARM_ENABLED=0 \
             --env RELAY_PUBLIC_HOST=localhost \
             --env RELAY_ADMIN_HOST=localhost \
+            --env RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT=staging \
+            --env RELAY_ACCESS_SITE_URL=https://beacontools.cc \
+            --env RELAY_ACCESS_HASH_SECRET=ci-only-fake-hash-secret-00000001 \
+            --env RELAY_ACCESS_KEY_SECRET=ci-only-fake-key-secret-000000002 \
+            --env RELAY_ACCESS_ENCRYPTION_SECRET=ci-only-fake-encryption-secret-03 \
             localflight-relay:ci
 
-      - name: Smoke-test the relay health endpoint
-        run: |
-          for attempt in $(seq 1 30); do
-            response="$(curl --fail --silent --show-error http://127.0.0.1:18080/health 2>/dev/null || true)"
-            if python -c 'import json, sys; assert json.load(sys.stdin).get("ok") is True' <<<"$response" 2>/dev/null; then
-              echo "Relay image is healthy."
-              exit 0
-            fi
-            if [ "$(docker inspect --format='{{.State.Running}}' localflight-relay-ci 2>/dev/null || true)" = "false" ]; then
-              break
-            fi
-            sleep 2
-          done
-          echo "Relay image did not become healthy."
-          exit 1
+      - name: Smoke-test relay identity and licensing contract
+        run: >-
+          python scripts/check_relay_access_deployment.py
+          http://127.0.0.1:18080
+          --host-header localhost
+          --expected-revision "$GITHUB_SHA"
+          --attempts 30
+          --delay 2
 
       - name: Smoke-test oversized public bug-report rejection
         run: |
@@ -283,20 +286,20 @@ jobs:
 
       - name: Deploy the relay
         if: steps.main_head.outputs.current == 'true'
-        run: flyctl deploy --remote-only --config relay/fly.toml --dockerfile relay/Dockerfile
+        run: >-
+          flyctl deploy
+          --remote-only
+          --config relay/fly.toml
+          --dockerfile relay/Dockerfile
+          --build-arg LOCALFLIGHT_COMMIT_SHA="$GITHUB_SHA"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
       - name: Smoke-test the deployed relay
         if: steps.main_head.outputs.current == 'true'
-        run: |
-          for attempt in $(seq 1 30); do
-            response="$(curl --fail --silent --show-error https://relay.beacontools.cc/health 2>/dev/null || true)"
-            if python -c 'import json, sys; assert json.load(sys.stdin).get("ok") is True' <<<"$response" 2>/dev/null; then
-              echo "Deployed relay is healthy."
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "The deployed relay did not report healthy."
-          exit 1
+        run: >-
+          python scripts/check_relay_access_deployment.py
+          https://relay.beacontools.cc
+          --expected-revision "$GITHUB_SHA"
+          --attempts 30
+          --delay 5

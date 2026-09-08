@@ -33,7 +33,7 @@ assert.match(access, /\/v1\/access\/mobile\/attestation\/challenge/);
 assert.match(access, /\/v1\/access\/mobile\/attestation\/verify/);
 assert.match(access, /MobileAccessIntent = "inspect" \| "companion" \| "standalone"/);
 assert.match(access, /intent: input\.intent/);
-assert.match(access, /platform === "android" && input\.intent !== "standalone"/);
+assert.doesNotMatch(access, /platform === "android" && input\.intent !== "standalone"/, "Android owners must be able to inspect and protect an existing purchase outside Standalone.");
 assert.match(access, /activation_grant: input\.activationGrant/);
 assert.match(access, /proof\.device_verification_id = transaction\.deviceVerificationId/);
 assert.match(access, /proof\.google_play_purchase_token = purchase\.purchaseToken/);
@@ -79,7 +79,8 @@ assert.match(shell, /deactivateRelayReceiver/);
 assert.match(shell, /intent: "companion"/);
 assert.match(shell, /platformUsesIncludedPaidAppAccess/);
 assert.match(shell, /Platform\.OS === "ios"/);
-assert.match(shell, /Platform\.OS === "android" && !\(isStandalone && standaloneSource === "real"\)/, "Android Companion and VATSIM must route to setup before any access proof.");
+assert.match(shell, /allowPurchase: Platform\.OS === "android" && isStandalone && standaloneSource === "real"/, "Android purchase UI stays in real-flight Standalone while existing ownership can be inspected elsewhere.");
+assert.match(shell, /relayAccess\.deliveryClaim\.startsWith\("lfrclaim_"\)/, "A freshly verified mobile owner can protect the portable license without occupying the main-device place.");
 assert.match(shell, /mobileRelayAccessFailureSnapshot\(verificationError, relayAccess\)/);
 assert.match(shell, /saveMobileRelayAccessSummary/);
 assert.match(shell, /setupDraftOpen/);
@@ -101,6 +102,7 @@ assert.match(screens, /Use Companion instead/);
 assert.match(screens, /Relay Access is currently used by \{standaloneMove\.mainDeviceName\}\. Moving it here will stop direct Relay use there\./);
 assert.match(more, /Verify Relay Access/);
 assert.match(more, /Restore Relay Access/);
+assert.match(more, /Check purchased access/);
 assert.match(more, /Source: \{relayAccess\.sourceLabel\}/);
 assert.match(more, /Main device: \{relayAccess\.currentMainDeviceDescription\}/);
 assert.doesNotMatch(more, /relay-access\/manage/);
@@ -130,6 +132,7 @@ assert.doesNotMatch(mobileSources, /enter (?:a )?license key|paste (?:a |your )?
 const ordinaryUi = [screens, more, content].join("\n");
 assert.doesNotMatch(ordinaryUi, /receiver seat|independent receiver|license entitlement/i);
 assert.doesNotMatch(ordinaryUi, /Stripe checkout|Get Relay Access/i);
+assert.match(read("src/iap/SupportPurchaseContent.tsx"), /These tips do not include Relay Access/);
 
 const summaryWriter = settings.slice(
   settings.indexOf("export async function saveMobileRelayAccessSummary"),

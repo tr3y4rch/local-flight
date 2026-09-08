@@ -145,6 +145,7 @@ def access_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AccessHar
         port=2525,
         sender="licenses@beacontools.test",
         security="none",
+        reply_to="support@beacontools.test",
     )
     stripe = LocalStripeAdapter()
     monkeypatch.setattr(relay_main, "_license_mailer", lambda: mailer)
@@ -231,6 +232,13 @@ def _email_messages(transport: LocalSmtpTransport, subject: str) -> list[EmailMe
     return [item for item in transport.messages if str(item["Subject"]) == subject]
 
 
+def _email_part(message: EmailMessage, content_type: str) -> str:
+    for part in message.walk():
+        if part.get_content_type() == content_type:
+            return str(part.get_content())
+    return ""
+
+
 def _protect_mobile_license(
     harness: AccessHarness,
     *,
@@ -244,7 +252,7 @@ def _protect_mobile_license(
     )
     assert requested.status_code == 202
     magic = _email_messages(harness.smtp, "Your Beacon Relay Access link")[-1]
-    magic_body = magic.get_content()
+    magic_body = _email_part(magic, "text/plain")
     magic_url = next(line for line in magic_body.splitlines() if "#token=" in line)
     assert "?token=" not in magic_url
     magic_token = magic_url.split("#token=", 1)[1]
@@ -257,8 +265,14 @@ def _protect_mobile_license(
     key = exchanged.json()["license_key"]
     assert key.startswith("LFRA-")
     delivered = _email_messages(harness.smtp, "Your Beacon Relay Access license")[-1]
+    assert delivered["From"] == "licenses@beacontools.test"
     assert delivered["To"] == email
-    assert f"License key: {key}" in delivered.get_content()
+    assert delivered["Reply-To"] == "support@beacontools.test"
+    assert f"License key: {key}" in _email_part(delivered, "text/plain")
+    assert key in _email_part(delivered, "text/html")
+    html_body = _email_part(delivered, "text/html").lower()
+    assert "payment receipt" in html_body
+    assert "separately from stripe, apple, or google" in html_body
     return key, magic_token
 
 
@@ -397,9 +411,10 @@ def test_stripe_ios_entitlement_and_google_product_create_portable_distinct_lice
     assert revealed.status_code == 200
     stripe_key = revealed.json()["license_key"]
     assert stripe_key.startswith("LFRA-")
-    assert f"License key: {stripe_key}" in _email_messages(
-        harness.smtp, "Your Beacon Relay Access license"
-    )[-1].get_content()
+    assert f"License key: {stripe_key}" in _email_part(
+        _email_messages(harness.smtp, "Your Beacon Relay Access license")[-1],
+        "text/plain",
+    )
     repeated_result = harness.client.post(
         "/v1/access/stripe/result",
         json={

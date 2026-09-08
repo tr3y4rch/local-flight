@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import smtplib
 import base64
+import html
 import json
 from dataclasses import dataclass
 from email.message import EmailMessage
@@ -340,6 +341,7 @@ class SmtpLicenseMailer:
         username: str = "",
         password: str = "",
         security: str = "starttls",
+        reply_to: str = "",
     ) -> None:
         self.host = host.strip()
         self.port = int(port)
@@ -347,18 +349,62 @@ class SmtpLicenseMailer:
         self.username = username
         self.password = password
         self.security = security.strip().lower()
+        self.reply_to = reply_to.strip()
 
     def configured(self) -> bool:
-        return bool(self.host and self.sender and self.port > 0)
+        return bool(
+            self.host
+            and self.sender
+            and "@" in self.sender
+            and "\n" not in self.sender
+            and "\r" not in self.sender
+            and self.port > 0
+        )
 
-    def _send(self, *, email: str, subject: str, text: str) -> None:
+    def secure_transport(self) -> bool:
+        return self.security in {"starttls", "tls", "ssl", "smtps"}
+
+    @staticmethod
+    def _html_message(*, heading: str, paragraphs: list[str], action_url: str = "", action_label: str = "") -> str:
+        body = "".join(
+            f'<p style="margin:0 0 16px;color:#c7d7e5;line-height:1.6">{paragraph}</p>'
+            for paragraph in paragraphs
+        )
+        action = ""
+        if action_url and action_label:
+            action = (
+                '<p style="margin:24px 0">'
+                f'<a href="{html.escape(action_url, quote=True)}" '
+                'style="display:inline-block;padding:12px 18px;border-radius:10px;'
+                'background:#65bff3;color:#06131d;text-decoration:none;font-weight:700">'
+                f'{html.escape(action_label)}</a></p>'
+            )
+        return (
+            '<!doctype html><html><body style="margin:0;background:#07131d;padding:24px;'
+            'font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">'
+            '<div style="max-width:620px;margin:0 auto;border:1px solid #214057;border-radius:18px;'
+            'background:#0d202d;padding:28px">'
+            '<p style="margin:0 0 10px;color:#65bff3;font-size:12px;font-weight:700;'
+            'letter-spacing:.12em">BEACON RELAY ACCESS</p>'
+            f'<h1 style="margin:0 0 20px;color:#f4f8fb;font-size:26px">{html.escape(heading)}</h1>'
+            f'{body}{action}'
+            '<p style="margin:24px 0 0;color:#7890a3;font-size:12px;line-height:1.5">'
+            'Local Flight never receives payment-card details. Payment receipts come separately '
+            'from Stripe, Apple, or Google.</p></div></body></html>'
+        )
+
+    def _send(self, *, email: str, subject: str, text: str, html_text: str = "") -> None:
         if not self.configured():
             raise AccessConfigurationError("Relay Access email is not configured")
         message = EmailMessage()
         message["From"] = self.sender
         message["To"] = email
         message["Subject"] = subject
+        if self.reply_to and "@" in self.reply_to and "\n" not in self.reply_to and "\r" not in self.reply_to:
+            message["Reply-To"] = self.reply_to
         message.set_content(text)
+        if html_text:
+            message.add_alternative(html_text, subtype="html")
         use_ssl = self.security in {"ssl", "smtps"} or self.port == 465
         smtp_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
         with smtp_cls(self.host, self.port, timeout=12) as smtp:
@@ -369,32 +415,61 @@ class SmtpLicenseMailer:
             smtp.send_message(message)
 
     def send_license(self, *, email: str, license_key: str, recovery_url: str) -> None:
+        escaped_key = html.escape(license_key)
         self._send(
             email=email,
             subject="Your Beacon Relay Access license",
             text=(
-                "Your one-time Beacon Relay Access purchase is ready.\n\n"
+                "Your Beacon Relay Access license is ready.\n\n"
                 f"License key: {license_key}\n\n"
                 "Enter this key in Local Flight's Beacon Relay setup. The key controls one "
                 "main device at a time: one Local Flight desktop or one phone in Standalone "
                 "mode. Keep it private.\n\n"
-                f"Recovery and license management: {recovery_url}\n"
+                f"Recovery and license management: {recovery_url}\n\n"
+                "This is your Local Flight access-delivery email. Any payment receipt comes "
+                "separately from Stripe, Apple, or Google.\n"
+            ),
+            html_text=self._html_message(
+                heading="Your Relay Access license is ready",
+                paragraphs=[
+                    "Your portable license key is:",
+                    f'<code style="display:block;padding:14px;border-radius:10px;background:#07131d;'
+                    f'color:#f4f8fb;font-size:16px;word-break:break-all">{escaped_key}</code>',
+                    "Enter this key in Local Flight's Beacon Relay setup. It controls one main "
+                    "device at a time. Keep it private.",
+                ],
+                action_url=recovery_url,
+                action_label="Manage or recover Relay Access",
             ),
         )
 
     def send_magic_link(self, *, email: str, magic_url: str, purpose: str) -> None:
+        purpose_label = {
+            "recovery": "recover or manage Relay Access",
+            "protect_and_deliver": "protect Relay Access and receive its portable key",
+            "protect_and_transfer": "protect Relay Access before moving it",
+        }.get((purpose or "").strip().lower(), "manage Relay Access")
         self._send(
             email=email,
             subject="Your Beacon Relay Access link",
             text=(
-                "Use this one-time link to manage Beacon Relay Access. It expires in 15 minutes.\n\n"
+                f"Use this one-time link to {purpose_label}. It expires in 15 minutes.\n\n"
                 f"{magic_url}\n\n"
-                f"Request: {purpose or 'license access'}\n\n"
                 "If you did not request this link, you can ignore this message.\n"
+            ),
+            html_text=self._html_message(
+                heading="Your private Relay Access link",
+                paragraphs=[
+                    f"Use this one-time link to {html.escape(purpose_label)}. It expires in 15 minutes.",
+                    "If you did not request this link, you can ignore this message.",
+                ],
+                action_url=magic_url,
+                action_label="Open Relay Access management",
             ),
         )
 
     def send_receiver_moved(self, *, email: str, device_name: str) -> None:
+        safe_device_name = html.escape(device_name)
         self._send(
             email=email,
             subject="Beacon Relay Access moved",
@@ -403,5 +478,13 @@ class SmtpLicenseMailer:
                 f"New device: {device_name}\n\n"
                 "The previous device can no longer use Beacon Relay directly. If this was not you, "
                 "use your recovery link or contact Beacon Tools support.\n"
+            ),
+            html_text=self._html_message(
+                heading="Relay Access moved",
+                paragraphs=[
+                    f"Your main device is now <strong style=\"color:#f4f8fb\">{safe_device_name}</strong>.",
+                    "The previous device can no longer use Beacon Relay directly. If this was not "
+                    "you, recover the license or contact Beacon Tools support.",
+                ],
             ),
         )

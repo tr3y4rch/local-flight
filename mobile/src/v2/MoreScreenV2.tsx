@@ -343,6 +343,8 @@ function RelayAccessPanel({
                     : "Verification needed";
   const verifyLabel = relayAccess.state === "release_pending"
     ? "Retry freeing Relay Access"
+    : Platform.OS === "android" && !standalone
+      ? "Check purchased access"
     : Platform.OS === "android" && relayAccess.state === "verification_needed"
       ? "Get or restore Relay Access"
     : ["suspended", "refunded", "revoked", "retryable_unavailable"].includes(relayAccess.state)
@@ -416,7 +418,7 @@ function RelayAccessPanel({
           <Text style={styles.informationBody}>
             {relayAccess.protectionEnabled
               ? "Request a fresh one-time email link to manage recovery or move Relay Access. No password or Beacon account is created."
-              : "Email is optional and creates no account. Confirm it once to protect recovery and moving access between main devices."}
+              : "Email is optional while using this device and creates no account. Confirm it before retrieving the portable key or moving access to another main device."}
           </Text>
           <TextInput
             value={email}
@@ -447,7 +449,7 @@ function RelayAccessPanel({
           </Pressable>
         </>
       ) : (
-        <Text style={styles.informationBody}>Activate Relay Access on this phone in real-flight Standalone before adding an optional recovery email.</Text>
+        <Text style={styles.informationBody}>Verify the App Store or Google Play ownership on this device before adding a recovery email. Your current Companion or VATSIM setup is unchanged.</Text>
       )}
       {message ? <Text style={styles.panelIntro}>{message}</Text> : null}
       <Text style={styles.disclaimer}>{standalone

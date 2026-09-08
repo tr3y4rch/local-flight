@@ -2522,6 +2522,7 @@ def test_aviationstack_usage_stats_report_separate_buckets(monkeypatch) -> None:
 def test_fetch_flights_once_prefers_managed_relay_before_local_community_key(monkeypatch) -> None:
     calls: list[str] = []
 
+    monkeypatch.setattr(aviationstack_client, "_selected_data_route", lambda *_args: "relay")
     monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
     monkeypatch.setattr(aviationstack_client, "_has_activation_token", lambda: True)
     monkeypatch.setattr(aviationstack_client, "_has_community_api_key", lambda: True)
@@ -2544,6 +2545,7 @@ def test_fetch_flights_once_prefers_managed_relay_before_local_community_key(mon
 
 def test_aviationstack_usage_stats_use_managed_bucket_when_token_present(monkeypatch) -> None:
     monkeypatch.setenv("LOCALFLIGHT_RELAY_ACCESS_MODE", "managed")
+    monkeypatch.setattr(aviationstack_client, "_selected_data_route", lambda *_args: "relay")
     monkeypatch.setattr(
         aviationstack_client,
         "_load_usage",
@@ -2756,6 +2758,11 @@ def test_aerodatabox_verbose_aircraft_model_is_mapped_for_board_display() -> Non
 
 
 def test_virtual_mode_does_not_clear_community_budget_memory(monkeypatch) -> None:
+    monkeypatch.setattr(
+        aviationstack_client,
+        "_selected_data_route",
+        lambda source=None, _data_route=None: "vatsim" if source == "virtual" else "relay",
+    )
     monkeypatch.setattr(
         aviationstack_client,
         "_load_usage",
@@ -3113,6 +3120,7 @@ def test_adsbexchange_fetch_aircraft_uses_managed_relay_when_token_present(monke
     calls: list[tuple[float, float, int, int]] = []
 
     monkeypatch.setenv("RAPIDAPI_KEY", "")
+    monkeypatch.setattr(adsbexchange_client, "_selected_data_route", lambda: "relay")
     monkeypatch.setattr(adsbexchange_client, "_get_activation_token", lambda: "lfm_test_token")
     monkeypatch.setattr(
         adsbexchange_client,

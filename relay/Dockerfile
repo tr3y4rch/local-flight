@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+ARG LOCALFLIGHT_COMMIT_SHA=unknown
+ENV LOCALFLIGHT_COMMIT_SHA=${LOCALFLIGHT_COMMIT_SHA}
+
 WORKDIR /app
 
 COPY relay/requirements.txt ./requirements.txt
