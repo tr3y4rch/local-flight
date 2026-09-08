@@ -6938,7 +6938,12 @@ def test_support_site_uses_forms_instead_of_exposed_general_email() -> None:
 
     assert 'data-support-form="contact"' in support
     assert 'data-support-form="bug"' in support
-    assert "https://relay.beacontools.cc" in support
+    assert 'data-relay-origin={relayOrigin}' in support
+    assert "form.dataset.relayOrigin" in support
+    assert "https://relay.beacontools.cc" not in support
+    deployment = (root / "site" / "deployment.mjs").read_text(encoding="utf-8")
+    assert "https://relay.beacontools.cc" in deployment
+    assert "https://relay-staging.beacontools.cc" in deployment
     assert "/v1/site/contact" in support
     assert "/v1/site/bug-report" in support
     assert 'name="logs" type="file"' in support
