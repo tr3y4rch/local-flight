@@ -74,6 +74,7 @@ import { relayOrigin } from "../../../../data/site";
       <div class="license-actions">
         <button class="action-button" type="button" data-license-action="desktop_grant">Create desktop activation code</button>
         <button class="action-button" type="button" data-license-action="mobile_grant">Create mobile handoff</button>
+        <button class="action-button" type="button" data-license-action="resend_key_email">Email the license key again</button>
         <button class="relay-text-button" type="button" data-license-action="revoke_receiver">Release current main device</button>
         <button class="relay-text-button" type="button" data-license-action="rotate_key">Rotate a lost key</button>
       </div>
@@ -138,7 +139,8 @@ import { relayOrigin } from "../../../../data/site";
         const delivery = license.key_delivery || license.delivery || {};
         const state = String(delivery.state || delivery.status || "").toLowerCase();
         if (state === "sent") return "Sent by email";
-        if (state === "pending" || state === "sending" || state === "failed") return "Email delivery pending";
+        if (state === "pending" || state === "sending") return "Email delivery pending";
+        if (state === "needs_attention" || state === "failed") return "Email needs attention";
         if (state === "revealed") return "Revealed once";
         return license.email_protected === false ? "Not protected by email" : "Protected by email";
       };
@@ -203,6 +205,16 @@ import { relayOrigin } from "../../../../data/site";
             grantBox.hidden = false;
             output.textContent = mobile ? "Fresh iOS entitlement or Android official-app proof is still required on the receiving device." : "Code created. It can be used once.";
             output.dataset.tone = "ok";
+          } else if (action === "resend_key_email") {
+            const payload = await actionRequest("/v1/access/licenses/action", { license_id: license.license_id || license.license_ref, action: "resend_key_email" });
+            updateFromAction(payload);
+            const deliveryState = String(payload?.key_delivery?.state || "pending");
+            sessionStatus.textContent = deliveryState === "sent"
+              ? payload.queued ? "The license key was accepted by the email service." : "The license key was emailed recently. Check the verified inbox."
+              : deliveryState === "needs_attention"
+                ? "Email could not be delivered after several tries. Try again later or contact support with the masked key reference."
+                : "The license email is queued. Your license and active device are unchanged.";
+            sessionStatus.dataset.tone = deliveryState === "needs_attention" ? "bad" : deliveryState === "sent" ? "ok" : "pending";
           } else if (action === "revoke_receiver") {
             if (!window.confirm("Release this license’s current main device? That device will lose Beacon Relay access.")) return;
             const payload = await actionRequest("/v1/access/licenses/action", { license_id: license.license_id || license.license_ref, action: "revoke_receiver" });

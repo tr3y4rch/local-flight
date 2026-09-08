@@ -309,6 +309,33 @@ test("checkout result covers pending, successful one-time reveal, and failed sta
   await expect(page.locator("#licenseResult")).toBeHidden();
 });
 
+test("checkout result offers a bounded retry without starting another purchase", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop");
+  await page.goto("/");
+  await page.evaluate(() => sessionStorage.setItem("beacon.relay.checkout.checkout_retry", "secret_retry_value_123456789"));
+  let checks = 0;
+  await page.route("https://relay.beacontools.cc/v1/access/stripe/result", async (route) => {
+    checks += 1;
+    if (checks === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: { message: "Purchase confirmation is temporarily unavailable." } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, state: "active", license_key: "LFRA-RETRY-SAFE-0001" }),
+    });
+  });
+  await page.goto("/local-flight/relay-access/success/?checkout_ref=checkout_retry");
+  await expect(page.getByRole("button", { name: "Check purchase again" })).toBeVisible();
+  await page.getByRole("button", { name: "Check purchase again" }).click();
+  await expect(page.locator("#licenseKey")).toHaveValue("LFRA-RETRY-SAFE-0001");
+  expect(checks).toBe(2);
+});
+
 test("fragment email confirmation reveals one existing key and lists separate licenses", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop");
   await page.route("https://relay.beacontools.cc/v1/access/magic-links/exchange", async (route) => {
@@ -381,6 +408,18 @@ test("management grants require the target flow and receiver actions return fres
   page.on("dialog", (dialog) => dialog.accept());
   await page.route("https://relay.beacontools.cc/v1/access/licenses/action", async (route) => {
     const body = route.request().postDataJSON() as { action: string };
+    if (body.action === "resend_key_email") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          queued: true,
+          key_delivery: { state: "sent" },
+          licenses: [{ ...activeLicense, key_delivery: { state: "sent" } }],
+        }),
+      });
+      return;
+    }
     if (body.action === "revoke_receiver") {
       await route.fulfill({
         contentType: "application/json",
@@ -397,6 +436,9 @@ test("management grants require the target flow and receiver actions return fres
       }),
     });
   });
+  await card.getByRole("button", { name: "Email the license key again" }).click();
+  await expect(page.locator("#sessionStatus")).toContainText("accepted by the email service");
+  await expect(page.locator("#managementLicenseKey")).toHaveValue("");
   await card.getByRole("button", { name: "Release current main device" }).click();
   await expect(page.getByText("Available — no active main device")).toBeVisible();
   await page.locator(".relay-license").getByRole("button", { name: "Rotate a lost key" }).click();

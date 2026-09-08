@@ -52,7 +52,7 @@ import { relayOrigin } from "../../../data/site";
         <article class="acquisition-card" data-purchase-source="stripe">
           <span class="feature-index">WEB / STRIPE</span>
           <h2>Buy Relay Access directly.</h2>
-          <p>Best when desktop Beacon Relay is your first main device. Stripe confirms the one-time payment; this browser and Beacon Tools email deliver the portable <code>LFRA-…</code> key.</p>
+          <p>Best when desktop Beacon Relay is your first main device. Stripe confirms the one-time payment; this browser and Beacon Tools email deliver the portable <code>LFRA-…</code> key. Stripe sends the financial receipt separately.</p>
           <ul class="compact-checks">
             <li>Desktop software remains free</li>
             <li>License can later move to mobile Standalone</li>
@@ -100,7 +100,7 @@ import { relayOrigin } from "../../../data/site";
         <h2>The same license, with the safest handoff for each device.</h2>
         <ol class="action-checklist action-checklist--compact">
           <li><span class="step">WEB</span><strong>Stripe purchase</strong><p>Copy the key into desktop setup. To use it in mobile, verify the purchase email and create a one-use handoff.</p></li>
-          <li><span class="step">STORE</span><strong>Mobile purchase</strong><p>iOS verifies its paid-app entitlement; Android verifies the Relay in-app product. Add an email only for recovery, a portable key, or desktop transfer.</p></li>
+          <li><span class="step">STORE</span><strong>Mobile purchase</strong><p>iOS verifies its paid-app entitlement; Android verifies the Relay in-app product. Add an email before retrieving a portable key or moving access to another main device.</p></li>
           <li><span class="step">MOVE</span><strong>Change main devices</strong><p>Confirm the named device, save the new credential, then commit the move. The old device stays active if local storage fails.</p></li>
         </ol>
       </div>
@@ -123,6 +123,7 @@ import { relayOrigin } from "../../../data/site";
         <article><h3>Can a web license activate mobile?</h3><p>Yes. Use passwordless management to create an “Open in Local Flight Mobile” handoff. iOS verifies its paid app; Android verifies the official app with Play Integrity.</p></article>
         <article><h3>What if I buy twice?</h3><p>Each completed purchase creates a separate license. Two purchases remain two independently managed licenses, each for one main device.</p></article>
         <article><h3>Do I need a Beacon account?</h3><p>No. Stripe supplies a delivery email; mobile asks for one only when you choose protection, recovery, or transfer.</p></article>
+        <article><h3>What do the support purchases include?</h3><p>They are optional one-time tips. They unlock nothing and never create Relay Access, a subscription, or another license.</p></article>
       </div>
       <div class="inline-actions relay-final-actions">
         <a class="action-button action-button--primary" href="/local-flight/relay-access/manage/">Recover or manage access</a>

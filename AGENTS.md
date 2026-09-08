@@ -42,6 +42,10 @@ Public links:
   `docs/engineering-changelog.md` and is not bundled as end-user help.
 - Public-safe build, validation, and publication gates live in
   `docs/release-process.md`; credentials and private recovery steps do not.
+- Relay Access provider, email, recovery, security, and restore certification
+  lives in `docs/relay-access-validation.md`. Deployment smoke must verify the
+  exact release version, commit, schema, and canonical catalog rather than only
+  accepting a generic health response.
 - Both macOS direct-download builds are Developer ID signed and notarized
   architecture-specific `.pkg` files. Keep the signing, notarization, stapling,
   architecture, deployment-target, and checksum gates intact; never recommend
@@ -141,6 +145,10 @@ Hard rules:
   receive the shared AES secret or readable request/response contents.
 - Optional mobile support purchases unlock nothing. Store evidence is verified
   by the relay and raw evidence is not retained.
+- iOS and Android ownership inspection and verified-email protection are
+  symmetric. Emailing the current key is cooldown-protected and never returns
+  that key through the action API; rotating a lost key remains a separate,
+  destructive recovery action.
 
 ## User-facing feedback contract
 

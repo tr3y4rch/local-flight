@@ -173,6 +173,10 @@ macOS 11 remain outside the 0.6.0 release contract.
 Do not enable Relay Access sales or switch production from `legacy` to
 `licensed` until all of these checks have passed together:
 
+Use the complete provider, email, recovery, security, and restore matrix in
+[Relay Access release validation](relay-access-validation.md). The summary below
+is a cutover gate, not a substitute for that matrix.
+
 - The configured aviation-provider permissions allow every commercial Relay
   capability being offered. Entitlement never substitutes for provider consent.
 - Production uses distinct, versioned license-derivation, HMAC, encryption, and
@@ -195,6 +199,11 @@ Do not enable Relay Access sales or switch production from `legacy` to
 - Catalog, checkout, email delivery, two-phase activation/commit, status,
   deactivation, reconciliation, and operator actions pass a smoke test through
   the public production routing before sales are made available.
+- The deployed relay passes `scripts/check_relay_access_deployment.py` for the
+  exact release version, commit, access schema, and canonical catalog. A legacy
+  `/health` response by itself cannot authorize a deployment or sale.
+- A transactional SMTP service passes TLS, SPF, DKIM, DMARC, sender/reply,
+  Gmail, iCloud Mail, Outlook, retry, resend, and queue-monitoring checks.
 
 Production cuts over directly from `legacy` to `licensed`; there is no public
 shadow mode, grandfathered Community access, or grace period.

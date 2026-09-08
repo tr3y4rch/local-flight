@@ -18,6 +18,7 @@ import { relayOrigin } from "../../../../data/site";
         </div>
         <div class="support-form">
           <p class="form-status form-status--prominent" id="resultStatus" role="status" aria-live="polite">Waiting for payment confirmation…</p>
+          <button class="action-button" id="retryPurchaseCheck" type="button" hidden>Check purchase again</button>
           <div class="license-delivery" id="licenseResult" hidden>
             <span class="feature-index">SAVE ONCE</span>
             <h2>Your universal Relay Access key</h2>
@@ -66,12 +67,14 @@ import { relayOrigin } from "../../../../data/site";
       const nextSteps = document.getElementById("receiverNextSteps");
       const keyField = document.getElementById("licenseKey");
       const copyButton = document.getElementById("copyLicense");
+      const retryButton = document.getElementById("retryPurchaseCheck");
       let attempts = 0;
 
-      const showRecoveredState = (message) => {
+      const showRecoveredState = (message, canRetry = false) => {
         status.textContent = message;
         status.dataset.tone = "pending";
         nextSteps.hidden = false;
+        retryButton.hidden = !canRetry;
       };
 
       async function poll() {
@@ -81,6 +84,7 @@ import { relayOrigin } from "../../../../data/site";
           return;
         }
         attempts += 1;
+        retryButton.hidden = true;
         try {
           const response = await fetch(`${relay}/v1/access/stripe/result`, {
             method: "POST",
@@ -106,16 +110,27 @@ import { relayOrigin } from "../../../../data/site";
             sessionStorage.removeItem(secretKey);
             status.textContent = "The checkout did not complete. No Relay Access license was created.";
             status.dataset.tone = "bad";
+            retryButton.hidden = true;
             return;
           }
           status.textContent = "Payment reached Stripe; waiting for signed confirmation…";
           if (attempts < 90) window.setTimeout(poll, 2000);
-          else showRecoveredState("Confirmation is taking longer than expected. Check the checkout email before starting another purchase.");
+          else showRecoveredState("Confirmation is taking longer than expected. Check the checkout email before starting another purchase.", true);
         } catch (error) {
-          status.textContent = error instanceof Error ? error.message : "The purchase result could not be checked.";
-          status.dataset.tone = "bad";
+          showRecoveredState(
+            error instanceof Error ? `${error.message} You can check again without creating another purchase.` : "The purchase result could not be checked. You can try again without creating another purchase.",
+            true,
+          );
         }
       }
+
+      retryButton?.addEventListener("click", () => {
+        retryButton.hidden = true;
+        status.textContent = "Checking the existing purchase again…";
+        status.dataset.tone = "pending";
+        attempts = 0;
+        window.setTimeout(poll, 400);
+      });
 
       copyButton?.addEventListener("click", async () => {
         if (!keyField.value) return;

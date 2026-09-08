@@ -555,13 +555,6 @@ async function verifyPaidMobileOwnership(input: {
     );
   }
   const platform = Platform.OS;
-  if (platform === "android" && input.intent !== "standalone") {
-    throw new LocalFlightApiError(
-      "Android Companion and VATSIM do not require Relay Access verification.",
-      undefined,
-      "relay_access_not_required"
-    );
-  }
   const challenge = await relayPost<{ nonce?: string } & ApiErrorPayload>(
     input.relayUrl,
     "/v1/access/mobile/attestation/challenge",
@@ -731,13 +724,6 @@ export async function protectPaidMobileOwnershipByEmail(input: {
   installId: string;
   relayUrl?: string;
 }): Promise<string> {
-  if (Platform.OS !== "ios") {
-    throw new LocalFlightApiError(
-      "Activate Relay Access in real-flight Standalone before adding recovery email.",
-      undefined,
-      "relay_credential_required"
-    );
-  }
   const inspected = await inspectPaidMobileOwnership({
     installId: input.installId,
     relayUrl: input.relayUrl,

@@ -28,7 +28,12 @@ from relay.access import (
     PurchaseFulfillmentService,
     VerifiedPurchase,
 )
-from relay.access.adapters import FakePurchaseVerifier, RecordingLicenseMailer, StripeAdapter
+from relay.access.adapters import (
+    FakePurchaseVerifier,
+    RecordingLicenseMailer,
+    SmtpLicenseMailer,
+    StripeAdapter,
+)
 from relay.access.backup import AccessBackupManager
 from relay.access.crypto import normalize_license_key
 from relay.access.mobile_verifiers import (
@@ -432,6 +437,59 @@ def test_license_email_delivery_retries_without_persisting_key(access_service: L
         conn.close()
 
 
+def test_holder_can_resend_current_key_without_api_disclosure(access_service: LicenseService) -> None:
+    license_record, key, _ = access_service.fulfill_purchase(
+        purchase("pi_holder_resend", email="resend@example.test")
+    )
+    magic = access_service.request_magic_link("resend@example.test", purpose="recovery")
+    assert magic is not None
+    holder = access_service.exchange_magic_link(magic.token)
+
+    queued = access_service.resend_license_email(holder.token, license_record.license_id)
+    assert queued == {
+        "queued": True,
+        "state": "pending",
+        "status": "pending",
+        "channel": "email",
+        "purpose": "holder_resend",
+        "updated_at": queued["updated_at"],
+    }
+    assert key not in repr(queued)
+    claimed = access_service.claim_due_license_emails(limit=1)
+    assert claimed[0]["license_key"] == key
+    access_service.finish_license_email(claimed[0]["delivery_id"], sent=True)
+
+    duplicate = access_service.resend_license_email(holder.token, license_record.license_id)
+    assert duplicate["queued"] is False
+    assert duplicate["state"] == "sent"
+
+    conn = access_service._connect()
+    try:
+        conn.execute(
+            "UPDATE license_deliveries SET created_at=?, updated_at=? WHERE delivery_id=?",
+            ("2000-01-01T00:00:00+00:00", "2000-01-01T00:00:00+00:00", claimed[0]["delivery_id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    retried = access_service.resend_license_email(holder.token, license_record.license_id)
+    assert retried["queued"] is True
+    retry_claim = access_service.claim_due_license_emails(limit=1)[0]
+    conn = access_service._connect()
+    try:
+        conn.execute(
+            "UPDATE license_deliveries SET attempt_count=8 WHERE delivery_id=?",
+            (retry_claim["delivery_id"],),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    access_service.finish_license_email(retry_claim["delivery_id"], sent=False, detail_code="smtp_timeout")
+    summary = access_service.holder_license_summaries(holder.token)[0]["key_delivery"]
+    assert summary["state"] == "needs_attention"
+    assert "smtp" not in repr(summary).lower()
+
+
 def test_access_rate_limit_is_durable_and_returns_retry_after(access_service: LicenseService) -> None:
     access_service.check_rate_limit(subject="net_test", action="activate", limit=1, window_seconds=60)
     with pytest.raises(AccessRateLimited) as exc_info:
@@ -495,16 +553,24 @@ def test_cleanup_removes_old_processed_purchase_events(access_service: LicenseSe
     assert access_service.cleanup(audit_days=30)["purchase_events"] == 1
 
 
-def test_simultaneous_activation_keeps_exactly_one_receiver(access_service: LicenseService) -> None:
-    _, key, _ = access_service.fulfill_purchase(purchase())
+@pytest.mark.parametrize("authorized_path", ("license_key", "license_id"))
+@pytest.mark.parametrize("_attempt", range(6))
+def test_simultaneous_activation_keeps_exactly_one_receiver(
+    access_service: LicenseService,
+    authorized_path: str,
+    _attempt: int,
+) -> None:
+    license_record, key, _ = access_service.fulfill_purchase(purchase())
 
     def activate(index: int):
-        return access_service.activate(
-            install_id=f"{index:08d}-1111-4111-8111-111111111111",
-            device_kind="desktop",
-            device_name=f"Gate {index}",
-            license_key=key,
-        )
+        arguments = {
+            "install_id": f"{index:08d}-1111-4111-8111-111111111111",
+            "device_kind": "desktop",
+            "device_name": f"Gate {index}",
+        }
+        if authorized_path == "license_key":
+            return access_service.activate(license_key=key, **arguments)
+        return access_service.activate_license(license_id=license_record.license_id, **arguments)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(activate, (1, 2)))
@@ -1234,6 +1300,81 @@ def test_unknown_access_mode_fails_closed(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("RELAY_ACCESS_MODE", "licenced")
     with pytest.raises(AccessConfigurationError, match="legacy or licensed"):
         relay_main._access_mode()
+
+
+def test_license_email_requires_encrypted_transport_outside_local_staging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    insecure = SimpleNamespace(
+        host="smtp.example.com",
+        configured=lambda: True,
+        secure_transport=lambda: False,
+    )
+    monkeypatch.setattr(relay_main, "_license_mailer", lambda: insecure)
+    monkeypatch.setenv("RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT", "production")
+    assert relay_main._license_mail_ready() is False
+
+    local_capture = SimpleNamespace(
+        host="smtp.capture.test",
+        configured=lambda: True,
+        secure_transport=lambda: False,
+    )
+    monkeypatch.setattr(relay_main, "_license_mailer", lambda: local_capture)
+    monkeypatch.setenv("RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT", "staging")
+    assert relay_main._license_mail_ready() is True
+
+
+def test_license_mailer_rejects_malformed_sender() -> None:
+    assert SmtpLicenseMailer(
+        host="smtp.example.test",
+        port=587,
+        sender="not-an-email",
+        security="starttls",
+    ).configured() is False
+    assert SmtpLicenseMailer(
+        host="smtp.example.test",
+        port=587,
+        sender="licenses@beacontools.test\nBcc: attacker@example.test",
+        security="starttls",
+    ).configured() is False
+
+
+def test_license_mailer_tls_alias_starts_encrypted_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    class RecordingSmtp:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def starttls(self) -> None:
+            events.append("starttls")
+
+        def send_message(self, _message) -> None:
+            events.append("send")
+
+    monkeypatch.setattr("relay.access.adapters.smtplib.SMTP", RecordingSmtp)
+    mailer = SmtpLicenseMailer(
+        host="smtp.example.test",
+        port=587,
+        sender="licenses@beacontools.test",
+        security="tls",
+    )
+
+    mailer.send_magic_link(
+        email="pilot@example.test",
+        magic_url="https://beacontools.cc/local-flight/relay-access/manage/#token=fake",
+        purpose="recovery",
+    )
+
+    assert events == ["starttls", "send"]
 
 
 def test_purchase_environment_boundary_defaults_to_production_and_separates_staging(

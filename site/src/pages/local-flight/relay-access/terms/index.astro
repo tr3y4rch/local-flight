@@ -44,14 +44,15 @@ import SiteLayout from "../../../../layouts/SiteLayout.astro";
       <section class="policy-section" id="delivery">
         <span class="section-index">03 / DELIVERY AND RECOVERY</span>
         <h2>The license is portable without a Beacon account.</h2>
-        <p>A web purchase delivers an <code>LFRA-…</code> master key in the successful browser session and through Beacon Tools email. Desktop exchanges that key for a revocable device credential and discards the master key. Mobile never accepts or displays a raw key as an unlock mechanism.</p>
+        <p>A web purchase delivers an <code>LFRA-…</code> master key in the successful browser session and through Beacon Tools email. Desktop exchanges that key for a revocable device credential and discards the master key. Mobile never accepts or displays a raw key as an unlock mechanism. A verified holder can request another email of the current key without changing the active device; recovery of a genuinely lost key rotates it and revokes the old key and receiver.</p>
         <p>The paid iOS app creates its included license after its App Store entitlement is verified. Android creates a license after its optional one-time Relay product is verified; an official Android app can also receive an existing license through an attested handoff. Email is optional until you choose to protect, recover, or transfer a license. Passwordless links and activation grants are short-lived. You are responsible for keeping master keys, email links, and device credentials private.</p>
       </section>
 
       <section class="policy-section" id="refunds">
         <span class="section-index">04 / PURCHASES AND REFUNDS</span>
         <h2>The purchase source controls the app download and refund path.</h2>
-        <p>A Stripe web or Android in-app Relay purchase does not include ownership of the paid iOS app. An App Store purchase includes the iOS app and one Relay license. The Android app download is free; its optional Relay purchase is a separate non-consumable product. App and purchase ownership do not move between stores even though the resulting Relay license can move between eligible Local Flight main devices.</p>
+        <p>A Stripe web or Android in-app Relay purchase does not include ownership of the paid iOS app. An App Store purchase includes the iOS app and one Relay license. The Android app download is free; its optional Relay purchase is a separate non-consumable product. App and purchase ownership do not move between stores even though the resulting Relay license can move between eligible Local Flight main devices. Optional support purchases are consumable tips and create no Relay license, entitlement, or feature.</p>
+        <p>Stripe, Apple, or Google provides the financial receipt under its own terms. Beacon Tools may send a separate Relay Access delivery, protection, movement, or recovery email; that message is not a payment receipt.</p>
         <p>Stripe refund questions go through Beacon Tools support, subject to applicable law and the checkout terms. Apple and Google handle purchases and refunds made in their stores under their own rules. Once Beacon Tools receives and verifies an authoritative refund, revocation, or finally lost-dispute notice, the associated Relay entitlement ends and its device credentials are disabled. Apple refund and repurchase under the same App Transaction identity restore the same license when authoritative ownership is verified. A distinct Stripe or Google purchase creates a separate license.</p>
       </section>
 
