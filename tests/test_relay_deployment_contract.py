@@ -5,6 +5,49 @@ import pytest
 from scripts.check_relay_access_deployment import source_contract, validate_payloads
 
 
+def test_container_copy_contract_can_initialize_schedule_modules(tmp_path) -> None:
+    """Exercise the actual Docker COPY inventory without importing checkout files."""
+    import os
+    from pathlib import Path
+    import shlex
+    import shutil
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    image = tmp_path / "image"
+    image.mkdir()
+    for line in (root / "relay" / "Dockerfile").read_text().splitlines():
+        if not line.startswith("COPY "):
+            continue
+        _, source, destination = shlex.split(line)
+        origin, target = root / source, image / destination
+        if origin.is_dir():
+            shutil.copytree(origin, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__"))
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(origin, target)
+    for name in ("schedule_service.py", "schedule_transport.py"):
+        assert (image / "relay" / name).is_file(), f"Relay image is missing {name}"
+    probe = """
+import pathlib, sys
+sys.path.insert(0, sys.argv[1])
+import main
+from relay import schedule_service, schedule_transport
+for module in (main, schedule_service, schedule_transport):
+    assert pathlib.Path(module.__file__).resolve().is_relative_to(pathlib.Path(sys.argv[1]))
+main._ensure_schema()
+main._schedule_service().close()
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", probe, str(image)],
+        cwd=image, env={"PATH": os.defpath, "DB_PATH": str(tmp_path / "fake-relay.db"),
+                        "LOCALFLIGHT_HOME": str(tmp_path / "fake-home")},
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def _payloads() -> tuple[dict, dict, str, int]:
     version, schema = source_contract()
     health = {

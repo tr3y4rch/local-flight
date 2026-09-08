@@ -7,6 +7,15 @@ hashes, and personal build identifiers belong outside Git.
 
 ## 0.6.0 engineering line
 
+### Schedule rollout preparation
+
+- Included the shared schedule modules in the relay container and added a
+  regression check that initializes the copied image contents in isolation.
+- Integrated the existing Relay Access recovery and deployment-readiness fixes
+  so a schedule rollout preserves the deployed recovery behavior.
+- Updated the site's Astro and image/SVG dependency lock to clear the release
+  dependency audit; application and relay dependency audits remain separate gates.
+
 ### AeroDataBox shared schedule hardening
 
 - Added opt-in airport-level schedule coordination with persistent leases,
