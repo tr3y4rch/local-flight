@@ -36,6 +36,17 @@ from localflight.storage.config import AppConfig
 from localflight.storage.flights_store import prune_snapshots, save_snapshot, snapshot_age_seconds
 from localflight.version import user_agent
 
+from contextvars import ContextVar
+
+_schedule_metadata: ContextVar[dict | None] = ContextVar("schedule_metadata", default=None)
+
+
+class SnapshotResult(list[Flight]):
+    def __init__(self, flights: List[Flight], metadata: dict):
+        super().__init__(flights)
+        self.metadata = metadata
+
+
 log = logging.getLogger(__name__)
 
 # Grace window before the scheduled interval during which a fetch is still allowed.
@@ -72,10 +83,13 @@ def _fetch_is_due(cfg: AppConfig) -> tuple[bool, str]:
 
 # ── History write (non-fatal) ──────────────────────────────────────────────────
 
-def _write_history(flights: List[Flight], cfg: AppConfig) -> None:
+def _write_history(flights: List[Flight], cfg: AppConfig, metadata: dict | None = None) -> None:
     try:
         from localflight.storage.history import write_snapshot_to_history
-        write_snapshot_to_history(flights, cfg)
+        if metadata is None:
+            write_snapshot_to_history(flights, cfg)
+        else:
+            write_snapshot_to_history(flights, cfg, snapshot_meta=metadata)
     except Exception as exc:
         log.warning("History write failed (non-fatal): %s", exc)
 
@@ -179,6 +193,8 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
             timeout_s=60,
             return_meta=True,
         )
+        from localflight.storage.flights_store import safe_schedule_metadata
+        _schedule_metadata.set(safe_schedule_metadata(dict(_relay_meta)))
         flights = normalize_flights(
             records,
             airport_iata=airport_iata,
@@ -428,6 +444,9 @@ def _enrich_with_opensky(
 
 def _fetch_real(cfg: AppConfig) -> List[Flight]:
     flights = _fetch_aviationstack(cfg)
+    from localflight.sources.web.aviationstack_client import _relay_uses_shared_schedule
+    if _relay_uses_shared_schedule(cfg.source, data_route=cfg.data_route):
+        return dedupe_codeshares(flights)
 
     enriched = _enrich_with_adsbexchange(flights, cfg)
     if enriched is not None:
@@ -570,10 +589,12 @@ def run_snapshot_job(cfg: AppConfig) -> List[Flight]:
     This means any restart triggered by a config save, profile load, or manual
     button press will not burn an API call if the data is already current.
     """
+    _schedule_metadata.set(None)
     due, reason = _fetch_is_due(cfg)
     if not due:
+        from localflight.storage.flights_store import latest_schedule_metadata
         log.info("Fetch skipped — %s", reason)
-        return []
+        return SnapshotResult([], latest_schedule_metadata(cfg.airport_iata))
 
     log.info("Fetch due — %s", reason)
     source = (cfg.source or "real").strip().lower()
@@ -584,13 +605,20 @@ def run_snapshot_job(cfg: AppConfig) -> List[Flight]:
         flights = _fetch_real(cfg)
 
     # Save JSON snapshot
-    save_snapshot(cfg.airport_iata, flights, at=datetime.now(timezone.utc))
+    metadata = _schedule_metadata.get()
+    if metadata is None:
+        save_snapshot(cfg.airport_iata, flights, at=datetime.now(timezone.utc))
+    else:
+        save_snapshot(cfg.airport_iata, flights, at=datetime.now(timezone.utc), metadata=metadata)
 
     # Prune old snapshot files (non-fatal)
     _prune_old_snapshots(cfg)
 
     # Write to SQLite history DB (non-fatal)
-    _write_history(flights, cfg)
+    if metadata is None:
+        _write_history(flights, cfg)
+    else:
+        _write_history(flights, cfg, metadata)
 
     # Broadcast to WebSocket clients (non-fatal)
     _broadcast_update(flights, cfg)
@@ -600,7 +628,7 @@ def run_snapshot_job(cfg: AppConfig) -> List[Flight]:
         len(flights), cfg.airport_iata, source,
     )
 
-    return flights
+    return SnapshotResult(flights, metadata or {})
 
 
 def run_mock_snapshot_job(

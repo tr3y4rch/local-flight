@@ -1007,8 +1007,8 @@ export function AppShell() {
       standaloneBoardRef.current = board;
       standaloneBoardReadAtRef.current = Date.now();
       await Promise.all([
-        storeStandaloneFidsRows(standaloneCredentials.airport, board.departures, undefined, standaloneCredentials.source),
-        storeStandaloneFidsRows(standaloneCredentials.airport, board.arrivals, undefined, standaloneCredentials.source)
+        storeStandaloneFidsRows(standaloneCredentials.airport, board.departures, board.source_fetched_at || board.generated_at, standaloneCredentials.source, board.expires_at),
+        storeStandaloneFidsRows(standaloneCredentials.airport, board.arrivals, board.source_fetched_at || board.generated_at, standaloneCredentials.source, board.expires_at)
       ]);
       lastFidsRefreshAtRef.current = Date.now();
       if (requestGeneration === fidsRequestGenerationRef.current) {
@@ -1021,7 +1021,8 @@ export function AppShell() {
             // Compatibility Board responses deliberately omit a synthetic
             // receipt timestamp. Preserve the relay summary's source freshness
             // until the combined Board route supplies generated_at itself.
-            last_success_utc: board.generated_at || current.state?.last_success_utc || "",
+            last_success_utc: board.source_fetched_at || board.generated_at || current.state?.last_success_utc || "",
+            cache_state: board.cache_state,
             source_name: current.state?.source_name || (standaloneCredentials.source === "virtual" ? "vatsim" : "relay_standalone")
           }
         }));

@@ -3185,11 +3185,12 @@ def test_relay_aerodatabox_uses_apimarket_gateway_by_default(tmp_path: Path, mon
         display_horizon_hours=12,
     )
 
-    assert payload == {"departures": [], "arrivals": []}
+    assert payload["departures"] == payload["arrivals"] == []
+    assert payload["_localflight"]["request_count"] == 2
     assert str(captured["url"]).startswith("https://prod.api.market/api/v1/aedbx/aerodatabox/")
     params = captured["params"]
     assert isinstance(params, dict)
-    assert params["durationMinutes"] == 720
+    assert 0 < params["durationMinutes"] <= 720
     headers = captured["headers"]
     assert isinstance(headers, dict)
     assert headers["x-magicapi-key"] == "adb-test"
@@ -3580,15 +3581,15 @@ def test_aerodatabox_fresh_cache_avoids_upstream(tmp_path: Path, monkeypatch) ->
     assert second.status_code == 200
     assert first.json()["provider"] == "aerodatabox"
     assert second.json()["cache_state"] == "fresh"
-    assert len(outbound) == 1
+    assert len(outbound) == 2
 
 
 def test_aerodatabox_stale_cache_served_when_capped(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     monkeypatch.setenv("AERODATABOX_API_KEY", "adb-test")
     monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "aerodatabox")
-    monkeypatch.setenv("RELAY_AERODATABOX_UPSTREAM_MONTHLY_UNITS_LIMIT", "2")
-    monkeypatch.setenv("RELAY_AERODATABOX_UPSTREAM_DAILY_UNITS_LIMIT", "2")
+    monkeypatch.setenv("RELAY_AERODATABOX_UPSTREAM_MONTHLY_UNITS_LIMIT", "4")
+    monkeypatch.setenv("RELAY_AERODATABOX_UPSTREAM_DAILY_UNITS_LIMIT", "4")
     client = TestClient(relay_main.app)
     scheduled = datetime(2026, 5, 12, 10, 0, tzinfo=timezone.utc)
     outbound: list[str] = []
@@ -3626,7 +3627,7 @@ def test_aerodatabox_stale_cache_served_when_capped(tmp_path: Path, monkeypatch)
     assert payload["cache_state"] == "stale"
     assert payload["meta"]["stale_reason"] == "budget_limited"
     assert payload["meta"]["budget_limited_providers"] == ["aerodatabox"]
-    assert len(outbound) == 1
+    assert len(outbound) == 2
 
 
 def test_sparse_schedule_refresh_does_not_overwrite_healthy_cache(tmp_path: Path, monkeypatch) -> None:

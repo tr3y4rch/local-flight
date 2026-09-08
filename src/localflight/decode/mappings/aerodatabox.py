@@ -115,24 +115,26 @@ def _status(value: Any, *, direction: str) -> str:
     raw = _s(value).strip().lower()
     if not raw:
         return "unknown"
-    normalized = raw.replace("_", " ").replace("-", " ")
+    normalized = re.sub(r"[^a-z]", "", raw)
     direct = {
         "scheduled": "scheduled",
         "expected": "scheduled",
         "boarding": "boarding",
-        "check in": "boarding",
-        "gate open": "boarding",
+        "checkin": "scheduled",
+        "gateopen": "scheduled",
+        "gateclosed": "scheduled",
         "delayed": "delayed",
         "departed": "departed",
         "departing": "departed",
         "active": "departed" if direction == "DEP" else "scheduled",
-        "en route": "departed",
+        "enroute": "departed" if direction == "DEP" else "scheduled",
+        "approaching": "departed" if direction == "DEP" else "scheduled",
         "arrived": "arrived",
         "landed": "arrived",
         "cancelled": "cancelled",
         "canceled": "cancelled",
-        "canceled uncertain": "cancelled",
-        "cancelled uncertain": "cancelled",
+        "canceleduncertain": "unknown",
+        "cancelleduncertain": "unknown",
         "diverted": "diverted",
         "redirected": "diverted",
     }
@@ -293,6 +295,12 @@ def aerodatabox_to_raw_records(
             scheduled = _time_value(time_block, "scheduledTime", "scheduled", "scheduledAt")
             estimated = _time_value(time_block, "revisedTime", "estimatedTime", "estimated", "estimatedAt")
             actual = _time_value(time_block, "actualTime", "actual", "actualAt")
+            provider_status = _s(row.get("status") or row.get("flightStatus"))
+            status_key = re.sub(r"[^a-z]", "", provider_status.lower())
+            completed = status_key in ({"departed", "enroute", "approaching", "arrived"} if direction == "DEP" else {"arrived"})
+            quality = tuple(str(q) for q in (time_block.get("quality") or []) if q in {"Basic", "Live", "Approximate"})
+            if not actual and completed and "Approximate" not in quality:
+                actual, estimated = estimated, None
 
             origin_iata = _airport_code(dep, "iata") or (airport_iata if direction == "DEP" else None)
             origin_icao = _airport_code(dep, "icao") or (airport_icao if direction == "DEP" else None)
@@ -318,6 +326,10 @@ def aerodatabox_to_raw_records(
                     "callsign": callsign,
                     "direction": direction,
                     "status": _status(row.get("status") or row.get("flightStatus"), direction=direction),
+                    "provider_status": provider_status,
+                    "movement_quality": quality,
+                    "runway_time": _time_value(time_block, "runwayTime"),
+                    "status_uncertain": "uncertain" in status_key,
                     "scheduled": scheduled,
                     "estimated": estimated,
                     "actual": actual,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -132,7 +132,7 @@ def _fids_units() -> int:
         return _DEFAULT_FIDS_TIER2_UNITS
 
 
-def _increment_units(units: int) -> None:
+def _increment_units(units: int, request_count: int = 1) -> None:
     limit = _monthly_units_limit()
     usage = _load_usage()
     month = _month_key()
@@ -160,28 +160,28 @@ def _increment_units(units: int) -> None:
                     },
                     {
                         "service": "aerodatabox_requests",
-                        "amount": 1,
+                        "amount": request_count,
                         "monthly_limit": None,
                         "daily_limit": None,
                     },
                 ]
             )
             current = max(current, int(counts.get("aerodatabox_units", 0) or 0) - int(units))
-            request_current = max(request_current, int(counts.get("aerodatabox_requests", 0) or 0) - 1)
+            request_current = max(request_current, int(counts.get("aerodatabox_requests", 0) or 0) - request_count)
         except local_usage.LocalBudgetExceeded as exc:
             raise AeroDataBoxBudgetExceeded(
                 f"AeroDataBox {exc.period} unit budget exceeded: "
                 f"{exc.current}/{exc.limit} units used, {exc.requested} requested."
             ) from exc
-        except Exception:
-            pass
+        except Exception as exc:
+            raise AeroDataBoxError("Provider usage tracking is temporarily unavailable") from exc
 
     if current + units > limit:
         raise AeroDataBoxBudgetExceeded(
             f"AeroDataBox monthly unit budget exceeded: {current}/{limit} units used this month ({month})."
         )
     bucket[month] = max(int(bucket.get(month, 0) or 0), current + units)
-    request_bucket[month] = max(int(request_bucket.get(month, 0) or 0), request_current + 1)
+    request_bucket[month] = max(int(request_bucket.get(month, 0) or 0), request_current + request_count)
     for name in ("aerodatabox_units", "aerodatabox_requests"):
         data = usage.get(name)
         if isinstance(data, dict):
@@ -202,44 +202,34 @@ def _request_payload(
             "AeroDataBox client is disabled. Set AERODATABOX_API_KEY and LOCALFLIGHT_AERODATABOX_ENABLED=1 to enable."
         )
 
-    offset_minutes = -max(0, int(display_grace_minutes))
-    duration_minutes = min(
-        _MAX_FIDS_DURATION_MINUTES,
-        max(60, max(0, int(display_grace_minutes)) + max(1, int(display_horizon_hours)) * 60),
-    )
-    _increment_units(_fids_units())
-    try:
-        response = requests.get(
-            _request_url(airport_iata),
-            params={
-                "offsetMinutes": offset_minutes,
-                "durationMinutes": duration_minutes,
-                "direction": "Both",
-                "withLeg": "true",
-                "withCancelled": "true",
-                "withCodeshared": "true",
-                "withCargo": "false",
-                "withPrivate": "false",
-                "withLocation": "false",
-            },
-            headers=_request_headers(),
-            timeout=timeout_s,
-        )
-    except requests.RequestException as exc:
-        raise AeroDataBoxError(f"AeroDataBox request failed: {exc}") from exc
+    from localflight.sources.web.aerodatabox_plan import plan_fids, validate_fids, combine_fids
 
-    if response.status_code == 204:
-        return {"departures": [], "arrivals": []}
-    if response.status_code == 429:
-        raise AeroDataBoxBudgetExceeded("AeroDataBox provider quota exceeded upstream.")
-    if response.status_code >= 400:
-        raise AeroDataBoxError(f"AeroDataBox HTTP {response.status_code}")
-    try:
-        payload = response.json()
-    except Exception as exc:
-        raise AeroDataBoxError(f"AeroDataBox returned invalid JSON: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise AeroDataBoxError("AeroDataBox response shape invalid")
+    windows = plan_fids(
+        grace_minutes=display_grace_minutes, horizon_hours=display_horizon_hours,
+        max_minutes=int(os.getenv("LOCALFLIGHT_AERODATABOX_MAX_FIDS_MINUTES", "720")),
+    )
+    # Reserve the whole planned sequence atomically; no partial board on failure.
+    _increment_units(_fids_units() * len(windows), request_count=len(windows))
+    payloads = []
+    for window in windows:
+        try:
+            response = requests.get(_request_url(airport_iata), params=window.params(),
+                                    headers=_request_headers(), timeout=timeout_s)
+            if response.status_code == 429:
+                raise AeroDataBoxBudgetExceeded("AeroDataBox provider quota exceeded upstream.")
+            if response.status_code >= 400:
+                raise AeroDataBoxError(f"AeroDataBox HTTP {response.status_code}")
+            payload = {"departures": [], "arrivals": []} if response.status_code == 204 else response.json()
+            payloads.append(validate_fids(payload))
+        except (requests.RequestException, ValueError) as exc:
+            raise AeroDataBoxError("AeroDataBox flight information is temporarily unavailable") from exc
+    payload = combine_fids(payloads)
+    payload["_localflight"] = {
+        "request_count": len(windows), "units_spent": _fids_units() * len(windows),
+        "coverage_from": windows[0].start.isoformat(),
+        "coverage_to": (windows[-1].end - timedelta(minutes=1)).isoformat(), "coverage_complete": True,
+        "source_fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
     return payload
 
 
@@ -266,6 +256,8 @@ def fetch_schedule_records(
         airport_icao=airport_icao,
         mode="both",
     )
+    if len(records) != len(payload.get("departures") or []) + len(payload.get("arrivals") or []):
+        raise AeroDataBoxError("Flight information contains incomplete movement identities")
     meta = {
         "provider": "aerodatabox",
         "timezone": timezone_name,
@@ -276,6 +268,7 @@ def fetch_schedule_records(
         "raw_rows": len(payload.get("departures") or []) + len(payload.get("arrivals") or []),
         "record_count": len(records),
     }
+    meta.update(payload.get("_localflight") or {})
     if return_meta:
         return records, meta
     return records

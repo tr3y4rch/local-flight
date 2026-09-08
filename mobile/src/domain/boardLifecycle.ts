@@ -25,7 +25,26 @@ export function currentStandaloneRows(
   graceMs = STANDALONE_COMPLETED_GRACE_MS
 ): FidsRow[] {
   const cutoff = now - graceMs;
-  return rows.filter((row) => {
+  return rows.map((original) => {
+    const row = { ...original };
+    for (const [field, evidence] of Object.entries(row.field_sources || {})) {
+      const expiry = parsedTime(evidence.expires_at);
+      if (expiry == null || expiry > now) continue;
+      if (field === "gate") {
+        row.gate = "";
+        row.gate_display = "";
+        row.terminal_gate_display = row.terminal_display || "";
+      }
+      if (field === "terminal") {
+        row.terminal_display = "";
+        row.terminal_gate_display = row.gate_display || "";
+      }
+      if (field === "aircraft_type" || field === "aircraft_type_full") row.aircraft_type = "";
+      if (field === "airline_name") row.airline_display = "";
+      if (field === "aircraft_registration") row.aircraft_registration = null;
+    }
+    return row;
+  }).filter((row) => {
     const movementTime = boardRowMovementTime(row);
     return movementTime == null || movementTime >= cutoff;
   });
@@ -35,8 +54,18 @@ export function projectStandaloneBoardLocally(
   board: MobileBoardResponse,
   now = Date.now()
 ): MobileBoardResponse {
+  const expired = parsedTime(board.expires_at);
+  if (expired != null && expired <= now) return { ...board, cache_state: "expired", departures: [], arrivals: [] };
+  const fetched = parsedTime(board.source_fetched_at || board.generated_at);
+  const coverageEnd = parsedTime(board.coverage_to);
+  if (board.source !== "virtual" && ((fetched != null && now - fetched > 86_400_000)
+      || (coverageEnd != null && coverageEnd <= now))) {
+    return { ...board, cache_state: "expired", departures: [], arrivals: [] };
+  }
   return {
     ...board,
+    cache_state: board.source !== "virtual" && fetched == null ? "unknown"
+      : board.source !== "virtual" && fetched != null && now - fetched >= 900_000 ? "stale" : board.cache_state,
     departures: currentStandaloneRows(board.departures || [], now),
     arrivals: currentStandaloneRows(board.arrivals || [], now)
   };

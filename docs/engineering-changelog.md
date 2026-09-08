@@ -7,6 +7,20 @@ hashes, and personal build identifiers belong outside Git.
 
 ## 0.6.0 engineering line
 
+### AeroDataBox shared schedule hardening
+
+- Added opt-in airport-level schedule coordination with persistent leases,
+  generation fencing, bounded cold waits, stale serving, and background enrichment.
+- Centralized complete AeroDataBox interval planning, validation and unit
+  reservations; preserved conservative subscription capabilities and existing caps.
+- Added credential pacing/pauses, bounded retries, independent AviationStack
+  enrichment allowances, field provenance and expiry.
+- Preserved provider freshness through local/mobile snapshots and history;
+  added managed-data retention and removed provider caches from access backups.
+- Kept managed/BYOK routing explicit and public schedule contracts compatible.
+  See `docs/schedule-relay-hardening.md` for rollout defaults and validation.
+
+
 ### Universal Relay Access
 
 - Added a canonical fulfillment orchestrator that maps verified Stripe,

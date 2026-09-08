@@ -2660,7 +2660,7 @@ def test_aerodatabox_byok_uses_apimarket_gateway_by_default(monkeypatch) -> None
     monkeypatch.setenv("LOCALFLIGHT_AERODATABOX_ENABLED", "1")
     monkeypatch.delenv("LOCALFLIGHT_AERODATABOX_MARKETPLACE", raising=False)
     monkeypatch.delenv("AERODATABOX_MARKETPLACE", raising=False)
-    monkeypatch.setattr(aerodatabox_client, "_increment_units", lambda units: None)
+    monkeypatch.setattr(aerodatabox_client, "_increment_units", lambda units, request_count=1: None)
     captured: dict[str, object] = {}
 
     def fake_get(url, *, params, headers, timeout):
@@ -2676,11 +2676,12 @@ def test_aerodatabox_byok_uses_apimarket_gateway_by_default(monkeypatch) -> None
         timeout_s=7,
     )
 
-    assert payload == {"departures": [], "arrivals": []}
+    assert payload["departures"] == payload["arrivals"] == []
+    assert payload["_localflight"]["request_count"] == 2
     assert str(captured["url"]).startswith("https://prod.api.market/api/v1/aedbx/aerodatabox/")
     params = captured["params"]
     assert isinstance(params, dict)
-    assert params["durationMinutes"] == 720
+    assert 0 < params["durationMinutes"] <= 720
     headers = captured["headers"]
     assert isinstance(headers, dict)
     assert headers["x-magicapi-key"] == "adb-test"

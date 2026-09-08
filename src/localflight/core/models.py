@@ -125,6 +125,11 @@ class Flight:
     source:       Optional[str]      = None   # "aviationstack", "vatsim", etc.
     enriched_by:  Optional[str]      = None   # "opensky" if position was enriched
     updated_at:   Optional[datetime] = None
+    provider_status: Optional[str] = None
+    movement_quality: tuple[str, ...] = field(default_factory=tuple)
+    status_uncertain: bool = False
+    runway_time: Optional[datetime] = None
+    field_sources: dict = field(default_factory=dict)
 
     def display_route(self) -> str:
         if self.direction == FlightDirection.DEPARTURE:

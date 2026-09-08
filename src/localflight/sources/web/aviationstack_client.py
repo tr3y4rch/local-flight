@@ -593,7 +593,9 @@ def _selected_data_route(source: Optional[str] = None, data_route: Optional[str]
     except Exception:
         pass
     # Compatibility fallback is only reachable when config cannot be loaded.
-    return "byok" if (_has_enabled_byok_key() or _has_enabled_aerodatabox_byok_key()) else "relay"
+    # An unreadable configuration must never silently turn managed access into
+    # direct provider traffic merely because credentials exist on the machine.
+    return "relay"
 
 
 def _relay_uses_shared_schedule(source: Optional[str] = None, *, data_route: Optional[str] = None) -> bool:
@@ -1054,6 +1056,20 @@ def fetch_relay_schedule_records(
     meta["cache_state"] = str(data.get("cache_state") or "")
     meta["generated_at"] = str(data.get("generated_at") or "")
     meta["provider"] = str(data.get("provider") or "aviationstack")
+    for field in ("snapshot_id", "source_fetched_at", "provider_fetched_at", "coverage_from", "coverage_to",
+                  "coverage_complete", "next_refresh_at", "refresh_after_s", "expires_at", "notices"):
+        if field in data:
+            meta[field] = data[field]
+    meta["source_fetched_at"] = meta.get("source_fetched_at") or meta.get("generated_at") or ""
+    meta["managed"] = True
+    if meta["source_fetched_at"] and not meta.get("expires_at"):
+        try:
+            fetched = datetime.fromisoformat(str(meta["source_fetched_at"]).replace("Z", "+00:00"))
+            meta["expires_at"] = (fetched + timedelta(days=7)).isoformat()
+        except (ValueError, TypeError):
+            meta["source_fetched_at"] = ""
+    if not meta["source_fetched_at"]:
+        meta["cache_state"] = "unknown"
     if return_meta:
         return records, meta
     return records
