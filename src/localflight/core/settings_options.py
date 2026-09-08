@@ -48,7 +48,7 @@ THEME_OPTIONS: tuple[Option, ...] = (
 )
 
 SOURCE_OPTIONS: tuple[Option, ...] = (
-    Option("real", "Real traffic", "AviationStack schedule data plus available enrichment."),
+    Option("real", "Real traffic", "Provider-neutral schedule data plus available enrichment."),
     Option("virtual", "Virtual / VATSIM", "No-key virtual traffic with privacy-safe details."),
 )
 

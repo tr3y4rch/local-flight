@@ -8,9 +8,16 @@ The Android app is free; Companion and VATSIM require no purchase, while real-fl
 
 The paid iOS app uses the signed `AppTransaction`. Separate verified Family Sharing identities create separate licenses. A signed revocation date revokes the related license, while an authoritative refund and repurchase for the same stable app-transaction identity restores that license rather than creating a second one.
 
-Local Flight `0.6.0` implements three optional consumable support products through
+Local Flight `0.6.1` implements three optional consumable support products through
 StoreKit 2 / Google Play Billing via `expo-iap`. Support unlocks nothing, creates
 no durable entitlement, and uses store-owned localized prices.
+
+New support purchases are currently held for licensing review. The relay default
+`RELAY_SUPPORT_PURCHASES_ENABLED=0` is the controlling fail-closed switch: status
+reports the hold, the app does not load or show purchasable products, and verify
+rejects before contacting Apple or Google. Do not enable the switch until VATSIM
+has provided written clearance or a licence and the store/legal disclosures have
+been rechecked.
 
 Product identifiers must match on both stores:
 
@@ -23,6 +30,13 @@ Beacon Tools relay for official store verification. It finishes/consumes a
 transaction only after verification succeeds. The relay stores only a keyed
 transaction hash, short reference, product ID, coarse environment/status, and
 timestamps. Raw store evidence and payment-card data are never stored there.
+Before a new purchase can start, the app also checks the relay's coarse
+platform readiness response. Purchase buttons require all three localized
+store products and the matching Apple or Google verifier to be ready. The
+response exposes no credential values. Previously unfinished purchases are not
+recovered through the Beacon Tools verifier while the licensing hold is active.
+Reassess recovery handling with the written licensing decision before enabling
+purchases.
 
 Release remains gated on App Store Connect and Play Console product creation,
 store agreements/tax setup, relay verification credentials, TestFlight sandbox
@@ -51,3 +65,9 @@ durable entitlement; unfinished transactions are recovered automatically.
 7. Redeploy the relay before testing. Verify cancellation, pending approval,
    offline relay, duplicate delivery, app restart, successful consumption, and
    repeat purchase with TestFlight sandbox and Play license-tester accounts.
+   Confirm the mobile IAP status route reports verification_ready as true for
+   the platform before opening the app's purchase sheet.
+7. Validate Google Play discovery either from an opted-in internal-test install
+   obtained through Google Play, or from a matching-package sideload while the
+   signed-in account is configured as a Play license tester. A general local
+   debug install is not proof that the production catalog is unavailable.

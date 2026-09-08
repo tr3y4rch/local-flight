@@ -1357,6 +1357,119 @@ class LicenseService:
         finally:
             conn.close()
 
+    @staticmethod
+    def _public_delivery_summary(row: sqlite3.Row | None) -> dict[str, Any]:
+        if row is None:
+            return {
+                "state": "pending",
+                "status": "pending",
+                "channel": "",
+                "purpose": "",
+                "updated_at": "",
+            }
+        raw_status = str(row["status"] or "").strip().lower()
+        retry_scheduled = bool(row["next_attempt_at"])
+        if raw_status in {"sent", "revealed"}:
+            state = "sent"
+        elif raw_status in {"pending", "sending"} or (raw_status == "failed" and retry_scheduled):
+            state = "pending"
+        else:
+            state = "needs_attention"
+        return {
+            "state": state,
+            "status": state,
+            "channel": str(row["channel"] or ""),
+            "purpose": str(row["purpose"] or ""),
+            "updated_at": str(row["updated_at"] or ""),
+        }
+
+    def resend_license_email(
+        self,
+        holder_session: str,
+        license_id: str,
+        *,
+        cooldown_seconds: int = 600,
+    ) -> dict[str, Any]:
+        """Queue a holder-requested delivery without revealing the master key."""
+
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            session = self._challenge_for_token(conn, "holder_session", holder_session)
+            self._validate_challenge_row(session)
+            row = conn.execute(
+                "SELECT * FROM relay_licenses WHERE license_id=? AND holder_id=?",
+                (license_id, str(session["holder_id"] or "")),
+            ).fetchone()
+            if not row:
+                raise LicenseNotFound("Relay Access license was not found")
+            if str(row["status"] or "").strip().lower() != "active":
+                raise LicenseInactive("Only an active Relay Access license can be emailed")
+
+            version = int(row["key_version"] or 1)
+            latest = conn.execute(
+                """
+                SELECT channel, purpose, status, attempt_count, updated_at,
+                       next_attempt_at, created_at
+                FROM license_deliveries
+                WHERE license_id=? AND channel='email' AND key_version=?
+                ORDER BY created_at DESC, delivery_id DESC
+                LIMIT 1
+                """,
+                (license_id, version),
+            ).fetchone()
+            now = self._parse_time(self.now())
+            cooldown = max(60, min(int(cooldown_seconds), 3600))
+            if latest is not None:
+                raw_status = str(latest["status"] or "").strip().lower()
+                created_at = self._parse_time(str(latest["created_at"] or latest["updated_at"]))
+                if raw_status in {"pending", "sending"} or (
+                    raw_status == "failed" and latest["next_attempt_at"]
+                ) or (now - created_at).total_seconds() < cooldown:
+                    conn.commit()
+                    return {"queued": False, **self._public_delivery_summary(latest)}
+
+            delivery_id = f"delivery_{uuid.uuid4().hex}"
+            # BEGIN IMMEDIATE serializes holder actions; the latest-delivery
+            # check above is the idempotency boundary for retries in the
+            # cooldown window. A unique persisted key avoids reusing an old
+            # completed delivery when a deterministic test clock is frozen.
+            dedupe_key = f"email:{license_id}:{version}:holder_resend:{delivery_id}"
+            timestamp = now.isoformat()
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO license_deliveries (
+                    delivery_id, license_id, holder_id, channel, purpose, key_version,
+                    dedupe_key, status, created_at, updated_at, next_attempt_at
+                ) VALUES (?, ?, ?, 'email', 'holder_resend', ?, ?, 'pending', ?, ?, ?)
+                """,
+                (
+                    delivery_id,
+                    license_id,
+                    str(row["holder_id"]),
+                    version,
+                    dedupe_key,
+                    timestamp,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            delivery = conn.execute(
+                """
+                SELECT channel, purpose, status, attempt_count, updated_at,
+                       next_attempt_at, created_at
+                FROM license_deliveries WHERE dedupe_key=?
+                """,
+                (dedupe_key,),
+            ).fetchone()
+            conn.commit()
+            return {"queued": True, **self._public_delivery_summary(delivery)}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def claim_due_license_emails(self, *, limit: int = 10) -> list[dict[str, Any]]:
         conn = self._connect()
         try:
@@ -1570,13 +1683,17 @@ class LicenseService:
                 confirm_move_token=confirm_move_token,
                 grant_row=grant_row,
             )
-            conn.commit()
             if (
                 not prepare_only
                 and result.activation_state == "pending_commit"
                 and result.credential is not None
             ):
-                return self.commit_activation(result.credential.credential, install_id=install_id)
+                result = self._commit_prepared_activation_conn(
+                    conn,
+                    result=result,
+                    install_id=install_id,
+                )
+            conn.commit()
             return result
         except Exception:
             conn.rollback()
@@ -1627,13 +1744,17 @@ class LicenseService:
                 confirm_move_token=confirm_move_token,
                 grant_row=grant_row,
             )
-            conn.commit()
             if (
                 not prepare_only
                 and result.activation_state == "pending_commit"
                 and result.credential is not None
             ):
-                return self.commit_activation(result.credential.credential, install_id=install_id)
+                result = self._commit_prepared_activation_conn(
+                    conn,
+                    result=result,
+                    install_id=install_id,
+                )
+            conn.commit()
             return result
         except Exception:
             conn.rollback()
@@ -1782,6 +1903,103 @@ class LicenseService:
                 device_kind=kind,
                 device_name=target_name,
             ),
+        )
+
+    def _commit_prepared_activation_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        result: ActivationResult,
+        install_id: str,
+    ) -> ActivationResult:
+        """Commit an in-process activation without releasing the write lock.
+
+        Public clients use the explicit prepare/commit routes so they can save
+        the credential before moving a receiver. Internal callers do not have
+        that persistence boundary, so keeping their prepare and commit in one
+        transaction prevents concurrent preparations from superseding each
+        other and leaking a misleading inactive-credential error.
+        """
+        credential = result.credential
+        if credential is None:
+            raise InvalidChallenge("Relay Access activation was not prepared")
+        row = conn.execute(
+            """
+            SELECT * FROM relay_activations
+            WHERE activation_id=? AND install_id=? AND status='pending_commit'
+            """,
+            (credential.activation_id, install_id),
+        ).fetchone()
+        if not row:
+            raise InvalidChallenge(
+                "Relay Access activation could not be completed",
+                access_state="active",
+                credential_state="unknown",
+                reason_code="activation_commit_stale",
+            )
+
+        license_id = str(row["license_id"])
+        active = conn.execute(
+            "SELECT * FROM relay_activations WHERE license_id=? AND status='active'",
+            (license_id,),
+        ).fetchone()
+        expected_activation_id = str(row["expected_activation_id"] or "")
+        actual_activation_id = str(active["activation_id"] or "") if active else ""
+        if actual_activation_id != expected_activation_id:
+            raise InvalidChallenge(
+                "The active receiver changed before this activation was completed",
+                access_state="active",
+                credential_state="pending_commit",
+                reason_code="activation_commit_stale",
+            )
+
+        now = self.now()
+        if active:
+            conn.execute(
+                """
+                UPDATE relay_activations
+                SET status='replaced', revoked_at=?, revoke_reason='receiver_replaced'
+                WHERE activation_id=? AND status='active'
+                """,
+                (now, actual_activation_id),
+            )
+        updated_count = conn.execute(
+            """
+            UPDATE relay_activations
+            SET status='active', activated_at=?, last_seen_at=?, pending_expires_at=NULL
+            WHERE activation_id=? AND status='pending_commit'
+            """,
+            (now, now, credential.activation_id),
+        ).rowcount
+        if updated_count != 1:
+            raise InvalidChallenge(
+                "Relay Access activation could not be completed",
+                access_state="active",
+                credential_state="unknown",
+                reason_code="activation_commit_stale",
+            )
+
+        challenge_ids = [
+            str(row[column] or "")
+            for column in ("grant_challenge_id", "move_challenge_id")
+            if str(row[column] or "")
+        ]
+        if challenge_ids:
+            placeholders = ",".join("?" for _ in challenge_ids)
+            conn.execute(
+                f"UPDATE access_challenges SET consumed_at=? WHERE challenge_id IN ({placeholders})",
+                (now, *challenge_ids),
+            )
+        license_row = conn.execute(
+            "SELECT * FROM relay_licenses WHERE license_id=?",
+            (license_id,),
+        ).fetchone()
+        return ActivationResult(
+            activated=True,
+            activation_state="active",
+            license=self._license_from_row(license_row),
+            replaced_receiver=bool(active),
+            credential=credential,
         )
 
     def commit_activation(self, credential: str, *, install_id: str) -> ActivationResult:
@@ -2905,7 +3123,8 @@ class LicenseService:
             for row in rows:
                 delivery = conn.execute(
                     """
-                    SELECT channel, purpose, status, attempt_count, updated_at
+                    SELECT channel, purpose, status, attempt_count, updated_at,
+                           next_attempt_at, created_at
                     FROM license_deliveries
                     WHERE license_id=?
                     ORDER BY CASE WHEN channel='email' THEN 0 ELSE 1 END,
@@ -2922,21 +3141,7 @@ class LicenseService:
                         "activated_at": str(row["activated_at"] or ""),
                         "last_seen_at": str(row["last_seen_at"] or ""),
                     } if row["device_kind"] else None,
-                    "key_delivery": {
-                        "state": str(delivery["status"]),
-                        "status": str(delivery["status"]),
-                        "channel": str(delivery["channel"]),
-                        "purpose": str(delivery["purpose"]),
-                        "attempt_count": int(delivery["attempt_count"] or 0),
-                        "updated_at": str(delivery["updated_at"]),
-                    } if delivery else {
-                        "state": "pending",
-                        "status": "pending",
-                        "channel": "",
-                        "purpose": "",
-                        "attempt_count": 0,
-                        "updated_at": "",
-                    },
+                    "key_delivery": self._public_delivery_summary(delivery),
                 })
             return summaries
         finally:

@@ -17,7 +17,7 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
   active="product"
   image="/assets/localflight-lockup.png"
 >
-  <header class="terminal-hero">
+  <header class="terminal-hero terminal-hero--product">
     <div class="terminal-frame terminal-grid hero-grid">
       <div class="hero-copy hero-copy--narrow">
         <div class="eyebrow">Local Flight / Release {currentRelease}</div>
@@ -27,7 +27,7 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
           <a class="action-button action-button--primary" href="#downloads">Choose a download <span aria-hidden="true">↓</span></a>
           <a class="action-link" href="#capabilities">See what it can display</a>
         </div>
-        <p class="hero-footnote">Desktop free to download · No subscription · No account required · Windows · macOS · Linux · Raspberry Pi</p>
+        <p class="hero-footnote">Free and open source · No account required · Windows · macOS · Linux · Raspberry Pi</p>
       </div>
       <div class="hero-visual hero-visual--wide">
         <MediaStage src={fidsImage} alt="Local Flight departures board in the desktop application" label="FIDS / DEPARTURES" meta={`0.5.1 capture · interface unchanged in ${currentRelease}`} loading="eager" widths={[720, 1100, 1500]} sizes="(max-width: 920px) 90vw, 55vw" />
@@ -43,12 +43,12 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
 
   <section class="section" id="capabilities">
     <div class="terminal-frame">
-      <SectionHeading index="01 / THE BOARD" title="The information you expect at a glance." description="Local Flight turns a screen into an airport-style arrivals and departures board (FIDS), with airport-local time, weather, flight status, and gate information when the data source supplies it." />
-      <div class="feature-run" data-reveal>
-        <article class="feature"><span class="feature-index">FIDS</span><h3>Arrivals and departures</h3><p>Follow operating flight numbers, local times, weather, pinned flights, and several board styles.</p></article>
-        <article class="feature"><span class="feature-index">SHARED</span><h3>Codeshares kept together</h3><p>When airlines sell the same flight under different numbers, Local Flight combines them into a clearer row.</p></article>
-        <article class="feature"><span class="feature-index">DETAIL</span><h3>Useful flight detail</h3><p>See status, gate, route, aircraft, and timing details when your chosen flight-data source provides them.</p></article>
-        <article class="feature"><span class="feature-index">HISTORY</span><h3>Recent movements</h3><p>Local Flight counts recent arrivals and departures as movements and saves the history on your computer.</p></article>
+      <SectionHeading index="01 / THE BOARD" title="The information you expect at a glance." description="Local Flight turns a screen into an airport-style arrivals and departures board (FIDS), with airport-local time, weather, flight status, and gate information when the selected data source supplies it." />
+      <div class="summary-lines summary-lines--compact" data-reveal>
+        <div class="summary-line"><span>FIDS</span><strong>Arrivals and departures</strong><p>Follow operating flight numbers, local times, weather, pinned flights, and several board styles.</p></div>
+        <div class="summary-line"><span>SHR</span><strong>Codeshares together</strong><p>When airlines sell the same flight under different numbers, Local Flight combines them into a clearer row.</p></div>
+        <div class="summary-line"><span>DTL</span><strong>Useful flight detail</strong><p>See status, gate, route, aircraft, and timing detail when it is present in your chosen source.</p></div>
+        <div class="summary-line"><span>HST</span><strong>History on your device</strong><p>Recent arrivals and departures are counted as movements and saved on the computer running Local Flight.</p></div>
       </div>
     </div>
   </section>
@@ -94,15 +94,15 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
       <div class="split-story-copy" data-reveal>
         <span class="section-index">04 / FLIGHT DATA</span>
         <h2>Choose where your flight data comes from.</h2>
-        <p>Desktop setup has exactly three routes. Only Beacon Relay needs a Relay Access license; the other two paths bypass Beacon licensing.</p>
-        <ul class="data-list">
-          <li><b>Beacon Relay</b><span>Use the hosted shared service with one portable Relay Access license. Buy it on the web or Android, use the license included with iOS, or move an existing license here.</span></li>
-          <li><b>Bring Your Own Keys</b><span>Your keys stay on the computer running Local Flight and go only to the provider you select.</span></li>
-          <li><b>VATSIM</b><span>Use public virtual-network callsigns and flight plans while excluding pilot and controller identities.</span></li>
-        </ul>
+        <p>Desktop setup offers three clear routes. Only Beacon Relay needs paid Relay Access; Bring Your Own Keys and VATSIM remain available without it.</p>
+        <div class="data-path-table">
+          <article><strong>Beacon Relay</strong><p>Optional hosted real-flight data. Beacon Tools handles provider access, shared caching, and service operation. Relay Access purchases are currently in prelaunch.</p><span>Paid hosted path</span></article>
+          <article><strong>Bring Your Own Keys</strong><p>Use your own appropriately licensed aviation-data provider account. The keys stay on the Local Flight computer and go only to that provider.</p><span>No Relay Access</span></article>
+          <article><strong>VATSIM</strong><p>Use public virtual-network callsigns and flight plans while excluding pilot and controller identities.</p><span>Free virtual traffic</span></article>
+        </div>
         <div class="inline-actions" style="margin-top: 30px">
           <a class="action-link" href="/network/">See how every connection works</a>
-          <a class="action-link" href="/local-flight/relay-access/">Compare Relay Access purchase routes</a>
+          <a class="action-link" href="/local-flight/relay-access/">Why Beacon Relay is paid</a>
           <a class="action-link" href="/privacy/">Read the privacy model</a>
         </div>
       </div>

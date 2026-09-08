@@ -5,7 +5,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -17,6 +16,7 @@ import { accessibleButton } from "../accessibility/mobileA11y";
 import { paidAppStoreLabel, type MobileRelayAccessSnapshot } from "../access/paidAppAccess";
 import { englishCopy } from "../content/en";
 import { BrandWordmark } from "../components/Brand";
+import { InsetModalScaffold, insetModalPresentationProps } from "../components/InsetModalScaffold";
 import { MotionPressable } from "../components/MotionPressable";
 import { V2Text as Text } from "../components/V2Text";
 import type { WidgetFlightPreview, WidgetPreviewSnapshot } from "../domain/widgets";
@@ -51,6 +51,7 @@ export type MoreScreenV2Props = {
   widgetPreview: WidgetPreviewSnapshot;
   widgetPreferences: MobileWidgetPreferences;
   widgetSnapshotLabel: string;
+  relayDiagnosticLabel: string;
   liveActivitySupported: boolean;
   weatherDisplayMode: MobileWeatherDisplayMode;
   autoDisplayOnRotate: boolean;
@@ -125,7 +126,7 @@ function AppearancePanel({
   ];
   return (
     <View style={styles.panelContent}>
-      <Text style={styles.panelIntro}>Choose an appearance for this device. Flight status colors always include a text label.</Text>
+      <Text style={styles.panelIntro}>Choose how Local Flight looks on this device. Flight statuses always keep a written label as well as color.</Text>
       <View style={styles.choiceGroup}>
         {choices.map((choice) => {
           const selected = preference === choice.value;
@@ -185,6 +186,22 @@ function HelpPanel({ styles }: { styles: ReturnType<typeof makeStyles> }) {
           <Text style={styles.linkText}>Privacy</Text>
           <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
         </Pressable>
+        <Pressable style={styles.linkButton} onPress={() => open("https://beacontools.cc/terms/")} {...accessibleButton({ label: "Open Beacon Tools hosted-service Terms" })}>
+          <Text style={styles.linkText}>Terms of Use</Text>
+          <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
+        </Pressable>
+        <Pressable style={styles.linkButton} onPress={() => open("https://beacontools.cc/legal/")} {...accessibleButton({ label: "Open Beacon Tools legal notice and Impressum" })}>
+          <Text style={styles.linkText}>Legal notice / Impressum</Text>
+          <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
+        </Pressable>
+        <Pressable style={styles.linkButton} onPress={() => open("https://beacontools.cc/data-sources/")} {...accessibleButton({ label: "Open Local Flight data-source notices" })}>
+          <Text style={styles.linkText}>Data sources</Text>
+          <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
+        </Pressable>
+        <Pressable style={styles.linkButton} onPress={() => open("https://beacontools.cc/third-party-notices/")} {...accessibleButton({ label: "Open bundled third-party software notices" })}>
+          <Text style={styles.linkText}>Bundled software notices</Text>
+          <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
+        </Pressable>
         <Pressable style={styles.linkButton} onPress={() => open("https://beacontools.cc/network")} {...accessibleButton({ label: "Open Local Flight network explanation" })}>
           <Text style={styles.linkText}>How connections work</Text>
           <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
@@ -219,7 +236,7 @@ function BoardDisplayPanel({
   ];
   return (
     <View style={styles.panelContent}>
-      <Text style={styles.panelIntro}>Choose how Board and fullscreen Display explain airport information on this device.</Text>
+      <Text style={styles.panelIntro}>Choose how airport weather is written and what happens when Board rotates to landscape.</Text>
       <Text style={styles.panelSectionTitle}>Weather detail</Text>
       <View style={styles.choiceGroup}>
         {weatherChoices.map((choice) => {
@@ -244,11 +261,11 @@ function BoardDisplayPanel({
           );
         })}
       </View>
-      <Text style={styles.panelSectionTitle}>Fullscreen Display</Text>
+      <Text style={styles.panelSectionTitle}>Landscape display</Text>
       <View style={styles.widgetSection}>
         <WidgetPreferenceRow
-          title="Enter Display when this device rotates"
-          detail="While Board is open, rotating this device to landscape enters Display. Rotating back exits only an automatically opened Display."
+          title="Open Display in landscape"
+          detail="While Board is open, rotating this device to landscape opens the fullscreen display. Rotating back returns to Board."
           value={autoDisplayOnRotate}
           onValueChange={onAutoDisplayOnRotateChange}
           appearance={appearance}
@@ -284,18 +301,22 @@ function HostPanel({
 }) {
   return (
     <View style={styles.panelContent}>
-      <Text style={styles.panelIntro}>Pairing and host controls appear here only for devices connected to a Local Flight host.</Text>
+      <Text style={styles.panelIntro}>Review this device’s Local Flight host connection and change the paired computer or Raspberry Pi.</Text>
       <View style={styles.informationCard}>
         <Text style={styles.informationTitle}>{connectionLabel}</Text>
-        <Text style={styles.informationBody}>{airportCode || "Airport not selected"} · Flight and display settings stay on the connected host.</Text>
+        <Text style={styles.informationBody}>{airportCode || "Airport not selected"} · Flight sources and connected displays are managed on the host.</Text>
       </View>
       <Pressable style={styles.primaryButton} onPress={() => { onClose(); onOpenAirport(); }} {...accessibleButton({ label: "Open airport and host settings" })}>
-        <Text style={styles.primaryButtonText}>Airport & host settings</Text>
+        <Text style={styles.primaryButtonText}>Airport and host</Text>
       </Pressable>
       <Pressable style={styles.secondaryButton} onPress={() => { onClose(); onRerunSetup(); }} {...accessibleButton({ label: "Pair this device with a different Local Flight host" })}>
-        <Text style={styles.secondaryButtonText}>Review pairing</Text>
+        <Text style={styles.secondaryButtonText}>Pair with a different host</Text>
       </Pressable>
-      <Text style={styles.disclaimer}>Matrix and physical display configuration remains host-owned and is never sent through widget or Live Activity extensions.</Text>
+      <Text style={styles.disclaimer}>
+        {Platform.OS === "ios"
+          ? "Matrix and physical display settings stay on the host and are not shared with widgets or Live Activities."
+          : "Matrix and physical display settings stay on the host and are not shared with widgets."}
+      </Text>
     </View>
   );
 }
@@ -343,6 +364,8 @@ function RelayAccessPanel({
                     : "Verification needed";
   const verifyLabel = relayAccess.state === "release_pending"
     ? "Retry freeing Relay Access"
+    : Platform.OS === "android" && !standalone
+      ? "Check purchased access"
     : Platform.OS === "android" && relayAccess.state === "verification_needed"
       ? "Get or restore Relay Access"
     : ["suspended", "refunded", "revoked", "retryable_unavailable"].includes(relayAccess.state)
@@ -416,7 +439,7 @@ function RelayAccessPanel({
           <Text style={styles.informationBody}>
             {relayAccess.protectionEnabled
               ? "Request a fresh one-time email link to manage recovery or move Relay Access. No password or Beacon account is created."
-              : "Email is optional and creates no account. Confirm it once to protect recovery and moving access between main devices."}
+              : "Email is optional while using this device and creates no account. Confirm it before retrieving the portable key or moving access to another main device."}
           </Text>
           <TextInput
             value={email}
@@ -447,7 +470,7 @@ function RelayAccessPanel({
           </Pressable>
         </>
       ) : (
-        <Text style={styles.informationBody}>Activate Relay Access on this phone in real-flight Standalone before adding an optional recovery email.</Text>
+        <Text style={styles.informationBody}>Verify the App Store or Google Play ownership on this device before adding a recovery email. Your current Companion or VATSIM setup is unchanged.</Text>
       )}
       {message ? <Text style={styles.panelIntro}>{message}</Text> : null}
       <Text style={styles.disclaimer}>{standalone
@@ -462,24 +485,28 @@ function RelayAccessPanel({
 function AdvancedPanel({
   diagnosticsMode,
   widgetSnapshotLabel,
+  relayDiagnosticLabel,
+  supportPurchases,
   onDiagnosticsModeChange,
   styles,
   appearance
 }: {
   diagnosticsMode: MobileDiagnosticsMode;
   widgetSnapshotLabel: string;
+  relayDiagnosticLabel: string;
+  supportPurchases: SupportPurchaseController;
   onDiagnosticsModeChange: (next: MobileDiagnosticsMode) => void;
   styles: ReturnType<typeof makeStyles>;
   appearance: MobileAppearance;
 }) {
   const options: Array<{ value: MobileDiagnosticsMode; title: string; detail: string }> = [
-    { value: "manual", title: "Manual reports only", detail: "Nothing is sent unless you choose to send a report." },
-    { value: "auto", title: "Automatic crash reports", detail: "Send a sanitized crash signal when the app cannot continue." },
-    { value: "auto_logs", title: "Automatic reports with context", detail: "Include a short sanitized diagnostic excerpt; never include tokens or personal aviation data." }
+    { value: "manual", title: "Only when I send a report", detail: "Local Flight sends nothing automatically." },
+    { value: "auto", title: "Send crash reports", detail: "Send a privacy-filtered report if the app cannot continue." },
+    { value: "auto_logs", title: "Send crash reports with context", detail: "Add a short privacy-filtered log excerpt to help diagnose the problem." }
   ];
   return (
     <View style={styles.panelContent}>
-      <Text style={styles.panelIntro}>Diagnostics are optional, sanitized, and kept away from everyday flight information.</Text>
+      <Text style={styles.panelIntro}>Choose whether Local Flight may send privacy-filtered crash information. Manual problem reports are always available.</Text>
       <View style={styles.choiceGroup}>
         {options.map((option) => {
           const selected = diagnosticsMode === option.value;
@@ -501,10 +528,22 @@ function AdvancedPanel({
         })}
       </View>
       <View style={styles.informationCard}>
-        <Text style={styles.informationTitle}>Widget delivery</Text>
+        <Text style={styles.informationTitle}>Widget status</Text>
         <Text style={styles.informationBody}>{widgetSnapshotLabel}</Text>
       </View>
-      <Text style={styles.disclaimer}>Technical identifiers shown here are sanitized. Local paths, activation tokens, provider payloads, and raw private logs are never displayed.</Text>
+      <View style={styles.informationCard}>
+        <Text style={styles.informationTitle}>Last connection check</Text>
+        <Text style={styles.informationBody}>{relayDiagnosticLabel}</Text>
+      </View>
+      <View style={styles.informationCard}>
+        <Text style={styles.informationTitle}>Optional support</Text>
+        <Text style={styles.informationBody}>
+          {supportPurchases.status === "ready" || supportPurchases.status === "success"
+            ? "One-time support choices are available."
+            : "One-time support choices are currently unavailable. No app feature depends on them."}
+        </Text>
+      </View>
+      <Text style={styles.disclaimer}>Connection details are privacy-filtered. Tokens, provider responses, private files, and full logs are never shown here.</Text>
     </View>
   );
 }
@@ -762,16 +801,19 @@ function WidgetsPanel({
 }) {
   const update = (patch: Partial<MobileWidgetPreferences>) => onPreferencesChange({ ...preferences, ...patch });
   const previewPalette = resolveWidgetPreviewPalette(preferences.widgetAppearance, appearance);
+  const supportsLiveActivitySettings = Platform.OS === "ios";
   return (
     <View style={styles.panelContent}>
       <Text style={styles.panelIntro}>
-        Widgets and Live Activity only read the bounded snapshot written by this app. They never contact a Local Flight host, relay, or aviation provider.
+        {supportsLiveActivitySettings
+          ? "Widgets and Live Activity use the latest saved update from this app. They never contact your host or a flight-data service on their own."
+          : "Widgets use the latest saved update from this app. They never contact your host or a flight-data service on their own."}
       </Text>
 
       <View style={[styles.widgetPreviewCard, { backgroundColor: previewPalette.background, borderColor: previewPalette.line }] }>
         <View style={styles.widgetPreviewHeader}>
           <View>
-            <Text style={[styles.widgetEyebrow, { color: previewPalette.muted }]}>Small widget</Text>
+            <Text style={[styles.widgetEyebrow, { color: previewPalette.muted }]}>{Platform.OS === "android" ? "Compact widget" : "Small widget"}</Text>
             <Text style={[styles.widgetAirport, { color: previewPalette.text }]}>{preview.airportCode} · {preview.airportName}</Text>
           </View>
           <LocalFlightIcon name="widgets-outline" size={22} color={previewPalette.sky} />
@@ -789,7 +831,11 @@ function WidgetsPanel({
 
       <View style={styles.widgetSection}>
         <Text style={styles.widgetSectionTitle}>Board widget</Text>
-        <Text style={styles.widgetSectionBody}>Choose how many stable rows the medium or wide widget can show.</Text>
+        <Text style={styles.widgetSectionBody}>
+          {Platform.OS === "android"
+            ? "Compact widgets show one flight. Choose how many flights the wide widget can show."
+            : "Choose how many flights the medium or wide widget can show."}
+        </Text>
         <WidgetAppearanceChoice
           title="Home Screen widgets"
           value={preferences.widgetAppearance}
@@ -816,7 +862,7 @@ function WidgetsPanel({
         </View>
         <WidgetPreferenceRow
           title="Show gate and terminal"
-          detail="Only when Airline schedules supply them."
+          detail="Shown only when the flight-data source supplies them."
           value={preferences.showGateTerminal}
           onValueChange={(showGateTerminal) => update({ showGateTerminal })}
           appearance={appearance}
@@ -824,7 +870,7 @@ function WidgetsPanel({
         />
         <WidgetPreferenceRow
           title="Background widget updates"
-          detail="The app updates its private snapshot when the operating system permits background work."
+          detail="Refresh saved widget information when this device allows background work."
           value={preferences.automaticRefresh}
           onValueChange={(automaticRefresh) => update({ automaticRefresh })}
           appearance={appearance}
@@ -832,7 +878,7 @@ function WidgetsPanel({
         />
       </View>
 
-      <View style={styles.widgetSection}>
+      {supportsLiveActivitySettings ? <View style={styles.widgetSection}>
         <View style={styles.widgetSectionHeading}>
           <LocalFlightIcon name="cellphone-text" size={21} color={appearance.green} />
           <Text style={styles.widgetSectionTitle}>Lock Screen flight</Text>
@@ -840,7 +886,7 @@ function WidgetsPanel({
         <Text style={styles.widgetSectionBody}>
           {liveActivitySupported
             ? preferences.liveActivityEnabled
-              ? "Enabled for the flight you chose to show on the Lock Screen. It updates from the same app-written snapshot and never fetches on its own."
+              ? "Enabled for the flight you chose to show on the Lock Screen. It uses the latest update saved by the app and never fetches on its own."
               : "From Board, choose “Pin & show on Lock Screen” for a flight. Starting it always requires that explicit action."
             : "Live Activity is unavailable on this device. Normal flight pinning and widgets still work."}
         </Text>
@@ -865,7 +911,7 @@ function WidgetsPanel({
             <Text style={styles.secondaryButtonText}>Turn off Live Activity</Text>
           </Pressable>
         ) : null}
-      </View>
+      </View> : null}
 
       <Text style={styles.widgetSnapshotLabel}>{snapshotLabel}</Text>
       <Pressable
@@ -875,7 +921,7 @@ function WidgetsPanel({
           hapticLight();
           onRefresh();
         }}
-        {...accessibleButton({ label: refreshing ? "Refreshing widget snapshot" : "Refresh widget snapshot" })}
+        {...accessibleButton({ label: refreshing ? "Refreshing widget data" : "Refresh widget data" })}
       >
         <LocalFlightIcon name="refresh" size={19} color={appearance.bg} />
         <Text style={styles.primaryButtonText}>{refreshing ? "Refreshing…" : "Refresh widget now"}</Text>
@@ -895,6 +941,7 @@ function PanelSheet({
   widgetPreview,
   widgetPreferences,
   widgetSnapshotLabel,
+  relayDiagnosticLabel,
   liveActivitySupported,
   weatherDisplayMode,
   autoDisplayOnRotate,
@@ -923,6 +970,7 @@ function PanelSheet({
   widgetPreview: WidgetPreviewSnapshot;
   widgetPreferences: MobileWidgetPreferences;
   widgetSnapshotLabel: string;
+  relayDiagnosticLabel: string;
   liveActivitySupported: boolean;
   weatherDisplayMode: MobileWeatherDisplayMode;
   autoDisplayOnRotate: boolean;
@@ -944,36 +992,37 @@ function PanelSheet({
   const title = panel === "appearance"
     ? "Appearance"
     : panel === "board"
-      ? "Board & Display"
+      ? "Board and display"
     : panel === "widgets"
-      ? "Widgets & Live Activity"
+      ? Platform.OS === "android" ? "Widgets" : "Widgets & Live Activity"
       : panel === "host"
-        ? "Host & Displays"
+        ? "Host and displays"
         : panel === "relay"
           ? "Relay Access"
         : panel === "help"
-          ? "Help & Privacy"
+          ? "Help and privacy"
           : panel === "support"
             ? "Support Local Flight"
-          : "Advanced diagnostics";
+          : "Troubleshooting";
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={styles.sheetSafe}>
-        <View style={styles.sheetHeader}>
-          <Text style={styles.sheetTitle}>{title}</Text>
-          <Pressable style={styles.closeButton} onPress={onClose} {...accessibleButton({ label: `Close ${title}` })}>
-            <LocalFlightIcon name="close" size={21} color={appearance.text} />
-          </Pressable>
-        </View>
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose} {...insetModalPresentationProps}>
+      <InsetModalScaffold backgroundColor={appearance.bg}>
+        {(insets) => <>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>{title}</Text>
+            <Pressable style={styles.closeButton} onPress={onClose} {...accessibleButton({ label: `Close ${title}` })}>
+              <LocalFlightIcon name="close" size={21} color={appearance.text} />
+            </Pressable>
+          </View>
         {panel === "appearance" ? (
-          <ScrollView>
+          <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
             <AppearancePanel
               appearance={appearance}
               styles={styles}
             />
           </ScrollView>
         ) : panel === "board" ? (
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
             <BoardDisplayPanel
               appearance={appearance}
               styles={styles}
@@ -985,7 +1034,7 @@ function PanelSheet({
             />
           </ScrollView>
         ) : panel === "widgets" ? (
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
             <WidgetsPanel
               preview={widgetPreview}
               preferences={widgetPreferences}
@@ -999,13 +1048,13 @@ function PanelSheet({
             />
           </ScrollView>
         ) : panel === "help" ? (
-          <ScrollView><HelpPanel styles={styles} /></ScrollView>
+          <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}><HelpPanel styles={styles} /></ScrollView>
         ) : panel === "support" ? (
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
             <SupportPurchaseContent controller={supportPurchases} />
           </ScrollView>
         ) : panel === "host" ? (
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
             <HostPanel
               airportCode={airportCode}
               connectionLabel={connectionLabel}
@@ -1028,17 +1077,20 @@ function PanelSheet({
             />
           </ScrollView>
         ) : (
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
             <AdvancedPanel
               diagnosticsMode={diagnosticsMode}
               widgetSnapshotLabel={widgetSnapshotLabel}
+              relayDiagnosticLabel={relayDiagnosticLabel}
+              supportPurchases={supportPurchases}
               onDiagnosticsModeChange={onDiagnosticsModeChange}
               styles={styles}
               appearance={appearance}
             />
           </ScrollView>
         )}
-      </SafeAreaView>
+        </>}
+      </InsetModalScaffold>
     </Modal>
   );
 }
@@ -1086,7 +1138,7 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
         <View style={styles.hero}>
           <BrandWordmark color={appearance.text} size={expanded ? 22 : 19}>Local Flight</BrandWordmark>
           <Text style={styles.title}>More</Text>
-          <Text style={styles.subtitle}>Settings stay organized around what you want to do, with technical detail kept out of the way.</Text>
+          <Text style={styles.subtitle}>Choose how Local Flight looks, connects, and behaves on this device.</Text>
         </View>
 
         <MotionPressable
@@ -1102,7 +1154,7 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
             <LocalFlightIcon name={props.standalone ? "cellphone-marker" : "access-point-network"} size={23} color={appearance.green} />
           </View>
           <View style={styles.rowCopy}>
-            <Text style={styles.connectionEyebrow}>Airport & Connection</Text>
+            <Text style={styles.connectionEyebrow}>Airport and connection</Text>
             <Text style={styles.connectionAirport}>{props.airportName}</Text>
             <Text style={styles.connectionMeta}>{props.airportCode} · {props.connectionLabel}</Text>
           </View>
@@ -1111,20 +1163,27 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
           </View>
         </MotionPressable>
 
-        <Text style={styles.groupTitle}>This device</Text>
+        <Text style={styles.groupTitle}>On this device</Text>
         <View style={styles.group}>
-          <SettingsRow icon="palette-outline" title="Appearance" detail="Device setting, warm light or midnight dark" onPress={() => setPanel("appearance")} appearance={appearance} styles={styles} />
+          <SettingsRow icon="palette-outline" title="Appearance" detail="Light or dark appearance and stronger contrast" onPress={() => setPanel("appearance")} appearance={appearance} styles={styles} />
           <View style={styles.groupSeparator} />
-          <SettingsRow icon="monitor-dashboard" title="Board & Display" detail="Weather detail and fullscreen Board behavior" onPress={() => setPanel("board")} appearance={appearance} styles={styles} />
+          <SettingsRow icon="monitor-dashboard" title="Board and display" detail="Weather wording and landscape display" onPress={() => setPanel("board")} appearance={appearance} styles={styles} />
           <View style={styles.groupSeparator} />
-          <SettingsRow icon="widgets-outline" title="Widgets & Live Activity" detail="Pinned flight and bounded board snapshots" onPress={() => setPanel("widgets")} appearance={appearance} styles={styles} />
+          <SettingsRow
+            icon="widgets-outline"
+            title={Platform.OS === "android" ? "Widgets" : "Widgets & Live Activity"}
+            detail={Platform.OS === "android" ? "Home Screen flight and airport-board widgets" : "Home Screen widgets and pinned-flight updates"}
+            onPress={() => setPanel("widgets")}
+            appearance={appearance}
+            styles={styles}
+          />
         </View>
 
         <Text style={styles.groupTitle}>Local Flight</Text>
         <View style={styles.group}>
           {!props.standalone ? (
             <>
-              <SettingsRow icon="monitor-dashboard" title="Host & Displays" detail="Pairing, Matrix and connected displays" onPress={() => setPanel("host")} appearance={appearance} styles={styles} />
+              <SettingsRow icon="monitor-dashboard" title="Host and displays" detail="Paired host, Matrix, and connected displays" onPress={() => setPanel("host")} appearance={appearance} styles={styles} />
               <View style={styles.groupSeparator} />
             </>
           ) : null}
@@ -1137,9 +1196,9 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
             styles={styles}
           />
           <View style={styles.groupSeparator} />
-          <SettingsRow icon="lifebuoy" title="Help & Privacy" detail="Plain-language guidance and privacy choices" onPress={() => setPanel("help")} appearance={appearance} styles={styles} />
+          <SettingsRow icon="lifebuoy" title="Help and privacy" detail="Support, privacy choices, and connection guides" onPress={() => setPanel("help")} appearance={appearance} styles={styles} />
           <View style={styles.groupSeparator} />
-          <SettingsRow icon="stethoscope" title="Advanced diagnostics" detail="Diagnostic preferences and sanitized technical context" onPress={() => setPanel("advanced")} appearance={appearance} styles={styles} />
+          <SettingsRow icon="stethoscope" title="Troubleshooting" detail="Crash-report choices and privacy-filtered status" onPress={() => setPanel("advanced")} appearance={appearance} styles={styles} />
         </View>
 
         <MotionPressable
@@ -1148,9 +1207,9 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
             hapticLight();
             props.onRerunSetup();
           }}
-          {...accessibleButton({ label: "Change how this device uses Local Flight" })}
+          {...accessibleButton({ label: props.standalone ? "Change Standalone setup" : "Change Companion setup" })}
         >
-          <Text style={styles.setupButtonText}>Change setup on this device</Text>
+          <Text style={styles.setupButtonText}>{props.standalone ? "Change Standalone setup" : "Change Companion setup"}</Text>
         </MotionPressable>
 
         <MotionPressable
@@ -1165,10 +1224,10 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
             hint: "Opens optional one-time support choices. They unlock nothing."
           })}
         >
-          <LocalFlightIcon name="heart-outline" size={16} color={appearance.textDim} />
+          <LocalFlightIcon name="heart-outline" size={16} color={appearance.amber} />
           <View style={styles.supportFooterCopy}>
             <Text style={styles.supportFooterTitle}>Support Local Flight</Text>
-            <Text style={styles.supportFooterDetail}>Optional one-time support · unlocks nothing</Text>
+            <Text style={styles.supportFooterDetail}>Optional one-time support. No features are locked.</Text>
           </View>
           <LocalFlightIcon name="chevron-right" size={17} color={appearance.textDim} />
         </MotionPressable>
@@ -1186,6 +1245,7 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
           widgetPreview={props.widgetPreview}
           widgetPreferences={props.widgetPreferences}
           widgetSnapshotLabel={props.widgetSnapshotLabel}
+          relayDiagnosticLabel={props.relayDiagnosticLabel}
           liveActivitySupported={props.liveActivitySupported}
           weatherDisplayMode={props.weatherDisplayMode}
           autoDisplayOnRotate={props.autoDisplayOnRotate}
@@ -1236,13 +1296,13 @@ function makeStyles(a: MobileAppearance, layoutClass: LayoutWidthClass) {
     groupSeparator: { height: StyleSheet.hairlineWidth, backgroundColor: a.lineSoft, marginLeft: 70 },
     setupButton: { minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: 16, backgroundColor: a.lineSoft, marginTop: 2 },
     setupButtonText: { color: a.textMuted, fontSize: 14, fontWeight: "600" },
-    supportFooter: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 8, marginTop: 17, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: a.lineSoft },
-    supportFooterInteractive: { backgroundColor: `${a.blue}08` },
+    supportFooter: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 12, marginTop: 17, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: `${a.amber}42`, backgroundColor: `${a.amber}09` },
+    supportFooterInteractive: { backgroundColor: `${a.amber}13` },
     supportFooterCopy: { flex: 1, minWidth: 0 },
-    supportFooterTitle: { color: a.textMuted, fontSize: 14, fontWeight: "600" },
+    supportFooterTitle: { color: a.amber, fontSize: 14, fontWeight: "700" },
     supportFooterDetail: { color: a.textDim, fontSize: 12, lineHeight: 16, marginTop: 2 },
     sheetSafe: { flex: 1, backgroundColor: a.bg },
-    sheetHeader: { height: 60, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: a.line },
+    sheetHeader: { minHeight: 60, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: a.line },
     sheetTitle: { color: a.text, fontSize: 17, fontWeight: "700" },
     closeButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: a.lineSoft },
     panelContent: { padding: 20, width: "100%", maxWidth: 760, alignSelf: "center" },

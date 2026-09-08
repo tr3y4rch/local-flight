@@ -62,7 +62,7 @@ test("mobile navigation opens, closes, and exposes every destination", async ({ 
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator("[data-site-nav] a")).toHaveCount(7);
+  await expect(page.locator("[data-site-nav] a")).toHaveCount(6);
   await page.keyboard.press("Escape");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
 });
@@ -99,7 +99,7 @@ test("mobile store links follow unavailable, testing, and available catalog stat
     )),
   }));
   await page.goto("/local-flight/mobile/#availability");
-  await expect(page.locator("#mobileAvailabilityTitle")).toHaveText("Mobile purchase routes are not open yet.");
+  await expect(page.locator("#mobileAvailabilityTitle")).toHaveText("The mobile apps are currently in testing.");
   await expect(page.locator('[data-mobile-store="apple_app"]')).toHaveAttribute("aria-disabled", "true");
 
   await page.unroute(catalogUrl);
@@ -254,7 +254,7 @@ const relayCatalog = (available: boolean) => ({
   },
 });
 
-test("Relay Access catalog fails closed and enables checkout only when every gate is ready", async ({ page }, testInfo) => {
+test("Relay Access prelaunch remains closed even when a catalog reports technical readiness", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop");
   await page.route("https://relay.beacontools.cc/v1/access/catalog", (route) => route.fulfill({
     contentType: "application/json",
@@ -262,7 +262,7 @@ test("Relay Access catalog fails closed and enables checkout only when every gat
   }));
   await page.goto("/local-flight/relay-access/");
   await expect(page.locator("#relayCheckout")).toBeDisabled();
-  await expect(page.locator("#accessCatalogStatus")).toContainText("not open yet");
+  await expect(page.locator("#accessCatalogStatus")).toContainText("no purchase route is open");
 
   await page.unroute("https://relay.beacontools.cc/v1/access/catalog");
   const availableCatalog = relayCatalog(true);
@@ -272,8 +272,9 @@ test("Relay Access catalog fails closed and enables checkout only when every gat
     body: JSON.stringify(availableCatalog),
   }));
   await page.reload();
-  await expect(page.locator("#relayCheckout")).toBeEnabled();
-  await expect(page.locator("#accessCatalogStatus")).toContainText("ready");
+  await expect(page.locator("#relayCheckout")).toBeDisabled();
+  await expect(page.locator("#relayCheckout")).toHaveText("Purchases are not open yet");
+  await expect(page.locator("#accessCatalogStatus")).toContainText("no purchase route is open");
 });
 
 test("checkout result covers pending, successful one-time reveal, and failed states", async ({ page }, testInfo) => {
@@ -307,6 +308,33 @@ test("checkout result covers pending, successful one-time reveal, and failed sta
   await page.goto("/local-flight/relay-access/success/?checkout_ref=checkout_failed");
   await expect(page.locator("#resultStatus")).toContainText("did not complete");
   await expect(page.locator("#licenseResult")).toBeHidden();
+});
+
+test("checkout result offers a bounded retry without starting another purchase", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop");
+  await page.goto("/");
+  await page.evaluate(() => sessionStorage.setItem("beacon.relay.checkout.checkout_retry", "secret_retry_value_123456789"));
+  let checks = 0;
+  await page.route("https://relay.beacontools.cc/v1/access/stripe/result", async (route) => {
+    checks += 1;
+    if (checks === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: { message: "Purchase confirmation is temporarily unavailable." } }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, state: "active", license_key: "LFRA-RETRY-SAFE-0001" }),
+    });
+  });
+  await page.goto("/local-flight/relay-access/success/?checkout_ref=checkout_retry");
+  await expect(page.getByRole("button", { name: "Check purchase again" })).toBeVisible();
+  await page.getByRole("button", { name: "Check purchase again" }).click();
+  await expect(page.locator("#licenseKey")).toHaveValue("LFRA-RETRY-SAFE-0001");
+  expect(checks).toBe(2);
 });
 
 test("fragment email confirmation reveals one existing key and lists separate licenses", async ({ page }, testInfo) => {
@@ -374,13 +402,25 @@ test("management grants require the target flow and receiver actions return fres
   });
   await page.goto("/local-flight/relay-access/manage/#token=lfrm_action_test_token_value");
   const card = page.locator(".relay-license");
-  await card.getByRole("button", { name: "Create mobile handoff" }).click();
+  await card.getByRole("button", { name: "Move to a phone" }).click();
   await expect(card.getByText("Fresh iOS entitlement or Android official-app proof is still required on the receiving device.")).toBeVisible();
   await expect(card.getByRole("link", { name: "Open in Local Flight Mobile" })).toHaveAttribute("href", "localflight://relay-access#grant=lfrag_one_use_transfer_grant");
 
   page.on("dialog", (dialog) => dialog.accept());
   await page.route("https://relay.beacontools.cc/v1/access/licenses/action", async (route) => {
     const body = route.request().postDataJSON() as { action: string };
+    if (body.action === "resend_key_email") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          queued: true,
+          key_delivery: { state: "sent" },
+          licenses: [{ ...activeLicense, key_delivery: { state: "sent" } }],
+        }),
+      });
+      return;
+    }
     if (body.action === "revoke_receiver") {
       await route.fulfill({
         contentType: "application/json",
@@ -397,8 +437,11 @@ test("management grants require the target flow and receiver actions return fres
       }),
     });
   });
-  await card.getByRole("button", { name: "Release current main device" }).click();
+  await card.getByRole("button", { name: "Email the license key again" }).click();
+  await expect(page.locator("#sessionStatus")).toContainText("accepted by the email service");
+  await expect(page.locator("#managementLicenseKey")).toHaveValue("");
+  await card.getByRole("button", { name: "Release current device" }).click();
   await expect(page.getByText("Available — no active main device")).toBeVisible();
-  await page.locator(".relay-license").getByRole("button", { name: "Rotate a lost key" }).click();
+  await page.locator(".relay-license").getByRole("button", { name: "Replace a lost key" }).click();
   await expect(page.locator("#managementLicenseKey")).toHaveValue("LFRA-ROTATED-SAVE-0002");
 });

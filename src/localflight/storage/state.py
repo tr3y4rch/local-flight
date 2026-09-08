@@ -22,6 +22,8 @@ class AppState:
     retry_count: int = 0
     cache_state: str = "unknown"
     notice_code: Optional[str] = None
+    source_fetched_at: Optional[str] = None
+    snapshot_id: Optional[str] = None
 
 
 def state_path() -> Path:
@@ -52,6 +54,8 @@ def load_state() -> AppState:
         retry_count=int(raw.get("retry_count", 0) or 0),
         cache_state=str(raw.get("cache_state", "unknown") or "unknown"),
         notice_code=raw.get("notice_code"),
+        source_fetched_at=raw.get("source_fetched_at"),
+        snapshot_id=raw.get("snapshot_id"),
     )
 
 

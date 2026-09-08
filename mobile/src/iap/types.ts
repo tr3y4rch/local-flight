@@ -16,12 +16,21 @@ export type SupportProductView = {
   displayPrice: string;
 };
 
+export type SupportCatalogDiagnostic = {
+  loadedCount: number;
+  missingCount: number;
+  statusCounts: Partial<Record<"ok" | "not-found" | "no-offers-available" | "unknown" | "absent", number>>;
+};
+
 export type SupportPurchaseController = {
   connected: boolean;
+  purchasesEnabled: boolean;
+  verificationReady: boolean;
   busy: boolean;
   products: SupportProductView[];
   status: SupportPurchaseStatus;
   message: string;
+  catalogDiagnostic: SupportCatalogDiagnostic;
   purchase: (productId: SupportProductId) => Promise<void>;
   refresh: () => Promise<void>;
 };

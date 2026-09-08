@@ -1,5 +1,5 @@
 ---
-import { currentRelease, githubUrl, navItems, type NavKey } from "../data/site";
+import { currentRelease, navItems, type NavKey } from "../data/site";
 
 interface Props {
   active: NavKey;
@@ -14,7 +14,7 @@ const { active } = Astro.props;
       <img src="/assets/beacon-tools-mark-96.png" alt="" width="48" height="48" />
       <span>
         <strong>Beacon Tools</strong>
-        <small>The Local Flight ecosystem</small>
+        <small>Local-first aviation displays</small>
       </span>
     </a>
 
@@ -27,7 +27,6 @@ const { active } = Astro.props;
       {navItems.map((item) => (
         <a href={item.href} aria-current={active === item.key ? "page" : undefined}>{item.label}</a>
       ))}
-      <a href={githubUrl}>GitHub <span aria-hidden="true">↗</span></a>
     </nav>
 
     <button class="theme-toggle" type="button" aria-label="Switch to light theme" data-theme-toggle>

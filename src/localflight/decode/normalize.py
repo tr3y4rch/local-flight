@@ -127,6 +127,11 @@ def normalize_flights(
         )
 
         flight = Flight(
+            runway_time=parse_time(record.get("runway_time")),
+            provider_status=record.get("provider_status"),
+            movement_quality=tuple(record.get("movement_quality") or ()),
+            status_uncertain=bool(record.get("status_uncertain")),
+            field_sources=dict(record.get("field_sources") or {}),
             direction=direction,
             airport=airport,
             callsign=callsign,

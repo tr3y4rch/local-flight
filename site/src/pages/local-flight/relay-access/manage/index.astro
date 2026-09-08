@@ -11,14 +11,14 @@ import { relayOrigin } from "../../../../data/site";
     <div class="management-frame">
       <div class="management-intro">
         <span class="section-index">BEACON RELAY ACCESS</span>
-        <h1>Manage a license without an account.</h1>
-        <p>This page is only for recovery and device changes. It has no checkout, pricing, or app-store links. A short-lived email link proves access; there is no Beacon password or profile.</p>
+        <h1>Recover access or change the active device.</h1>
+        <p>This private page is only for an existing Relay license. It has no checkout, pricing, or app-store links. A short-lived email link proves access; there is no Beacon password or profile.</p>
       </div>
 
       <div class="management-panel">
         <section id="managementRecovery" aria-labelledby="recoveryTitle">
-          <span class="feature-index">EMAIL RECOVERY</span>
-          <h2 id="recoveryTitle">Send a private management link.</h2>
+          <span class="feature-index">RECOVER ACCESS</span>
+          <h2 id="recoveryTitle">Send a private access link.</h2>
           <p>Enter the address used at Stripe Checkout or the address you confirmed when protecting a mobile license. The response is deliberately the same even when no license is found.</p>
           <form class="management-form" id="recoveryForm">
             <label for="recoveryEmail">Recovery email</label>
@@ -32,8 +32,8 @@ import { relayOrigin } from "../../../../data/site";
         <section id="managementSession" hidden aria-labelledby="licensesTitle">
           <div class="management-session-heading">
             <div>
-              <span class="feature-index">VERIFIED EMAIL LINK</span>
-              <h2 id="licensesTitle">Your separate Relay licenses.</h2>
+          <span class="feature-index">VERIFIED EMAIL LINK</span>
+              <h2 id="licensesTitle">Your Relay licenses.</h2>
             </div>
             <button class="relay-text-button" id="endSession" type="button">End this session</button>
           </div>
@@ -72,10 +72,11 @@ import { relayOrigin } from "../../../../data/site";
         <div><dt>Key delivery</dt><dd data-license-delivery></dd></div>
       </dl>
       <div class="license-actions">
-        <button class="action-button" type="button" data-license-action="desktop_grant">Create desktop activation code</button>
-        <button class="action-button" type="button" data-license-action="mobile_grant">Create mobile handoff</button>
-        <button class="relay-text-button" type="button" data-license-action="revoke_receiver">Release current main device</button>
-        <button class="relay-text-button" type="button" data-license-action="rotate_key">Rotate a lost key</button>
+        <button class="action-button" type="button" data-license-action="desktop_grant">Use on a computer</button>
+        <button class="action-button" type="button" data-license-action="mobile_grant">Move to a phone</button>
+        <button class="action-button" type="button" data-license-action="resend_key_email">Email the license key again</button>
+        <button class="relay-text-button" type="button" data-license-action="revoke_receiver">Release current device</button>
+        <button class="relay-text-button" type="button" data-license-action="rotate_key">Replace a lost key</button>
       </div>
       <div class="relay-grant" data-license-grant hidden>
         <strong data-grant-title></strong>
@@ -138,7 +139,8 @@ import { relayOrigin } from "../../../../data/site";
         const delivery = license.key_delivery || license.delivery || {};
         const state = String(delivery.state || delivery.status || "").toLowerCase();
         if (state === "sent") return "Sent by email";
-        if (state === "pending" || state === "sending" || state === "failed") return "Email delivery pending";
+        if (state === "pending" || state === "sending") return "Email delivery pending";
+        if (state === "needs_attention" || state === "failed") return "Email needs attention";
         if (state === "revealed") return "Revealed once";
         return license.email_protected === false ? "Not protected by email" : "Protected by email";
       };
@@ -203,6 +205,16 @@ import { relayOrigin } from "../../../../data/site";
             grantBox.hidden = false;
             output.textContent = mobile ? "Fresh iOS entitlement or Android official-app proof is still required on the receiving device." : "Code created. It can be used once.";
             output.dataset.tone = "ok";
+          } else if (action === "resend_key_email") {
+            const payload = await actionRequest("/v1/access/licenses/action", { license_id: license.license_id || license.license_ref, action: "resend_key_email" });
+            updateFromAction(payload);
+            const deliveryState = String(payload?.key_delivery?.state || "pending");
+            sessionStatus.textContent = deliveryState === "sent"
+              ? payload.queued ? "The license key was accepted by the email service." : "The license key was emailed recently. Check the verified inbox."
+              : deliveryState === "needs_attention"
+                ? "Email could not be delivered after several tries. Try again later or contact support with the masked key reference."
+                : "The license email is queued. Your license and active device are unchanged.";
+            sessionStatus.dataset.tone = deliveryState === "needs_attention" ? "bad" : deliveryState === "sent" ? "ok" : "pending";
           } else if (action === "revoke_receiver") {
             if (!window.confirm("Release this license’s current main device? That device will lose Beacon Relay access.")) return;
             const payload = await actionRequest("/v1/access/licenses/action", { license_id: license.license_id || license.license_ref, action: "revoke_receiver" });

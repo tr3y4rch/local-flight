@@ -1,4 +1,4 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { accessibleButton } from "../accessibility/mobileA11y";
 import { MotionPressable } from "../components/MotionPressable";
@@ -12,7 +12,9 @@ import type { SupportPurchaseController } from "./types";
 export function SupportPurchaseContent({ controller }: { controller: SupportPurchaseController }) {
   const { appearance } = useMobileTheme();
   const styles = makeStyles(appearance);
-  const catalogReady = controller.connected && controller.products.length === SUPPORT_PRODUCT_IDS.length;
+  const catalogReady = controller.connected
+    && controller.verificationReady
+    && controller.products.length === SUPPORT_PRODUCT_IDS.length;
   const showStoreStatus = controller.status !== "ready";
   const canRetry = controller.status === "error" || controller.status === "unavailable";
 
@@ -22,13 +24,15 @@ export function SupportPurchaseContent({ controller }: { controller: SupportPurc
         <LocalFlightIcon name="heart-outline" size={19} color={appearance.textMuted} />
         <View style={styles.copy}>
           <Text style={styles.title}>Optional, one-time support</Text>
-          <Text style={styles.body}>Nothing is locked or changed. Apple or Google handles the payment.</Text>
+          <Text style={styles.body}>{controller.purchasesEnabled
+            ? "Optional, one-time support. Tips unlock nothing and do not include Relay Access."
+            : "Support purchases are temporarily unavailable. Your existing access is unchanged."}</Text>
         </View>
       </View>
 
       {showStoreStatus ? (
         <View style={styles.statusRow} accessibilityLiveRegion="polite">
-          <Text style={styles.statusLabel}>Store</Text>
+          <Text style={styles.statusLabel}>Support status</Text>
           <Text style={styles.statusValue}>{controller.message}</Text>
         </View>
       ) : null}
@@ -60,8 +64,8 @@ export function SupportPurchaseContent({ controller }: { controller: SupportPurc
           </View>
         )) : (
           <View style={styles.unavailable}>
-            <Text style={styles.productLabel}>Purchases unavailable</Text>
-            <Text style={styles.body}>Optional support is not available right now. Nothing in the app depends on it.</Text>
+            <Text style={styles.productLabel}>{controller.purchasesEnabled ? "Purchases unavailable" : "Purchases on hold"}</Text>
+            <Text style={styles.body}>New support purchases are unavailable. Existing purchases can still be checked.</Text>
           </View>
         )}
       </View>
@@ -77,7 +81,20 @@ export function SupportPurchaseContent({ controller }: { controller: SupportPurc
         </MotionPressable>
       ) : null}
 
-      <Text style={styles.privacy}>Local Flight never receives card details.</Text>
+      <Text style={styles.privacy}>{controller.purchasesEnabled
+        ? "Apple or Google handles payment details. Local Flight never receives your card details."
+        : "Support is optional and does not include Relay Access."}</Text>
+      <View style={styles.legalLinks}>
+        <Pressable onPress={() => void Linking.openURL("https://beacontools.cc/local-flight/relay-access/terms/")} {...accessibleButton({ label: "Open terms" })}>
+          <Text style={styles.legalLink}>Terms</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => void Linking.openURL(Platform.OS === "ios" ? "https://support.apple.com/billing" : "https://support.google.com/googleplay/workflow/9813244")}
+          {...accessibleButton({ label: `Open ${Platform.OS === "ios" ? "Apple" : "Google Play"} refund help` })}
+        >
+          <Text style={styles.legalLink}>Store refunds</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -103,6 +120,8 @@ function makeStyles(a: MobileAppearance) {
     retryButton: { minHeight: 44, alignSelf: "flex-start", justifyContent: "center", paddingHorizontal: 4, marginTop: 10 },
     retryText: { color: a.blue, fontSize: 14, fontWeight: "700" },
     disabled: { opacity: 0.55 },
-    privacy: { color: a.textDim, fontSize: 12, lineHeight: 18, marginTop: 16 }
+    privacy: { color: a.textDim, fontSize: 12, lineHeight: 18, marginTop: 16 },
+    legalLinks: { flexDirection: "row", flexWrap: "wrap", gap: 18, marginTop: 10 },
+    legalLink: { color: a.blue, fontSize: 13, fontWeight: "700", lineHeight: 22 }
   });
 }

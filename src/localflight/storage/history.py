@@ -46,6 +46,7 @@ def _connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA secure_delete=ON")
     return conn
 
 
@@ -139,6 +140,26 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         except sqlite3.OperationalError:
             pass
     conn.execute("CREATE INDEX IF NOT EXISTS idx_flights_movement_key ON flights (movement_key)")
+    conn.commit()
+    for table in ("flights", "history_movements"):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN expires_at TEXT")
+        except sqlite3.OperationalError:
+            pass
+        conn.execute(f"DELETE FROM {table} WHERE expires_at IS NOT NULL AND expires_at <= ?", (_iso_now(),))
+    # Legacy managed history did not persist expiry. Derive it once from the
+    # original observation, never from today's migration/read time.
+    try:
+        from localflight.storage.config import load_config
+        managed = load_config().data_route == "relay"
+    except Exception:
+        managed = False
+    if managed:
+        for table, time_field in (("flights", "snapshot_ts"), ("history_movements", "first_seen_ts")):
+            conn.execute(f"UPDATE {table} SET expires_at=strftime('%Y-%m-%dT%H:%M:%f+00:00', {time_field}, '+7 days') WHERE expires_at IS NULL AND (source LIKE '%aerodatabox%' OR source LIKE '%aviationstack%')")
+            conn.execute(f"DELETE FROM {table} WHERE expires_at<=?", (_iso_now(),))
+    conn.execute("CREATE TABLE IF NOT EXISTS history_snapshot_receipts (airport TEXT, source_stamp TEXT, expires_at TEXT, PRIMARY KEY(airport, source_stamp))")
+    conn.execute("DELETE FROM history_snapshot_receipts WHERE expires_at<=?", (_iso_now(),))
     conn.commit()
     _backfill_movements(conn)
 
@@ -244,6 +265,7 @@ def _canonical_row(row: dict[str, Any]) -> dict[str, Any]:
     movement_key = str(row.get("movement_key") or "").strip() or _movement_key(row)
     return {
         "movement_key": movement_key,
+        "expires_at": row.get("expires_at"),
         "airport_iata": row.get("airport_iata"),
         "callsign": row.get("callsign"),
         "flight_number": row.get("flight_number"),
@@ -298,15 +320,18 @@ def _upsert_movement(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
             airline_iata, origin_iata, dest_iata, direction, status, gate, terminal,
             aircraft_type, sched_time, actual_time, event_time, first_seen_ts, last_seen_ts,
             observation_count, codeshares_json, sold_as_json, identity_source, lat, lon,
-            altitude_m, source, enriched_by, delay_minutes
+            altitude_m, source, enriched_by, delay_minutes, expires_at
         ) VALUES (
             :movement_key, :airport_iata, :callsign, :flight_number, :operating_callsign,
             :airline_iata, :origin_iata, :dest_iata, :direction, :status, :gate, :terminal,
             :aircraft_type, :sched_time, :actual_time, :event_time, :first_seen_ts, :last_seen_ts,
             1, :codeshares_json, :sold_as_json, :identity_source, :lat, :lon,
-            :altitude_m, :source, :enriched_by, :delay_minutes
+            :altitude_m, :source, :enriched_by, :delay_minutes, :expires_at
         )
         ON CONFLICT(movement_key) DO UPDATE SET
+            expires_at = CASE WHEN history_movements.expires_at IS NULL THEN excluded.expires_at
+                              WHEN excluded.expires_at IS NULL THEN history_movements.expires_at
+                              ELSE MIN(history_movements.expires_at, excluded.expires_at) END,
             airport_iata = excluded.airport_iata,
             callsign = COALESCE(excluded.callsign, history_movements.callsign),
             flight_number = COALESCE(excluded.flight_number, history_movements.flight_number),
@@ -392,7 +417,7 @@ def _prune_old_rows(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def write_snapshot_to_history(flights: Any, cfg: AppConfig) -> None:
+def write_snapshot_to_history(flights: Any, cfg: AppConfig, *, snapshot_meta: dict | None = None) -> None:
     """
     Write a list of Flight objects to the history database.
     Raw observations are kept, while history_movements is upserted for all
@@ -401,13 +426,27 @@ def write_snapshot_to_history(flights: Any, cfg: AppConfig) -> None:
     if not flights:
         return
 
-    snapshot_ts = _iso_now()
+    snapshot_ts = (snapshot_meta or {}).get("source_fetched_at") or _iso_now()
+    if snapshot_meta and snapshot_meta.get("managed") and not snapshot_meta.get("source_fetched_at"):
+        return  # Unknown-age cached records are not new observations.
+    expires_at = (snapshot_meta or {}).get("expires_at")
+    if expires_at and expires_at <= _iso_now():
+        return
 
     try:
         conn = _connect()
         _ensure_schema(conn)
         _migrate_schema(conn)
         _prune_old_rows(conn)
+        if snapshot_meta and snapshot_meta.get("managed"):
+            expires_at = expires_at or (datetime.fromisoformat(snapshot_ts) + timedelta(days=7)).isoformat()
+            conn.execute("BEGIN IMMEDIATE")
+            admitted = conn.execute("INSERT OR IGNORE INTO history_snapshot_receipts VALUES (?, ?, ?)",
+                                    (cfg.airport_iata, snapshot_ts, expires_at)).rowcount
+            if not admitted:
+                conn.rollback()
+                conn.close()
+                return
 
         inserted = 0
         for f in flights:
@@ -436,6 +475,7 @@ def write_snapshot_to_history(flights: Any, cfg: AppConfig) -> None:
                     "source": f.source,
                     "enriched_by": f.enriched_by,
                     "snapshot_ts": snapshot_ts,
+                    "expires_at": expires_at,
                     "delay_minutes": f.delay_minutes,
                     "airline_iata": f.airline.iata if f.airline else None,
                     "codeshares_json": _json_list(getattr(f, "codeshares", [])),
@@ -453,13 +493,13 @@ def write_snapshot_to_history(flights: Any, cfg: AppConfig) -> None:
                         direction, status, gate, terminal, aircraft_type, sched_time,
                         actual_time, lat, lon, altitude_m, source, enriched_by,
                         snapshot_ts, delay_minutes, airline_iata, codeshares_json,
-                        sold_as_json, operating_callsign, identity_source, movement_key, event_time
+                        sold_as_json, operating_callsign, identity_source, movement_key, event_time, expires_at
                     ) VALUES (
                         :airport_iata, :callsign, :flight_number, :origin_iata, :dest_iata,
                         :direction, :status, :gate, :terminal, :aircraft_type, :sched_time,
                         :actual_time, :lat, :lon, :altitude_m, :source, :enriched_by,
                         :snapshot_ts, :delay_minutes, :airline_iata, :codeshares_json,
-                        :sold_as_json, :operating_callsign, :identity_source, :movement_key, :event_time
+                        :sold_as_json, :operating_callsign, :identity_source, :movement_key, :event_time, :expires_at
                     )
                     """,
                     row,
@@ -898,3 +938,15 @@ def db_stats() -> Dict[str, Any]:
         }
     except Exception as exc:
         return {"error": str(exc)}
+
+
+def prune_expired_history() -> None:
+    if not _db_path().exists():
+        return
+    conn = _connect()
+    try:
+        _ensure_schema(conn)
+        _migrate_schema(conn)
+        _prune_old_rows(conn)
+    finally:
+        conn.close()

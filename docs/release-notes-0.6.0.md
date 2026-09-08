@@ -86,6 +86,12 @@ to an official mobile app uses a short-lived transfer plus fresh App Store or
 Play Integrity proof. A mobile-created license can optionally send its existing
 desktop-compatible key after the user confirms an email address.
 
+Verified holders can ask the management page to email the current key again.
+This action is rate-limited, does not rotate the key or move the active device,
+and never reveals the key through the action response. Stripe, Apple, or Google
+sends the financial receipt; Local Flight's separate email only delivers or
+recovers Relay Access.
+
 Refunded, revoked, or suspended purchases stop authorizing real Relay data.
 Existing active credentials do not contact Stripe, Apple, Google, or email
 services on every data request; purchase systems are used for fulfillment,

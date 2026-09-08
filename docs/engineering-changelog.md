@@ -5,7 +5,48 @@ contributors. It is intentionally not bundled or linked as end-user help.
 Private deployment records, service credentials, admin topology, artifact
 hashes, and personal build identifiers belong outside Git.
 
+## 0.6.1 candidate alignment
+
+- Reconciled schedule and licensing recovery work with website polish and the
+  compatible mobile/desktop fixes, preserving the two-step receiver transfer.
+- Separated candidate metadata from published download metadata. Kept native
+  downloads at 0.6.0 while reserving the next mobile testing counters.
+- Restored weather presentation styles, sheet/loading behavior, scroll-aware
+  navigation, and provider-independent schedule fallback coverage.
+- Kept new support purchases readiness-gated without blocking unfinished
+  transaction verification. Rate-limit responses never trigger relay fallback.
+- Extended source contracts for release-state separation and recovery behavior.
+- Isolated staging recovery origins and browser CORS from production; the site
+  build selects its matching relay rather than using production for sandbox flows.
+- Added installed-dependency/lockfile checks and bounded connection-reset retries
+  in the deployment smoke check. Refreshed matching Linux visual baselines.
+  Automated contracts do not certify physical devices, store processing, email
+  delivery, sandbox payments, or production readiness.
+
 ## 0.6.0 engineering line
+
+### Schedule rollout preparation
+
+- Included the shared schedule modules in the relay container and added a
+  regression check that initializes the copied image contents in isolation.
+- Integrated the existing Relay Access recovery and deployment-readiness fixes
+  so a schedule rollout preserves the deployed recovery behavior.
+- Updated the site's Astro and image/SVG dependency lock to clear the release
+  dependency audit; application and relay dependency audits remain separate gates.
+
+### AeroDataBox shared schedule hardening
+
+- Added opt-in airport-level schedule coordination with persistent leases,
+  generation fencing, bounded cold waits, stale serving, and background enrichment.
+- Centralized complete AeroDataBox interval planning, validation and unit
+  reservations; preserved conservative subscription capabilities and existing caps.
+- Added credential pacing/pauses, bounded retries, independent AviationStack
+  enrichment allowances, field provenance and expiry.
+- Preserved provider freshness through local/mobile snapshots and history;
+  added managed-data retention and removed provider caches from access backups.
+- Kept managed/BYOK routing explicit and public schedule contracts compatible.
+  See `docs/schedule-relay-hardening.md` for rollout defaults and validation.
+
 
 ### Universal Relay Access
 

@@ -1,31 +1,32 @@
-# Local Flight 0.6.0 release process
+# Local Flight 0.6.1 release process
 
 This is the public-safe contributor guide for building and publishing the
-0.6.0 release. It records the release contract without credentials, private
+0.6.1 release. It records the release contract without credentials, private
 service topology, signing material, personal paths, or operator-only recovery
 details.
 
 ## Release source and supported targets
 
 `pyproject.toml` is the version source of truth. The shared runtime helper,
-installer metadata, mobile metadata, release workflow, Worker contract, and
-current documentation must all agree with it. Run the version consistency test
+installer metadata, mobile metadata, and bundled documentation must agree with
+it. Public website and Worker versions remain at 0.6.0 until all replacement
+packages are published; a candidate bump is not a download promotion. Run the version consistency test
 before packaging.
 
-The public release consists of ten packages and ten adjacent checksum files:
+The planned 0.6.1 native release consists of ten packages and ten adjacent checksum files:
 
 | Target | Package |
 |---|---|
-| Windows x64 | `LocalFlight-0.6.0-Setup.exe` |
-| macOS Apple silicon | `LocalFlight-0.6.0-macos-arm64.pkg` |
-| macOS Intel | `LocalFlight-0.6.0-macos-x86_64.pkg` |
-| Linux AppImage x86-64 | `LocalFlight-0.6.0-linux-x86_64.AppImage` |
-| Linux AppImage ARM64 | `LocalFlight-0.6.0-linux-aarch64.AppImage` |
-| Ubuntu/Debian desktop AMD64 | `localflight-desktop_0.6.0_amd64.deb` |
-| Ubuntu/Debian desktop ARM64 | `localflight-desktop_0.6.0_arm64.deb` |
-| Ubuntu/Debian server AMD64 | `localflight-server_0.6.0_amd64.deb` |
-| Ubuntu/Debian server ARM64 | `localflight-server_0.6.0_arm64.deb` |
-| Raspberry Pi source | `LocalFlight-pi-source-0.6.0.zip` |
+| Windows x64 | `LocalFlight-0.6.1-Setup.exe` |
+| macOS Apple silicon | `LocalFlight-0.6.1-macos-arm64.pkg` |
+| macOS Intel | `LocalFlight-0.6.1-macos-x86_64.pkg` |
+| Linux AppImage x86-64 | `LocalFlight-0.6.1-linux-x86_64.AppImage` |
+| Linux AppImage ARM64 | `LocalFlight-0.6.1-linux-aarch64.AppImage` |
+| Ubuntu/Debian desktop AMD64 | `localflight-desktop_0.6.1_amd64.deb` |
+| Ubuntu/Debian desktop ARM64 | `localflight-desktop_0.6.1_arm64.deb` |
+| Ubuntu/Debian server AMD64 | `localflight-server_0.6.1_amd64.deb` |
+| Ubuntu/Debian server ARM64 | `localflight-server_0.6.1_arm64.deb` |
+| Raspberry Pi source | `LocalFlight-pi-source-0.6.1.zip` |
 
 Do not substitute an artifact from another build. Every package must be built
 on its matching operating system and CPU and must retain the filename above.
@@ -49,7 +50,7 @@ on its matching operating system and CPU and must retain the filename above.
 macOS publication additionally requires Developer ID application and installer
 identities, hardened-runtime signing, notarization, stapling, and package/app
 verification. Both packages keep the same app and package identities so an
-architecture-specific upgrade preserves Local Flight data. Windows 0.6.0 is
+architecture-specific upgrade preserves Local Flight data. Windows 0.6.1 is
 intentionally unsigned and must keep its clear unknown-publisher notice.
 
 ## Local validation before the release commit
@@ -83,7 +84,7 @@ Run the mobile checks with the supported Node 24 line:
 
 ```bash
 cd mobile
-npm install
+npm ci
 npm run verify
 npm run a11y
 npx expo config --type public
@@ -91,7 +92,7 @@ npm audit --omit=dev --audit-level=high
 ```
 
 Run a Cloudflare build preview from the repository root, but do not deploy the
-0.6.0 Worker minimum while the complete public release is still missing:
+0.6.1 Worker minimum while the complete public release is still missing:
 
 ```bash
 npm --prefix site run build
@@ -103,27 +104,52 @@ validation results, known audit findings, unavailable local tooling, and the
 remaining native/physical test gates. Do not tag, release, deploy, or submit a
 store build at this stage.
 
-## Publication order
+## Isolated mobile testing first
 
-1. After explicit confirmation, create one release commit directly on `main`
-   and push it once to `origin main`. Do not create the release tag locally.
+0.6.1 is a candidate, not a public package or store release. Preserve any dirty
+checkout, integrate reviewed work on a dedicated branch, and validate a detached
+checkout of the candidate commit. Push that branch and open a pull request for
+CI; do not push main, which automatically deploys the production relay.
+
+Before store uploads, deploy that exact revision to an isolated staging relay.
+Require matching version, commit, access schema and canonical catalog, separate
+keyrings/database/backups, working email recovery, and sandbox-only store
+verification. Keep sales and licensed-access flags closed until their gates
+pass. Missing DNS or credentials are blockers, not permission to use production.
+
+The isolated site build uses `LOCALFLIGHT_SITE_DEPLOYMENT=staging`; its canonical
+origin and relay target must match the staging recovery origin and CORS policy.
+The default build stays production. Never deploy a staging build over the public
+website, and never send a staging recovery link to the production site.
+
+Reserve iOS build 14 and Android versionCode 17, increasing either when an
+uploaded counter requires it. Build both platforms from the same clean commit
+with Node 24 and the beta build profile. Submit each exact build ID with the
+beta submission profile. Never substitute the latest build from another branch.
+EAS completion, store processing, tester availability, and physical sandbox
+purchase/restore/refund validation are separate statuses. Private build records
+stay outside the repository. Do not change prices or public store tracks.
+
+## Public native publication (separate approval)
+
+1. After explicit production-promotion approval and green review/CI, merge the
+   candidate into `main`. Do not create the release tag locally.
 2. Let the gated main workflow test the source and relay image, deploy the
-   relay, and verify the public `/health` response. A duplicate manual Fly
+   relay, and verify the exact version/commit, readiness schema, and access catalog. A duplicate manual Fly
    deployment is unnecessary unless that workflow fails.
 3. Dispatch `.github/workflows/release-artifacts.yml` with the exact pushed
    commit SHA. The source job requires that SHA to remain the current `main`
    commit.
 4. Let the native matrix build and inspect all packages. Final assembly accepts
    only ten matching package/checksum pairs plus ten matching CI-only
-   attestations. It creates the `v0.6.0` tag server-side and a draft release,
+   attestations. It creates the `v0.6.1` tag server-side and a draft release,
    then rechecks the draft's exact 20-file public inventory.
 5. Smoke fresh installs, 0.5.1 upgrades, retained state, architecture, signing,
    LAN health, Linux desktop/server behavior, Raspberry Pi modes, and Matrix on
    the required native and physical systems. Publish the GitHub release only
    after those gates pass.
-6. Build iOS `0.6.0 (13)` and Android `0.6.0 (16)`. Submit the iOS build to
-   TestFlight and the signed Android AAB to the Play internal-testing track,
-   both against the isolated staging relay/database. Inspect the archived IPA
+6. Complete the isolated mobile testing gate above independently of native
+   publication. Public App Store and Play publication requires its own approval. Inspect the archived IPA
    for the StoreKit module and app-target privacy manifest. Inspect the merged
    Android release manifest for Billing and Play Integrity configuration and
    confirm it contains no legacy Play Licensing permission or service.
@@ -134,8 +160,8 @@ store build at this stage.
 
 If a published release needs package-only maintenance without changing the app
 version, do not move or overwrite its tag. Dispatch the same workflow with a
-validated suffix such as `r1`; it creates a separate `v0.6.0-r1` draft tied to
-the new source commit while retaining the `0.6.0` package filenames. Publish it
+validated suffix such as `r1`; it creates a separate `v0.6.1-r1` draft tied to
+the new source commit while retaining the `0.6.1` package filenames. Publish it
 as the latest release only after the normal package inspection and smoke gates.
 
 If a hosted gate fails, keep the release draft unpublished and fix the cause
@@ -166,12 +192,16 @@ and release inventory. It does not replace native and physical validation:
   integrity-bound activation-grant move that requires no additional purchase.
 
 Alpine/musl, 32-bit Linux, RPM, Snap, Flatpak, Windows ARM64, Universal 2, and
-macOS 11 remain outside the 0.6.0 release contract.
+macOS 11 remain outside the 0.6.1 release contract.
 
 ## Licensed-service cutover gate
 
 Do not enable Relay Access sales or switch production from `legacy` to
 `licensed` until all of these checks have passed together:
+
+Use the complete provider, email, recovery, security, and restore matrix in
+[Relay Access release validation](relay-access-validation.md). The summary below
+is a cutover gate, not a substitute for that matrix.
 
 - The configured aviation-provider permissions allow every commercial Relay
   capability being offered. Entitlement never substitutes for provider consent.
@@ -195,6 +225,11 @@ Do not enable Relay Access sales or switch production from `legacy` to
 - Catalog, checkout, email delivery, two-phase activation/commit, status,
   deactivation, reconciliation, and operator actions pass a smoke test through
   the public production routing before sales are made available.
+- The deployed relay passes `scripts/check_relay_access_deployment.py` for the
+  exact release version, commit, access schema, and canonical catalog. A legacy
+  `/health` response by itself cannot authorize a deployment or sale.
+- A transactional SMTP service passes TLS, SPF, DKIM, DMARC, sender/reply,
+  Gmail, iCloud Mail, Outlook, retry, resend, and queue-monitoring checks.
 
 Production cuts over directly from `legacy` to `licensed`; there is no public
 shadow mode, grandfathered Community access, or grace period.

@@ -108,6 +108,27 @@ def _purchase(
     )
 
 
+def test_production_sales_require_encrypted_backups(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "sales-without-backup.db"))
+    monkeypatch.setenv("RELAY_ACCESS_MODE", "legacy")
+    monkeypatch.setenv("RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT", "production")
+    monkeypatch.setenv("RELAY_ACCESS_SALES_ENABLED", "1")
+    monkeypatch.setenv("RELAY_ACCESS_HASH_SECRET", "sales-test-hash-secret-that-is-long")
+    monkeypatch.setenv("RELAY_ACCESS_KEY_SECRET", "sales-test-key-secret-that-is-distinct")
+    monkeypatch.setenv("RELAY_ACCESS_ENCRYPTION_SECRET", "sales-test-encryption-secret-that-is-distinct")
+    monkeypatch.setenv("RELAY_ACCESS_SITE_URL", "https://beacontools.cc")
+    monkeypatch.delenv("RELAY_ACCESS_BACKUP_ENABLED", raising=False)
+    monkeypatch.delenv("RELAY_ACCESS_BACKUP_SECRET", raising=False)
+
+    errors = relay_main._access_preflight_errors()
+
+    assert "backup_disabled" in errors
+    assert "backup_secret" in errors
+
+
 def _prepare_and_commit(
     client: TestClient,
     *,

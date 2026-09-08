@@ -77,6 +77,7 @@ def run_loop(
     logger.info("Session started | component=runtime | source=%s", source_name)
     last_cfg: Optional[dict] = None
     failure_count = 0
+    last_retention_cleanup = float("-inf")
 
     while True:
         if stop_event and stop_event.is_set():
@@ -84,6 +85,19 @@ def run_loop(
             return
 
         cfg      = load_config()
+        if time.monotonic() - last_retention_cleanup >= 86400:
+            try:
+                from localflight.storage.history import prune_expired_history
+                from localflight.storage.flights_store import snapshot_store_root, prune_snapshots
+                prune_expired_history()
+                root = snapshot_store_root()
+                if root.exists():
+                    for airport_dir in root.iterdir():
+                        if airport_dir.is_dir():
+                            prune_snapshots(airport_dir.name, keep_hours=24)
+                last_retention_cleanup = time.monotonic()
+            except Exception:
+                logger.debug("Storage cleanup deferred")
         cfg_dict = asdict(cfg)
 
         # First read: set baseline silently (no log file created yet)
@@ -118,12 +132,17 @@ def run_loop(
             latency_ms = int((time.time() - t0) * 1000)
 
             failure_count = 0
-            cache_state = "cached" if isinstance(data, list) and not data else "live"
+            metadata = getattr(data, "metadata", {}) or {}
+            cache_state = metadata.get("cache_state") or ("cached" if isinstance(data, list) and not data else "live")
+            if metadata.get("managed") and not metadata.get("source_fetched_at"):
+                cache_state = "unknown"
             next_refresh = datetime.now(timezone.utc) + timedelta(seconds=max(1, int(cfg.refresh_seconds)))
             save_state(AppState(
                 ok=True,
                 last_attempt_utc=attempt_ts,
-                last_success_utc=attempt_ts,
+                last_success_utc=metadata.get("source_fetched_at") if metadata.get("managed") else attempt_ts,
+                source_fetched_at=metadata.get("source_fetched_at"),
+                snapshot_id=metadata.get("snapshot_id"),
                 last_error=None,
                 source_name=source_name,
                 last_latency_ms=latency_ms,
@@ -132,7 +151,7 @@ def run_loop(
                 retry_after_s=None,
                 retry_count=0,
                 cache_state=cache_state,
-                notice_code=None,
+                notice_code="scheduler.cached_data" if cache_state in {"stale", "unknown"} else None,
             ))
 
         except Exception as e:

@@ -124,7 +124,15 @@ class AccessBackupManager:
             try:
                 source.execute("PRAGMA busy_timeout=5000")
                 source.backup(destination)
+                # Access recovery does not need provider datasets. Remove them
+                # from the backup copy (including freed pages), never the live DB.
+                destination.execute("PRAGMA secure_delete=ON")
+                tables = {r[0] for r in destination.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                for table in ("schedule_snapshots", "provider_schedule_snapshots", "schedule_provider_cache", "mobile_standalone_cache"):
+                    if table in tables:
+                        destination.execute(f"DELETE FROM {table}")
                 destination.commit()
+                destination.execute("VACUUM")
             finally:
                 destination.close()
                 source.close()
@@ -141,6 +149,7 @@ class AccessBackupManager:
         header = json.dumps(
             {
                 "format": 1,
+                "provider_data_excluded": True,
                 "created_at": created.isoformat(),
                 "key_id": self.active_key_id,
                 "nonce": base64.urlsafe_b64encode(nonce).decode("ascii").rstrip("="),
@@ -311,11 +320,43 @@ class AccessBackupManager:
             return True
         return current - created >= timedelta(hours=1)
 
+    def _remove_legacy_provider_data(self, path: Path) -> None:
+        """Keep access recovery records while removing cached datasets in old archives."""
+        header, plaintext = self._decrypt(path)
+        if header.get("provider_data_excluded"):
+            return
+        with tempfile.NamedTemporaryFile(dir=self.backup_directory, suffix=".sqlite", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(plaintext)
+        try:
+            conn = sqlite3.connect(temporary)
+            try:
+                conn.execute("PRAGMA secure_delete=ON")
+                tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                for table in ("schedule_snapshots", "provider_schedule_snapshots", "schedule_provider_cache", "mobile_standalone_cache"):
+                    if table in tables:
+                        conn.execute(f"DELETE FROM {table}")
+                conn.commit()
+                conn.execute("VACUUM")
+            finally:
+                conn.close()
+            self._integrity_check(temporary)
+            clean = temporary.read_bytes()
+            nonce = os.urandom(12)
+            header.update(provider_data_excluded=True, database_sha256=hashlib.sha256(clean).hexdigest(),
+                          plaintext_bytes=len(clean), nonce=base64.urlsafe_b64encode(nonce).decode("ascii").rstrip("="))
+            encoded = json.dumps(header, sort_keys=True, separators=(",", ":")).encode()
+            encrypted = AESGCM(self._keys[header["key_id"]]).encrypt(nonce, clean, _MAGIC + encoded)
+            self._write_atomic(path, _MAGIC + _HEADER_SIZE.pack(len(encoded)) + encoded + encrypted)
+        finally:
+            temporary.unlink(missing_ok=True)
+
     def prune(self, *, now: datetime | None = None) -> list[Path]:
         current = (now or _utc_now()).astimezone(timezone.utc)
         candidates: list[tuple[Path, datetime]] = []
         for path in self.backup_directory.glob("relay-access-*.lfrbak"):
             try:
+                self._remove_legacy_provider_data(path)
                 candidates.append((path, _parse_time(self.inspect(path).created_at)))
             except Exception:
                 # Never delete an unreadable artifact automatically; surface it

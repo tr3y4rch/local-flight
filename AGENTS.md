@@ -28,26 +28,38 @@ Public links:
 
 - `pyproject.toml` is the version source of truth. The active desktop,
   Linux server, Raspberry Pi, relay-compatibility, and mobile testing line is
-  `0.6.0`.
+  `0.6.1` candidate. Public native downloads remain `0.6.0` until the full
+  replacement matrix is published. Source, submitted builds, tester access,
+  and public availability are distinct states; do not infer one from another.
 - Windows, separate Apple silicon/Intel macOS packages, x86-64/ARM64 Linux
   AppImages, Ubuntu/Debian desktop and headless packages, and Raspberry Pi are
   public package targets. Mobile is in TestFlight/Google Play testing and uses
   the permanent application identifier `cc.beacontools.localflight`.
-- `0.6.0` is the platform-wide Windows, macOS, Linux, Raspberry Pi, LAN, relay,
+- `0.6.1` is the platform-wide Windows, macOS, Linux, Raspberry Pi, LAN, relay,
   and mobile-testing release line. Native artifacts are built on matching
   architecture runners and uploaded with matching checksums. macOS artifacts
   additionally require Developer ID signing, notarization, and stapling.
-- Current public release copy lives in `docs/release-notes-0.6.0.md` and the
+- Current public release copy lives in `docs/release-notes-0.6.1.md` and the
   public `CHANGELOG.md`. Detailed implementation history belongs in
   `docs/engineering-changelog.md` and is not bundled as end-user help.
 - Public-safe build, validation, and publication gates live in
   `docs/release-process.md`; credentials and private recovery steps do not.
+- Relay Access provider, email, recovery, security, and restore certification
+  lives in `docs/relay-access-validation.md`. Deployment smoke must verify the
+  exact release version, commit, schema, and canonical catalog rather than only
+  accepting a generic health response.
 - Both macOS direct-download builds are Developer ID signed and notarized
   architecture-specific `.pkg` files. Keep the signing, notarization, stapling,
   architecture, deployment-target, and checksum gates intact; never recommend
   disabling Gatekeeper.
 - Rebuild every affected release artifact after included source, public docs, or
   assets change.
+- Candidate work goes through a separate branch and clean-checkout CI. A main
+  push deploys production; do not use it to validate staging. Mobile candidate
+  counters are iOS 14 and Android 17, subject to uploaded-counter verification.
+  Use explicit beta build and submission profiles with the same candidate SHA.
+  Staging requires its own database, keyrings, DNS, email, and sandbox credentials.
+  Missing readiness, store processing, or physical tests must remain pending.
 
 ## Repository map
 
@@ -141,6 +153,10 @@ Hard rules:
   receive the shared AES secret or readable request/response contents.
 - Optional mobile support purchases unlock nothing. Store evidence is verified
   by the relay and raw evidence is not retained.
+- iOS and Android ownership inspection and verified-email protection are
+  symmetric. Emailing the current key is cooldown-protected and never returns
+  that key through the action API; rotating a lost key remains a separate,
+  destructive recovery action.
 
 ## User-facing feedback contract
 

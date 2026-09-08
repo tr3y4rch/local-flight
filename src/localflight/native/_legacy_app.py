@@ -1551,7 +1551,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
         for col, (mode, title, body, glyph) in enumerate(
             (
                 ("community", "Beacon Relay", "Licensed shared airport snapshots through the hosted Beacon Relay.", "\U0001F4E1"),
-                ("byok", "BYOK AviationStack", "Use your own API key and keep provider calls local.", "\U0001F511"),
+                ("byok", "Use Your Own Keys", "Use your own API key and keep provider calls local.", "\U0001F511"),
                 ("virtual", "Virtual / VATSIM", "No paid schedule key. Uses live VATSIM flight-network data.", "\U0001F6E9"),
             )
         ):
@@ -1816,7 +1816,7 @@ class SetupScreen:  # pragma: no cover - optional Qt runtime
     def _mode_label(self, mode: str) -> str:
         return {
             "community": "Beacon Relay",
-            "byok": "BYOK AviationStack",
+            "byok": "Use Your Own Keys",
             "virtual": "Virtual / VATSIM",
         }.get(mode, mode)
 
@@ -5396,7 +5396,7 @@ class AdminSummaryScreen:  # pragma: no cover - optional Qt runtime
         source_label = {
             "community": "Hosted relay access",
             "managed": "Managed relay access",
-            "byok": "Own AviationStack key",
+            "byok": "Own provider keys",
             "virtual": "Virtual source",
         }.get(mode, mode or "unknown")
         display_source = bucket.get("provider_label") or source_label

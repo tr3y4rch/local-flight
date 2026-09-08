@@ -1,4 +1,4 @@
-name: Build 0.6.0 Release Artifacts
+name: Build Release Artifacts
 
 on:
   workflow_dispatch:
