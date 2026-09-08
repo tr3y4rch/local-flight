@@ -32,12 +32,15 @@ Build and start the exact candidate relay image, then run:
 
 ```bash
 python scripts/check_relay_access_deployment.py https://relay.example.test \
-  --expected-revision <candidate-commit>
+  --expected-revision <candidate-commit> \
+  --require-license-core
 ```
 
 The check must verify the deployed version and commit, Relay Access schema,
 catalog readiness, and canonical product. A generic healthy response is not a
-licensing deployment proof.
+licensing deployment proof. Omit `--require-license-core` only for the first
+closed-feature restoration deployment, before production keyrings are
+configured; sales and mobile ownership must remain disabled in that state.
 
 ## Email certification
 

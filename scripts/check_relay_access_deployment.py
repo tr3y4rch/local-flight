@@ -47,6 +47,7 @@ def validate_payloads(
     expected_version: str,
     expected_schema: int,
     expected_revision: str = "",
+    require_license_core: bool = False,
 ) -> None:
     if health.get("ok") is not True or health.get("service") != "beacon-relay":
         raise RuntimeError("Relay health identity is missing or invalid")
@@ -74,7 +75,10 @@ def validate_payloads(
     }
     if any(not isinstance(access.get(field), bool) for field in readiness_fields):
         raise RuntimeError("Relay health is missing safe Relay Access readiness fields")
-    if access.get("keyrings_ready") is not True or access.get("license_core_ready") is not True:
+    if require_license_core and (
+        access.get("keyrings_ready") is not True
+        or access.get("license_core_ready") is not True
+    ):
         raise RuntimeError("Relay Access core or versioned keyrings are not ready")
     providers = access.get("providers")
     if not isinstance(providers, dict) or any(
@@ -82,6 +86,16 @@ def validate_payloads(
         for provider in ("stripe", "apple_app", "google_play")
     ):
         raise RuntimeError("Relay health is missing safe provider readiness fields")
+    if access.get("sales_ready") is True and not all(
+        (
+            access.get("keyrings_ready"),
+            access.get("license_core_ready"),
+            access.get("smtp_ready"),
+            access.get("backup_ready"),
+            providers.get("stripe"),
+        )
+    ):
+        raise RuntimeError("Relay claims sales readiness without its required safety gates")
 
     product = catalog.get("product")
     if catalog.get("ok") is not True or catalog.get("schema_version") != expected_schema:
@@ -98,6 +112,11 @@ def main() -> int:
     parser.add_argument("base_url", help="Relay origin, for example https://relay.beacontools.cc")
     parser.add_argument("--host-header", default="", help="Host header for a local container smoke test")
     parser.add_argument("--expected-revision", default=os.getenv("GITHUB_SHA", ""))
+    parser.add_argument(
+        "--require-license-core",
+        action="store_true",
+        help="Also require configured versioned licensing keyrings",
+    )
     parser.add_argument("--attempts", type=int, default=1)
     parser.add_argument("--delay", type=float, default=2.0)
     parser.add_argument("--timeout", type=float, default=10.0)
@@ -119,10 +138,12 @@ def main() -> int:
                 expected_version=version,
                 expected_schema=schema,
                 expected_revision=args.expected_revision,
+                require_license_core=args.require_license_core,
             )
             print(
                 f"Relay {version} ({health.get('revision')}) exposes access schema {schema} "
-                f"and {PRODUCT_CODE}; sales_ready={health['access']['sales_ready']}."
+                f"and {PRODUCT_CODE}; core_ready={health['access']['license_core_ready']}, "
+                f"sales_ready={health['access']['sales_ready']}."
             )
             return 0
         except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:

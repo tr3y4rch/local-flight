@@ -54,6 +54,44 @@ def test_relay_deployment_contract_accepts_matching_release() -> None:
     )
 
 
+def test_closed_relay_deployment_does_not_require_license_keyrings() -> None:
+    health, catalog, version, schema = _payloads()
+    health["access"]["keyrings_ready"] = False
+    health["access"]["license_core_ready"] = False
+
+    validate_payloads(
+        health,
+        catalog,
+        expected_version=version,
+        expected_schema=schema,
+        expected_revision="a" * 40,
+    )
+
+    with pytest.raises(RuntimeError, match="keyrings"):
+        validate_payloads(
+            health,
+            catalog,
+            expected_version=version,
+            expected_schema=schema,
+            expected_revision="a" * 40,
+            require_license_core=True,
+        )
+
+
+def test_relay_deployment_contract_rejects_false_sales_readiness() -> None:
+    health, catalog, version, schema = _payloads()
+    health["access"]["sales_ready"] = True
+
+    with pytest.raises(RuntimeError, match="sales readiness"):
+        validate_payloads(
+            health,
+            catalog,
+            expected_version=version,
+            expected_schema=schema,
+            expected_revision="a" * 40,
+        )
+
+
 @pytest.mark.parametrize("missing", ["identity", "version", "revision", "access", "catalog"])
 def test_relay_deployment_contract_rejects_stale_or_incomplete_image(missing: str) -> None:
     health, catalog, version, schema = _payloads()

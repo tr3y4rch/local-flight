@@ -197,6 +197,7 @@ jobs:
           http://127.0.0.1:18080
           --host-header localhost
           --expected-revision "$GITHUB_SHA"
+          --require-license-core
           --attempts 30
           --delay 2
 
