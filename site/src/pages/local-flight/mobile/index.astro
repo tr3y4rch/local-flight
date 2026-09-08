@@ -4,9 +4,8 @@ import SiteLayout from "../../../layouts/SiteLayout.astro";
 import SectionHeading from "../../../components/SectionHeading.astro";
 import MobileModeSwitcher from "../../../components/MobileModeSwitcher.astro";
 import SafetyNotice from "../../../components/SafetyNotice.astro";
-import { currentRelease, relayOrigin } from "../../../data/site";
+import { availability, currentRelease, relayOrigin } from "../../../data/site";
 import iosFids from "../../../assets/screens/mobile/ios/current/fids-dark.png";
-import iosRadar from "../../../assets/screens/mobile/ios/current/radar-dark.png";
 import iosHistory from "../../../assets/screens/mobile/ios/current/history-dark.png";
 import androidFids from "../../../assets/screens/mobile/android/current/fids-light.png";
 import androidRadar from "../../../assets/screens/mobile/android/current/radar-light.png";
@@ -15,20 +14,20 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
 
 <SiteLayout
   title="Local Flight Mobile"
-  description="Local Flight Mobile pairs with desktop on iOS and Android. The paid iOS app includes Relay Access; Android is a free download with an optional one-time Relay purchase."
+  description="See Local Flight boards, radar, history, widgets, and Live Activity on iOS and Android. Connect to a Local Flight computer or use supported phone-only modes."
   active="mobile"
 >
-  <header class="terminal-hero">
+  <header class="terminal-hero terminal-hero--product">
     <div class="terminal-frame terminal-grid hero-grid">
       <div class="hero-copy hero-copy--narrow">
         <div class="eyebrow">Local Flight Mobile / iOS + Android</div>
-        <h1 class="hero-title">Take your flight board <span class="accent-word">with you.</span></h1>
-        <p class="hero-lede">Pair the phone with the Local Flight setup you already run, use free VATSIM data on the phone, or add Beacon Relay Access for real-flight Standalone. The paid iOS app includes Relay Access; Android is a free download with an optional one-time Relay purchase.</p>
+        <h1 class="hero-title">Take your flight board with you.</h1>
+        <p class="hero-lede">Connect to a Local Flight computer you already run with Companion, follow VATSIM directly on the phone, or use real-flight Standalone with optional Beacon Relay Access.</p>
         <div class="hero-actions">
-          <a class="action-button action-button--primary" href="#included-license">Compare iOS and Android <span aria-hidden="true">↓</span></a>
-          <a class="action-link" href="#availability">Mobile testing availability</a>
+          <a class="action-button action-button--primary" href="#modes">Compare Companion and Standalone <span aria-hidden="true">↓</span></a>
+          <a class="action-link" href="#screens">See the app</a>
         </div>
-        <p class="hero-footnote">Free Companion + VATSIM on Android · Portable Relay Access · No subscription · No ads · No cross-app tracking</p>
+        <p class="hero-footnote">Companion keeps the computer in charge · Standalone runs on the phone · No ads · No cross-app tracking</p>
       </div>
       <div class="hero-visual hero-visual--wide phone-composition" aria-label="Local Flight Mobile interface previews" data-reveal>
         <div class="phone-frame phone-frame--primary">
@@ -41,109 +40,97 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
     </div>
   </header>
 
-  <section class="section" id="included-license">
+  <section class="section" id="modes">
     <div class="terminal-frame">
-      <SectionHeading index="01 / MOBILE ACCESS" title="Two store models. The same portable Relay license." description="The paid iOS download includes Relay Access. Android is free to download for Companion and VATSIM, with a one-time in-app Relay purchase for real-flight Standalone." />
-      <div class="feature-run" data-reveal>
-        <article class="feature"><span class="feature-index">IOS</span><h3>Included with the paid app</h3><p>A verified App Store entitlement creates one portable Relay license. Standalone can activate it on this iPhone or iPad.</p></article>
-        <article class="feature"><span class="feature-index">ANDROID</span><h3>Free app, optional Relay purchase</h3><p>Companion and VATSIM work without buying Relay Access. Real-flight Standalone uses a one-time non-consumable purchase or an existing license handoff.</p></article>
-        <article class="feature"><span class="feature-index">DESKTOP</span><h3>Move it to your computer</h3><p>Protect the license with an optional email, then create a one-time activation code for desktop Beacon Relay.</p></article>
-        <article class="feature"><span class="feature-index">COMPANION</span><h3>Keep the phone connected</h3><p>When desktop holds the license, LAN and encrypted Remote Companion share that host without using the license separately.</p></article>
-      </div>
-      <p class="hero-footnote" style="margin-top: 28px">A web or Android Relay purchase does not include the paid iOS download. Each completed Relay purchase or verified Apple entitlement creates a separate one-main-device license.</p>
-    </div>
-  </section>
-
-  <section class="section section--raised section--ruled" id="modes">
-    <div class="terminal-frame">
-      <SectionHeading index="02 / MODES" title="Use your existing setup—or just your phone." description="Companion connects to a Local Flight computer you already run. VATSIM works directly without Relay Access. Real-flight Standalone uses one portable Relay license." />
+      <SectionHeading index="01 / CHOOSE A MODE" title="Use your existing setup—or just your phone." description="Companion connects to the computer running Local Flight. Standalone works directly on the phone, with VATSIM available without Relay Access and real-flight data available through Beacon Relay." />
       <MobileModeSwitcher />
     </div>
   </section>
 
-  <section class="section">
+  <section class="section section--raised section--ruled" id="screens">
     <div class="terminal-frame">
-      <SectionHeading index="03 / ON YOUR PHONE" title="A mobile interface designed for the screen in your hand." description="Move between the board, nearby-aircraft radar, movement history, setup, and widgets with navigation made for a phone." />
-      <div class="feature-run" data-reveal>
-        <article class="feature"><span class="feature-index">BOARD</span><h3>Arrivals and departures</h3><p>See airport-local times, weather, supplied status and gates, pinned flights, and when the board was last updated.</p></article>
-        <article class="feature"><span class="feature-index">RADAR</span><h3>Nearby aircraft</h3><p>Follow the same 15-second sweep used by desktop and browser views, with phone-friendly range and detail controls.</p></article>
-        <article class="feature"><span class="feature-index">HISTORY</span><h3>Recent movements</h3><p>Companion shows history from your Local Flight computer. Standalone keeps its recent movement history on the phone.</p></article>
-        <article class="feature"><span class="feature-index">WIDGET</span><h3>A quick saved view</h3><p>Widgets show the latest copy saved by the app. They never contact your computer, Beacon Relay, or an aviation-data provider by themselves.</p></article>
-      </div>
-    </div>
-  </section>
-
-  <section class="section">
-    <div class="terminal-frame">
-      <SectionHeading index="04 / CURRENT BUILDS" title="Real screens from the current testing build." description={`These ${currentRelease} testing-build captures show iOS in dark appearance and Android in light appearance. They are real Local Flight screens, not generic device mockups.`} />
+      <SectionHeading index="02 / REAL APP SCREENS" title="The same useful views, designed for a phone." description={`These ${currentRelease} testing-build captures show the real iOS app in dark appearance and Android app in light appearance.`} />
       <div class="preview-strip" data-reveal>
-        <figure class="preview-phone"><Picture src={iosRadar} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight Radar on iOS in dark appearance" /><figcaption>iOS / RADAR · DARK APPEARANCE</figcaption></figure>
-        <figure class="preview-phone"><Picture src={androidFids} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight flight board on Android in light appearance" /><figcaption>ANDROID / BOARD · LIGHT APPEARANCE</figcaption></figure>
-        <figure class="preview-phone"><Picture src={iosHistory} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight History on iOS in dark appearance" /><figcaption>iOS / HISTORY · DARK APPEARANCE</figcaption></figure>
-        <figure class="preview-phone"><Picture src={androidHistory} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight History on Android in light appearance" /><figcaption>ANDROID / HISTORY · LIGHT APPEARANCE</figcaption></figure>
+        <figure class="preview-phone"><Picture src={iosFids} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight flight board on iOS in dark appearance" /><figcaption>iOS / BOARD · DARK APPEARANCE</figcaption></figure>
+        <figure class="preview-phone"><Picture src={androidRadar} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight nearby-aircraft radar on Android in light appearance" /><figcaption>ANDROID / RADAR · LIGHT APPEARANCE</figcaption></figure>
+        <figure class="preview-phone"><Picture src={iosHistory} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight movement history on iOS in dark appearance" /><figcaption>iOS / HISTORY · DARK APPEARANCE</figcaption></figure>
+        <figure class="preview-phone"><Picture src={androidHistory} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight movement history on Android in light appearance" /><figcaption>ANDROID / HISTORY · LIGHT APPEARANCE</figcaption></figure>
+      </div>
+      <div class="summary-lines summary-lines--compact mobile-outcomes" data-reveal>
+        <div class="summary-line"><span>BRD</span><strong>Flight board</strong><p>Airport-local times, weather, supplied status and gates, pinned flights, and a visible freshness time.</p></div>
+        <div class="summary-line"><span>RDR</span><strong>Nearby aircraft</strong><p>A phone-sized radar view using the same deliberate 15-second sweep as the desktop and browser displays.</p></div>
+        <div class="summary-line"><span>HST</span><strong>Recent movements</strong><p>Companion reads history from the computer; Standalone keeps its own recent history on the phone.</p></div>
       </div>
     </div>
   </section>
 
-  <section class="section section--raised section--ruled">
+  <section class="section" id="widgets">
     <div class="terminal-frame">
-      <SectionHeading index="05 / WIDGETS" title="Flight information where your phone already looks." description="The native extensions turn the latest copy saved by Local Flight into a quick Home Screen view. A pinned flight can also appear as a Live Activity on supported iPhones." />
+      <SectionHeading index="03 / WIDGETS + LIVE ACTIVITY" title="Flight information where you already look." description="Native extensions show the latest copy saved by Local Flight. A pinned flight can also appear as a Live Activity on supported iPhones." />
       <div class="extension-showcase" data-reveal>
         <figure class="extension-preview">
-          <img src="/assets/previews/mobile/localflight-ios-widgets-marketing.svg" width="1600" height="1200" loading="lazy" alt="Local Flight iOS small and medium widgets beside a pinned-flight Lock Screen Live Activity" />
-          <figcaption><strong>iOS / WIDGETKIT + LIVE ACTIVITY</strong><span>Current native testing extension · illustrative device context</span></figcaption>
+          <img src="/assets/previews/mobile/localflight-ios-widgets-marketing.svg" width="1600" height="1200" loading="lazy" alt="Local Flight iOS widgets and a pinned-flight Lock Screen Live Activity" />
+          <figcaption><strong>iOS / WIDGETS + LIVE ACTIVITY</strong><span>Native testing extension · illustrative device context</span></figcaption>
         </figure>
         <figure class="extension-preview">
-          <img src="/assets/previews/mobile/localflight-android-widgets-marketing.svg" width="1600" height="1200" loading="lazy" alt="Local Flight Android widget in compact pinned-flight and expanded airport-board sizes" />
-          <figcaption><strong>ANDROID / RESIZABLE HOME SCREEN WIDGET</strong><span>Current native testing widget · illustrative device context</span></figcaption>
+          <img src="/assets/previews/mobile/localflight-android-widgets-marketing.svg" width="1600" height="1200" loading="lazy" alt="Local Flight Android compact pinned-flight and expanded airport-board widgets" />
+          <figcaption><strong>ANDROID / HOME SCREEN WIDGETS</strong><span>Native testing widget · illustrative device context</span></figcaption>
         </figure>
       </div>
-      <p class="hero-footnote extension-note">Widgets show saved app information and do not fetch from your Local Flight computer, Beacon Relay, or an aviation-data provider by themselves. Device, operating-system, launcher, theme, and data differences can change the final appearance.</p>
+      <p class="hero-footnote extension-note">Widgets show saved app information. They do not contact your Local Flight computer, Beacon Relay, or an aviation-data provider by themselves. Device, operating-system, launcher, theme, and available data can change the final appearance.</p>
     </div>
   </section>
 
-  <section class="section section--quiet section--ruled">
+  <section class="section section--quiet section--ruled" id="store-model">
     <div class="terminal-frame">
-      <SectionHeading index="06 / UPDATE TIMING" title="What updates—and when—in phone-only mode." description="Standalone uses separate timing for new shared data and for updating the saved view already on the phone. These are target intervals, not guarantees; provider delays can keep an older board visible with its freshness time." />
+      <SectionHeading index="04 / IOS + ANDROID" title="The app stores package Relay Access differently." description="The core choice is the same on both platforms: use Companion or VATSIM without a separate Relay license, or use one Relay license for real-flight Standalone." />
+      <div class="platform-comparison" data-reveal>
+        <div class="platform-row platform-row--head" aria-hidden="true"><span>Platform</span><span>App download</span><span>Companion + VATSIM</span><span>Real-flight Standalone</span></div>
+        <article class="platform-row"><strong>iOS</strong><p>Paid app</p><p>Included in the app</p><p>One Beacon Relay license is included after App Store ownership is verified.</p></article>
+        <article class="platform-row"><strong>Android</strong><p>Free app</p><p>Free to use</p><p>Uses an optional one-time Relay purchase or an existing Relay license moved to the phone.</p></article>
+      </div>
+      <p class="hero-footnote">A web or Android Relay purchase does not include the paid iOS download. Each completed Relay purchase or verified Apple entitlement creates a separate one-main-device license.</p>
+    </div>
+  </section>
+
+  <section class="section" id="update-timing">
+    <div class="terminal-frame">
+      <SectionHeading index="05 / UPDATE TIMING" title="What updates—and when—in phone-only mode." description="Standalone checks shared data at conservative intervals and keeps the latest saved view available between checks. These are target intervals, not guarantees." />
       <div class="cadence-line cadence-line--mobile" data-reveal>
         <article class="cadence-item"><strong>About 1 h</strong><h3>Real-world schedules</h3><p>Standalone requests new shared airline-schedule data no more often than about once an hour.</p></article>
-        <article class="cadence-item"><strong>Between checks</strong><h3>Saved board view</h3><p>The app keeps the latest board available and re-evaluates saved rows locally. This does not request a new airline schedule.</p></article>
-        <article class="cadence-item"><strong>About 3 min</strong><h3>Real-world Radar</h3><p>Nearby aircraft can refresh about every three minutes while Radar is open, with 1, 3, 5, and 10 NM ranges.</p></article>
-        <article class="cadence-item"><strong>About 1 min</strong><h3>VATSIM mode</h3><p>When Standalone uses public virtual-network data, both its board and Radar target about one-minute checks.</p></article>
+        <article class="cadence-item"><strong>Between checks</strong><h3>Saved board view</h3><p>The app keeps the latest board available and re-evaluates saved rows locally without requesting a new schedule.</p></article>
+        <article class="cadence-item"><strong>About 3 min</strong><h3>Real-world radar</h3><p>Nearby aircraft can refresh about every three minutes while Radar is open, with 1, 3, 5, and 10 NM ranges.</p></article>
+        <article class="cadence-item"><strong>About 1 min</strong><h3>VATSIM mode</h3><p>VATSIM board and Radar views target about one-minute checks while the phone is in use.</p></article>
       </div>
     </div>
   </section>
 
-  <section class="section" id="availability" data-mobile-catalog data-relay-origin={relayOrigin} data-current-release={currentRelease}>
+  <section class="section section--raised section--ruled" id="availability" data-mobile-catalog data-relay-origin={relayOrigin} data-current-release={currentRelease} data-release-state={availability.relayAccess}>
     <div class="terminal-frame terminal-grid split-story">
       <div class="split-story-copy" data-reveal>
-        <span class="section-index">07 / AVAILABILITY</span>
-        <h2 id="mobileAvailabilityTitle">Checking current mobile availability.</h2>
-        <p id="mobileAvailabilityLead">Beacon Relay confirms whether the paid iOS app and free Android app are unavailable, in testing, or publicly available before this page shows a store link.</p>
+        <span class="section-index">06 / AVAILABILITY</span>
+        <h2 id="mobileAvailabilityTitle">The mobile apps are currently in testing.</h2>
+        <p id="mobileAvailabilityLead">Public store or testing links appear here only after Beacon Tools has verified that they are open to the intended audience.</p>
         <ul class="data-list">
-          <li><b>iOS</b><span id="iosAvailabilityText">Checking App Store and TestFlight availability…</span></li>
-          <li><b>Android</b><span id="androidAvailabilityText">Checking Google Play availability…</span></li>
-          <li><b>Questions</b><span>Ask about testing access, pairing, or which mode fits your setup.</span></li>
+          <li><b>iOS</b><span id="iosAvailabilityText">The paid iOS app and included Relay Access are still in testing.</span></li>
+          <li><b>Android</b><span id="androidAvailabilityText">The free Android app and optional Relay purchase are still in testing.</span></li>
+          <li><b>Relay</b><span>Relay Access purchasing is in prelaunch. No payment can be started yet.</span></li>
         </ul>
-        <div class="inline-actions" style="margin-top: 30px">
-          <a class="action-button action-button--primary" href="/support/#message">Ask about mobile availability <span aria-hidden="true">→</span></a>
+        <div class="inline-actions editorial-actions">
+          <a class="action-button action-button--primary" href="/support/#message">Ask about mobile testing</a>
         </div>
         <div class="store-release" aria-label="Mobile app store availability">
           <div class="store-badges">
-            <a class="store-badge is-disabled" data-mobile-store="apple_app" aria-disabled="true" aria-label="Download on the App Store">
-              <img src="/assets/store-badges/download-on-app-store.svg" alt="Download on the App Store" />
-            </a>
-            <a class="store-badge is-disabled" data-mobile-store="google_play" aria-disabled="true" aria-label="Get it on Google Play">
-              <img src="/assets/store-badges/get-it-on-google-play.png" alt="Get it on Google Play" />
-            </a>
+            <a class="store-badge is-disabled" data-mobile-store="apple_app" aria-disabled="true" aria-label="Download on the App Store"><img src="/assets/store-badges/download-on-app-store.svg" alt="Download on the App Store" /></a>
+            <a class="store-badge is-disabled" data-mobile-store="google_play" aria-disabled="true" aria-label="Get it on Google Play"><img src="/assets/store-badges/get-it-on-google-play.png" alt="Get it on Google Play" /></a>
           </div>
-          <p class="store-note" id="mobileAvailabilityStatus" role="status" aria-live="polite">No store link is shown until its current state is confirmed.</p>
+          <p class="store-note" id="mobileAvailabilityStatus" role="status" aria-live="polite">No public store link is currently published.</p>
         </div>
       </div>
       <div class="split-story-media">
         <div class="media-stage" data-reveal>
-          <Picture src={androidRadar} formats={["avif", "webp"]} widths={[420, 640, 860]} sizes="(max-width: 680px) 90vw, 46vw" alt="Local Flight Android Radar in light appearance" />
-          <div class="media-caption"><strong>ANDROID / RADAR</strong><span>Current testing build · light appearance</span></div>
+          <Picture src={androidFids} formats={["avif", "webp"]} widths={[420, 640, 860]} sizes="(max-width: 680px) 90vw, 46vw" alt="Local Flight Android flight board in light appearance" />
+          <div class="media-caption"><strong>ANDROID / FLIGHT BOARD</strong><span>Current testing build · light appearance</span></div>
         </div>
       </div>
     </div>
@@ -173,26 +160,20 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
         const available = state === "available" && source?.available === true;
         const testing = state === "testing" && source?.testing_available === true;
         const candidate = available ? source?.store_url : testing ? source?.testing_url : "";
-        const hasLink = typeof candidate === "string" && candidate.startsWith("https://");
-        if (hasLink) {
+        const hasVerifiedLink = typeof candidate === "string" && candidate.startsWith("https://");
+        if (hasVerifiedLink) {
           link.href = candidate;
           link.classList.remove("is-disabled");
           link.removeAttribute("aria-disabled");
-        } else {
-          link.removeAttribute("href");
-          link.classList.add("is-disabled");
-          link.setAttribute("aria-disabled", "true");
         }
         output.textContent = available
           ? source?.included_with_paid_app
-            ? `The paid ${label} release is available and includes one portable Relay license.`
-            : `The free ${label} release is available. Companion and VATSIM are free; Relay Access is an optional one-time purchase.`
+            ? `The paid ${label} release is available and includes one Relay license.`
+            : `The free ${label} release is available; Relay Access remains an optional one-time purchase.`
           : testing
-            ? `${label} testing is active for version ${release}; access may still be limited.`
-            : sourceName === "google_play"
-              ? `The free Android release and optional Relay purchase are not open yet.`
-              : `The paid ${label} release is not open yet.`;
-        return available ? "available" : testing ? "testing" : "unavailable";
+            ? `${label} testing is open for Local Flight ${release}.`
+            : `${label} testing is not open through a public link yet.`;
+        return available ? "live" : testing ? "testing" : "prelaunch";
       };
 
       const loadAvailability = async () => {
@@ -200,33 +181,26 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
           const response = await fetch(`${relay}/v1/access/catalog`, { headers: { Accept: "application/json" } });
           const data = await response.json();
           const product = data?.product;
-          if (!response.ok || !data?.ok || product?.product_code !== "beacon_relay_lifetime_v1" || product?.independent_receivers !== 1) {
-            throw new Error("Unexpected Relay Access catalog");
-          }
-          const iosState = setStore("apple_app", product?.purchase_sources?.apple_app, "App Store", iosText);
+          if (!response.ok || !data?.ok || product?.product_code !== "beacon_relay_lifetime_v1" || product?.independent_receivers !== 1) return;
+          const iosState = setStore("apple_app", product?.purchase_sources?.apple_app, "iOS", iosText);
           const googleSource = product?.purchase_sources?.google_play || product?.purchase_sources?.google_app;
-          const androidState = setStore("google_play", googleSource, "Google Play", androidText);
+          const androidState = setStore("google_play", googleSource, "Android", androidText);
           const states = [iosState, androidState];
-          title.textContent = states.every((value) => value === "available")
+          title.textContent = states.every((value) => value === "live")
             ? "The mobile apps are available."
-            : states.some((value) => value === "available")
-              ? "A mobile release is available."
-              : states.some((value) => value === "testing")
-                ? "The mobile apps are currently in testing."
-                : "Mobile purchase routes are not open yet.";
-          lead.textContent = `Version ${release} uses the same portable Relay-license contract on iOS and Android. iOS is a paid download with access included; Android is free with an optional one-time Relay purchase.`;
-          status.textContent = states.some((value) => value === "available" || value === "testing")
-            ? "Use only the store or testing links shown here; availability can differ by platform."
-            : "No mobile release or testing link is currently published.";
+            : states.some((value) => value === "live")
+              ? "One mobile release is available."
+              : "The mobile apps are currently in testing.";
+          lead.textContent = states.some((value) => value !== "prelaunch")
+            ? "Use only the verified store or testing links shown here; availability can differ by platform."
+            : "Public store or testing links appear here only after Beacon Tools has verified that they are open to the intended audience.";
+          status.textContent = states.some((value) => value === "live" || value === "testing")
+            ? "Verified links are shown for the platforms currently open."
+            : "No public store link is currently published.";
         } catch {
-          title.textContent = "Mobile availability could not be confirmed.";
-          lead.textContent = "No store or testing link is shown while the live Relay Access catalog is unavailable.";
-          iosText.textContent = "iOS availability could not be checked.";
-          androidText.textContent = "Android availability could not be checked.";
-          status.textContent = "Try again later or ask Support about the current mobile release.";
+          /* Keep the intentional testing/prelaunch copy. A network error is not a product state. */
         }
       };
-
       loadAvailability();
     })();
   </script>

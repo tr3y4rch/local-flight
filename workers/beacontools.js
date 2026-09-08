@@ -30,6 +30,21 @@ function jsonResponse(payload, status = 200) {
   });
 }
 
+function publicAssetResponse(response) {
+  const contentType = response.headers.get("Content-Type") || "";
+  if (!contentType.toLowerCase().startsWith("text/html")) return response;
+  const headers = new Headers(response.headers);
+  // Cloudflare Web Analytics can inject a browser beacon into otherwise static
+  // HTML at the edge. This source-controlled boundary prevents that response
+  // transformation and keeps the public site free of behavioral analytics.
+  headers.set("Cache-Control", "public, max-age=0, must-revalidate, no-transform");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 function normalizedVersion(tagName) {
   const value = String(tagName || "").trim().replace(/^v/i, "");
   return /^[0-9][0-9A-Za-z.-]{0,39}$/.test(value) ? value : "";
@@ -181,7 +196,7 @@ export default {
 
     if (request.method === "HEAD") {
       const getRequest = new Request(request, { method: "GET" });
-      const response = await env.ASSETS.fetch(getRequest);
+      const response = publicAssetResponse(await env.ASSETS.fetch(getRequest));
       return new Response(null, {
         status: response.status,
         statusText: response.statusText,
@@ -189,6 +204,6 @@ export default {
       });
     }
 
-    return env.ASSETS.fetch(request);
+    return publicAssetResponse(await env.ASSETS.fetch(request));
   },
 };

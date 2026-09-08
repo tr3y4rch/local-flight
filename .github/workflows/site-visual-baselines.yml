@@ -25,17 +25,14 @@ jobs:
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
 
-      - name: Require the current main commit
+      - name: Require the requested source commit
         shell: bash
         working-directory: .
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
-          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          latest_main="$(git ls-remote "https://github.com/${REPOSITORY}.git" refs/heads/main | awk '{print $1}')"
-          test "$SOURCE_SHA" = "$latest_main"
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

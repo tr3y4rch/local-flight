@@ -49,7 +49,9 @@ def test_release_version_is_consistent_across_desktop_mobile_and_worker() -> Non
     assert site_package["version"] == EXPECTED_VERSION
     assert site_lock["version"] == EXPECTED_VERSION
     assert site_lock["packages"][""]["version"] == EXPECTED_VERSION
-    assert f'currentRelease = "{EXPECTED_VERSION}"' in site_data
+    assert 'resolve(process.cwd(), "..", "pyproject.toml")' in site_data
+    assert "currentRelease = projectVersion" in site_data
+    assert f'currentRelease = "{EXPECTED_VERSION}"' not in site_data
     assert f'MINIMUM_PUBLIC_VERSION = "{EXPECTED_VERSION}"' in worker
     assert f'#define AppVersion "{EXPECTED_VERSION}"' in windows
     assert f'version = "{EXPECTED_VERSION}"' in paid_app_gradle

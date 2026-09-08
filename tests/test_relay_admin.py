@@ -1475,11 +1475,10 @@ def test_relay_root_serves_safe_browser_landing_page(tmp_path: Path, monkeypatch
     assert '<link rel="canonical" href="https://beacontools.cc/network/">' in response.text
     assert "Local Flight Beacon Relay" in response.text
     assert "Relay endpoint reached" in response.text
-    assert "Beacon Relay / Beacon Tools shared service" in response.text
+    assert "Beacon Relay / Optional Local Flight hosting" in response.text
+    assert "The application is free. Hosting has continuing costs." in response.text
     assert "Only the feature you choose uses this path." in response.text
-    assert "What reaching this page means." in response.text
-    assert "End-to-end encrypted messages" in response.text
-    assert "Remote Companion messages remain end-to-end encrypted." in response.text
+    assert "The encryption key stays on the paired phone and computer." in response.text
     assert 'href="/health"' in response.text
     assert "https://beacontools.cc/network/" in response.text
     assert "https://beacontools.cc/local-flight/" in response.text

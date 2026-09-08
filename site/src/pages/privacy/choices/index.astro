@@ -46,9 +46,22 @@ import SectionHeading from "../../../components/SectionHeading.astro";
   </section>
 
   <section class="section">
+    <div class="terminal-frame">
+      <SectionHeading index="03 / RELAY ACCESS RECORDS" title="Protect, recover, move, or release Relay Access." description="A Relay purchase leaves a small service record so the license can be delivered, protected against misuse, recovered, and limited to one active main device. These actions do not create a conventional Beacon account." />
+      <ol class="action-checklist" data-reveal>
+        <li><span class="step">01 / PROTECT</span><strong>Protect a mobile license</strong><p>Add an email from the mobile app only when you want recovery or device transfer. Confirm the private link before Beacon Relay connects the address to that license.</p></li>
+        <li><span class="step">02 / RECOVER</span><strong>Recover an existing license</strong><p>Use <a href="/local-flight/relay-access/manage/">Relay Access controls</a> with the Stripe checkout email or the email previously confirmed in mobile. The response does not reveal whether an address is registered.</p></li>
+        <li><span class="step">03 / MOVE</span><strong>Move access to another main device</strong><p>Create a short-lived activation code or mobile handoff. The previous device remains active until the new one safely stores its credential and commits the move.</p></li>
+        <li><span class="step">04 / RELEASE</span><strong>Release the current device</strong><p>Release it in Local Flight before resetting when possible, or use the private management page. An offline app keeps a pending release and retries later.</p></li>
+        <li><span class="step">05 / MINIMIZE</span><strong>Request deletion or minimization</strong><p>Email <a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a> with the minimum useful reference: Support ID, masked license reference, purchase email, store purchase reference, or approximate time. Some purchase, refund, fraud, or security records may need to be retained as described in the policy.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section section--raised section--ruled">
     <div class="terminal-frame terminal-grid split-story">
       <div class="split-story-copy" data-reveal>
-        <span class="section-index">03 / SHARED RECORDS</span>
+        <span class="section-index">04 / SHARED RECORDS</span>
         <h2>Online features may leave a small service record—not a personal profile.</h2>
         <p>A random service ID, usage counts, broad app and device details, encrypted-message routing details, last-connected times, and short-lived shared data can be used to run and protect the online features you select.</p>
       </div>
@@ -63,7 +76,7 @@ import SectionHeading from "../../../components/SectionHeading.astro";
 
   <section class="section section--quiet section--ruled">
     <div class="terminal-frame">
-      <SectionHeading index="04 / CONTACT" title="Send privacy requests here." description="Local Flight does not require an account or email address. Provide only the identifiers needed to locate the record you are asking about." />
+      <SectionHeading index="05 / CONTACT" title="Send privacy requests here." description="Local Flight does not require an account or email address. Provide only the identifiers needed to locate the record you are asking about." />
       <div class="summary-lines" data-reveal>
         <div class="summary-line"><span>PRV</span><strong>Privacy and diagnostics</strong><p><a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a></p></div>
         <div class="summary-line"><span>SUP</span><strong>General support</strong><p><a href="/support/#message">Use the support message box</a></p></div>
