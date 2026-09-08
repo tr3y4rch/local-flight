@@ -1683,13 +1683,17 @@ class LicenseService:
                 confirm_move_token=confirm_move_token,
                 grant_row=grant_row,
             )
-            conn.commit()
             if (
                 not prepare_only
                 and result.activation_state == "pending_commit"
                 and result.credential is not None
             ):
-                return self.commit_activation(result.credential.credential, install_id=install_id)
+                result = self._commit_prepared_activation_conn(
+                    conn,
+                    result=result,
+                    install_id=install_id,
+                )
+            conn.commit()
             return result
         except Exception:
             conn.rollback()
@@ -1740,13 +1744,17 @@ class LicenseService:
                 confirm_move_token=confirm_move_token,
                 grant_row=grant_row,
             )
-            conn.commit()
             if (
                 not prepare_only
                 and result.activation_state == "pending_commit"
                 and result.credential is not None
             ):
-                return self.commit_activation(result.credential.credential, install_id=install_id)
+                result = self._commit_prepared_activation_conn(
+                    conn,
+                    result=result,
+                    install_id=install_id,
+                )
+            conn.commit()
             return result
         except Exception:
             conn.rollback()
@@ -1895,6 +1903,103 @@ class LicenseService:
                 device_kind=kind,
                 device_name=target_name,
             ),
+        )
+
+    def _commit_prepared_activation_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        result: ActivationResult,
+        install_id: str,
+    ) -> ActivationResult:
+        """Commit an in-process activation without releasing the write lock.
+
+        Public clients use the explicit prepare/commit routes so they can save
+        the credential before moving a receiver. Internal callers do not have
+        that persistence boundary, so keeping their prepare and commit in one
+        transaction prevents concurrent preparations from superseding each
+        other and leaking a misleading inactive-credential error.
+        """
+        credential = result.credential
+        if credential is None:
+            raise InvalidChallenge("Relay Access activation was not prepared")
+        row = conn.execute(
+            """
+            SELECT * FROM relay_activations
+            WHERE activation_id=? AND install_id=? AND status='pending_commit'
+            """,
+            (credential.activation_id, install_id),
+        ).fetchone()
+        if not row:
+            raise InvalidChallenge(
+                "Relay Access activation could not be completed",
+                access_state="active",
+                credential_state="unknown",
+                reason_code="activation_commit_stale",
+            )
+
+        license_id = str(row["license_id"])
+        active = conn.execute(
+            "SELECT * FROM relay_activations WHERE license_id=? AND status='active'",
+            (license_id,),
+        ).fetchone()
+        expected_activation_id = str(row["expected_activation_id"] or "")
+        actual_activation_id = str(active["activation_id"] or "") if active else ""
+        if actual_activation_id != expected_activation_id:
+            raise InvalidChallenge(
+                "The active receiver changed before this activation was completed",
+                access_state="active",
+                credential_state="pending_commit",
+                reason_code="activation_commit_stale",
+            )
+
+        now = self.now()
+        if active:
+            conn.execute(
+                """
+                UPDATE relay_activations
+                SET status='replaced', revoked_at=?, revoke_reason='receiver_replaced'
+                WHERE activation_id=? AND status='active'
+                """,
+                (now, actual_activation_id),
+            )
+        updated_count = conn.execute(
+            """
+            UPDATE relay_activations
+            SET status='active', activated_at=?, last_seen_at=?, pending_expires_at=NULL
+            WHERE activation_id=? AND status='pending_commit'
+            """,
+            (now, now, credential.activation_id),
+        ).rowcount
+        if updated_count != 1:
+            raise InvalidChallenge(
+                "Relay Access activation could not be completed",
+                access_state="active",
+                credential_state="unknown",
+                reason_code="activation_commit_stale",
+            )
+
+        challenge_ids = [
+            str(row[column] or "")
+            for column in ("grant_challenge_id", "move_challenge_id")
+            if str(row[column] or "")
+        ]
+        if challenge_ids:
+            placeholders = ",".join("?" for _ in challenge_ids)
+            conn.execute(
+                f"UPDATE access_challenges SET consumed_at=? WHERE challenge_id IN ({placeholders})",
+                (now, *challenge_ids),
+            )
+        license_row = conn.execute(
+            "SELECT * FROM relay_licenses WHERE license_id=?",
+            (license_id,),
+        ).fetchone()
+        return ActivationResult(
+            activated=True,
+            activation_state="active",
+            license=self._license_from_row(license_row),
+            replaced_receiver=bool(active),
+            credential=credential,
         )
 
     def commit_activation(self, credential: str, *, install_id: str) -> ActivationResult:

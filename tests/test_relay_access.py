@@ -553,16 +553,24 @@ def test_cleanup_removes_old_processed_purchase_events(access_service: LicenseSe
     assert access_service.cleanup(audit_days=30)["purchase_events"] == 1
 
 
-def test_simultaneous_activation_keeps_exactly_one_receiver(access_service: LicenseService) -> None:
-    _, key, _ = access_service.fulfill_purchase(purchase())
+@pytest.mark.parametrize("authorized_path", ("license_key", "license_id"))
+@pytest.mark.parametrize("_attempt", range(6))
+def test_simultaneous_activation_keeps_exactly_one_receiver(
+    access_service: LicenseService,
+    authorized_path: str,
+    _attempt: int,
+) -> None:
+    license_record, key, _ = access_service.fulfill_purchase(purchase())
 
     def activate(index: int):
-        return access_service.activate(
-            install_id=f"{index:08d}-1111-4111-8111-111111111111",
-            device_kind="desktop",
-            device_name=f"Gate {index}",
-            license_key=key,
-        )
+        arguments = {
+            "install_id": f"{index:08d}-1111-4111-8111-111111111111",
+            "device_kind": "desktop",
+            "device_name": f"Gate {index}",
+        }
+        if authorized_path == "license_key":
+            return access_service.activate(license_key=key, **arguments)
+        return access_service.activate_license(license_id=license_record.license_id, **arguments)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(activate, (1, 2)))
