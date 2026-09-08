@@ -4,43 +4,52 @@ import SiteLayout from "../../layouts/SiteLayout.astro";
 
 <SiteLayout
   title="Privacy Policy"
-  description="Read what Local Flight keeps on your devices, when optional online features connect, how reports and in-app purchases are handled, and how to change or remove data."
+  description="Local Flight is designed without advertising, behavioral analytics, cross-site tracking, or a required profile. Read what stays on your devices and what optional online features receive."
   active="privacy"
   bodyClass="document-page"
 >
   <header class="document-hero terminal-frame">
     <div class="eyebrow">Beacon Tools / Privacy policy</div>
-    <h1>Your setup is yours. Your choices stay clear.</h1>
-    <p>Local Flight does not require an account, show advertising, or track you across apps or websites. Settings and history normally stay on your devices, and online features connect only when you choose to use them.</p>
+    <h1>Privacy is part of how Local Flight is built.</h1>
+    <p>There is no advertising model, behavioral analytics, cross-site tracking, required Beacon profile, or sale of usage data. Settings and history normally stay on your devices, and online features connect only for a feature you choose.</p>
     <div class="hero-actions" style="margin-top: 34px">
       <a class="action-button action-button--primary" href="/privacy/choices/">Open privacy choices <span aria-hidden="true">→</span></a>
       <a class="action-link" href="/support/">Contact support</a>
     </div>
-    <p class="hero-footnote">Last updated September 6, 2026 · no account required · diagnostics require consent</p>
+    <p class="hero-footnote">Last updated September 7, 2026 · no account required · automatic diagnostics require consent</p>
   </header>
 
   <div class="terminal-frame document-layout">
     <nav class="document-nav" aria-label="Privacy policy sections">
       <strong>On this page</strong>
-      <a href="#summary">At a glance</a>
+      <a href="#summary">Privacy promise and boundaries</a>
       <a href="#local">What stays on your devices</a>
-      <a href="#online">When an online feature connects</a>
-      <a href="#modes">Mobile, remote, Matrix, VATSIM</a>
+      <a href="#online">What Beacon Relay receives</a>
+      <a href="#remote">Encrypted Remote Companion</a>
+      <a href="#modes">Mobile, Matrix, and VATSIM</a>
       <a href="#reports">Reports and diagnostics</a>
-      <a href="#purchases">Purchases and in-app payments</a>
+      <a href="#relay-purchases">Relay Access purchases</a>
+      <a href="#support-purchases">Optional support purchases</a>
       <a href="#services">Services and legal reasons</a>
       <a href="#control">Your controls and rights</a>
     </nav>
 
     <article class="document-content">
       <section class="policy-section" id="summary">
-        <span class="section-index">01 / AT A GLANCE</span>
-        <h2>The privacy model in four points.</h2>
+        <span class="section-index">01 / THE PRIVACY PROMISE</span>
+        <h2>Local first, with named online boundaries.</h2>
         <div class="summary-lines">
-          <div class="summary-line"><span>01</span><strong>No account or advertising</strong><p>No advertising software, data brokers, or tracking across apps or websites.</p></div>
+          <div class="summary-line"><span>01</span><strong>No profile or advertising model</strong><p>No advertising software, behavioral analytics, data brokers, cross-site tracking, or sale of usage data.</p></div>
           <div class="summary-line"><span>02</span><strong>Local by default</strong><p>Settings, saved flight boards, history, and logs normally remain on your computer or phone.</p></div>
           <div class="summary-line"><span>03</span><strong>Online by choice</strong><p>Beacon Relay, Remote Companion, Standalone, support, and diagnostics connect only for the feature you select.</p></div>
           <div class="summary-line"><span>04</span><strong>Controls you can reach</strong><p><a href="/privacy/choices/">Privacy choices</a> explains reports, resets, pairing revocation, erasure, and data requests.</p></div>
+        </div>
+        <div class="privacy-boundary-map" aria-label="Where Local Flight information lives">
+          <div><span>YOUR DEVICES</span><strong>Settings · saved boards · history · logs · provider keys</strong><p>Kept on the computer or phone running Local Flight.</p></div>
+          <i aria-hidden="true"></i>
+          <div><span>OPTIONAL BEACON RELAY</span><strong>Service ID · requested airport or feature · access check</strong><p>Only for hosted data, encrypted remote messages, or a report you choose.</p></div>
+          <i aria-hidden="true"></i>
+          <div><span>CHOSEN PROVIDERS</span><strong>Aviation data · payment · email · report delivery</strong><p>Used only when the related feature or transaction needs them.</p></div>
         </div>
         <ul>
           <li>Companion and supported HUB75 LED matrix panels connect to the computer running Local Flight first. Remote Companion can carry encrypted messages when your home connection is unavailable; Standalone connects directly to the shared online service.</li>
@@ -59,27 +68,32 @@ import SiteLayout from "../../layouts/SiteLayout.astro";
       </section>
 
       <section class="policy-section" id="online">
-        <span class="section-index">03 / ONLINE FEATURES</span>
-        <h2>When an online feature connects.</h2>
+        <span class="section-index">03 / BEACON RELAY</span>
+        <h2>What Beacon Relay receives.</h2>
         <p>If you choose Beacon Tools’ shared online service (Beacon Relay), Remote Companion, or mobile Standalone, Local Flight connects to <code>https://relay.beacontools.cc</code>. The service can verify Relay Access, provide shared airport boards, radar and map helpers, apply fair-use limits, pass along encrypted paired-phone messages, and deliver reports you choose to send.</p>
         <p>The service reuses recent shared results where possible. If you use your own aviation-data API keys instead, those keys stay on your Local Flight computer and are sent only to the provider you selected.</p>
-        <p>Beacon Tools keeps only the service records needed to run and protect the feature: a random ID used to operate the service, not an account; usage counts; broad app and device details; encrypted-message routing details; last-connected times; short-lived shared data; and the minimal Relay Access purchase, license, delivery, and receiver ledger described below.</p>
+        <p>Beacon Tools keeps only the service records needed to run and protect the selected feature: a random ID used to operate the service, not an account; usage counts; broad app and device details; encrypted-message routing details; last-connected times; short-lived shared data; and the minimal Relay Access purchase, license, delivery, and receiver record described below.</p>
         <p>The Local Flight application database does not store raw IP addresses. Fly.io, Cloudflare, and other network providers may briefly process connection data in infrastructure or security logs under their own policies. The service does not store your personal aviation-data keys, names or email addresses from normal app use, readable Remote Companion messages, local movement history, Standalone movement history, payment-card details, or local logs unless you explicitly include cleaned logs in a report.</p>
       </section>
 
+      <section class="policy-section" id="remote">
+        <span class="section-index">04 / REMOTE COMPANION</span>
+        <h2>Messages stay unreadable while they pass through Beacon Relay.</h2>
+        <p>Remote Companion messages are end-to-end encrypted. The encryption key stays on the paired phone and Local Flight computer; Beacon Relay passes along the encrypted request and response without receiving that key or readable content.</p>
+        <p>The service sees only the limited routing details needed to deliver the encrypted message. Remote Companion uses the licensed desktop host and does not create another active main-device entitlement.</p>
+      </section>
+
       <section class="policy-section" id="modes">
-        <span class="section-index">04 / PRODUCT MODES</span>
-        <h2>Mobile, Remote Companion, LED matrices, and VATSIM.</h2>
+        <span class="section-index">05 / PRODUCT MODES</span>
+        <h2>Mobile, LED matrices, and VATSIM.</h2>
         <h3>Companion, Standalone, and LED matrices</h3>
         <p>Companion keeps the Local Flight computer address, pairing identity, appearance, pinned flight, profiles, diagnostics choice, and optional Remote Companion access on the phone. Real-flight Standalone keeps its separate service identity, Relay Access device credential in SecureStore, non-secret license summary, airport, appearance, pinned flight, diagnostics choice, and movement history on the phone. VATSIM Standalone keeps its virtual-network settings and local display history but no Relay license or Relay credential. LED matrix boards receive only display and configuration data from your Local Flight computer.</p>
-        <h3>Remote Companion</h3>
-        <p>Remote Companion messages are end-to-end encrypted. The encryption key stays on the paired phone and Local Flight computer; Beacon Relay passes along the encrypted request and response without receiving that key or readable content.</p>
         <h3>VATSIM</h3>
         <p>VATSIM mode uses public virtual-network data for the flight board. Local Flight keeps callsigns, aircraft, filed route or flight-plan details, airport and timing data, and aircraft position where useful. It intentionally avoids storing or displaying pilot names, controller names, CIDs or account IDs, server names, and other person-identifying VATSIM fields.</p>
       </section>
 
       <section class="policy-section" id="reports">
-        <span class="section-index">05 / REPORTS</span>
+        <span class="section-index">06 / REPORTS</span>
         <h2>Reports and diagnostics remain your choice.</h2>
         <p>A manual app report can include the title and description you write, Local Flight version, public Support ID, operating system, Python version, configured airport and data mode, diagnostics choice, display settings, and the app area that sent the report.</p>
         <p>The public website contact and bug-report forms can include the fields you submit, such as an optional name and reply email, your message, product, area, version, device details, and optional text or log files. Uploaded logs have size limits, are cleaned, and are included as short excerpts rather than stored as raw attachments.</p>
@@ -88,36 +102,38 @@ import SiteLayout from "../../layouts/SiteLayout.astro";
         <p>Diagnostics do not intentionally include API keys, activation tokens, raw install IDs, raw IP addresses, screenshots, recordings, stored flight history, full local logs, or account data.</p>
       </section>
 
-      <section class="policy-section" id="purchases">
-        <span class="section-index">06 / PURCHASES AND IAP</span>
-        <h2>Purchases and in-app payments (IAP).</h2>
-        <h3>Beacon Relay Access</h3>
+      <section class="policy-section" id="relay-purchases">
+        <span class="section-index">07 / RELAY ACCESS PURCHASES</span>
+        <h2>Paying for hosted access does not turn Local Flight into an account.</h2>
         <p>Local Flight desktop remains free and open source. Every supported Stripe purchase, verified Apple app entitlement, or Android Relay in-app purchase creates one separate, portable Beacon Relay Access license for one active main device. The entitlement has no scheduled expiry and no recurring Beacon Tools fee, subject to refund, abuse controls, provider permission, and service availability. A license can move between desktop Beacon Relay and mobile Standalone with confirmation. The old main device remains active until the new credential is safely stored and committed. LAN Companion uses no Relay license; Remote Companion uses its licensed desktop host.</p>
-        <p>Stripe, Apple, or Google processes the payment and its own account or payment details. For Stripe checkout, Beacon Tools receives the checkout email so it can deliver a license key and recovery link. The relay stores a keyed one-way email lookup plus encrypted material needed for recovery, notifications, and authoritative provider reconciliation. Purchase identities, master keys, receiver credentials, and events are stored as keyed hashes or masked references. Plain email, raw keys, device credentials, plaintext purchase tokens, payment-card details, and store-account identities are not written to the Relay Access database or application logs.</p>
-        <p>The notification outbox keeps masked references and delivery state, with temporary destinations and delivery material encrypted using a separate versioned key. Provider acknowledgements and reconciliation are also queued durably. Expired access challenges and old successful notification or provider-event records are periodically removed while the minimal purchase and activation audit remains available for service, fraud, refund, and recovery needs.</p>
-        <p>On iOS, an explicit setup, restore, protection, or transfer action obtains Apple’s signed AppTransaction ownership proof. Beacon Relay verifies its signature, expected app identity, environment, ownership and revocation state, then can reconcile it against Apple’s signed server response. The stable App Transaction identity maps refund and later repurchase back to the same Relay license; separate Family Sharing identities remain separate entitlements. On Android, real-flight Standalone verifies the one-time Relay product through the Google Play Developer API. Beacon Relay checks package, product, purchase state, quantity and acknowledgement state, queues acknowledgement after fulfillment, and uses authenticated real-time developer notifications plus provider reconciliation for later changes. Play Integrity is used only to confirm the official Android app when a handoff moves an existing universal license. Raw signed proofs are processed transiently; provider reconciliation handles are retained only encrypted.</p>
-        <p>Email is optional for mobile ownership until you choose recovery, protection, or transfer. Protection first sends an address-confirmation link without the key. After confirmation, the management page can reveal the existing key once and Beacon Tools queues the same key for email; this initial delivery does not rotate it. The one-time secret is carried in the URL fragment so it is not sent to the hosting service as part of the page request. Passwordless links provide short-lived access to the individual licenses associated with that address; there is no Beacon Tools password, profile, or conventional account. Refunds, disputes, purchase revocation, abuse controls, or a required provider-policy shutdown can disable hosted access. Payment never overrides an aviation-data provider agreement.</p>
+        <p>Stripe, Apple, or Google processes the payment. A checkout or recovery email is used for delivery, protection, recovery, or a device move; it is not a conventional Beacon account or public profile. Beacon Tools does not receive payment-card details, Apple ID, or Google account identity.</p>
+        <details class="technical-details">
+          <summary>Technical purchase, delivery, and recovery details</summary>
+          <p>For Stripe checkout, Beacon Tools receives the checkout email so it can deliver a license key and recovery link. The relay stores a keyed one-way email lookup plus encrypted material needed for recovery, notifications, and authoritative provider reconciliation. Purchase identities, master keys, receiver credentials, and events are stored as keyed hashes or masked references. Plain email, raw keys, device credentials, plaintext purchase tokens, payment-card details, and store-account identities are not written to the Relay Access database or application logs.</p>
+          <p>The notification outbox keeps masked references and delivery state, with temporary destinations and delivery material encrypted using a separate versioned key. Provider acknowledgements and reconciliation are also queued durably. Expired access challenges and old successful notification or provider-event records are periodically removed while the minimal purchase and activation audit remains available for service, fraud, refund, and recovery needs.</p>
+          <p>On iOS, an explicit setup, restore, protection, or transfer action obtains Apple’s signed AppTransaction ownership proof. Beacon Relay verifies its signature, expected app identity, environment, ownership and revocation state, then can reconcile it against Apple’s signed server response. The stable App Transaction identity maps refund and later repurchase back to the same Relay license; separate Family Sharing identities remain separate entitlements. On Android, real-flight Standalone verifies the one-time Relay product through the Google Play Developer API. Beacon Relay checks package, product, purchase state, quantity and acknowledgement state, queues acknowledgement after fulfillment, and uses authenticated real-time developer notifications plus provider reconciliation for later changes. Play Integrity is used only to confirm the official Android app when a handoff moves an existing universal license. Raw signed proofs are processed transiently; provider reconciliation handles are retained only encrypted.</p>
+          <p>Email is optional for mobile ownership until you choose recovery, protection, or transfer. Protection first sends an address-confirmation link without the key. After confirmation, the management page can reveal the existing key once and Beacon Tools queues the same key for email; this initial delivery does not rotate it. The one-time secret is carried in the URL fragment so it is not sent to the hosting service as part of the page request. Short-lived private email links provide access to the individual licenses associated with that address; there is no Beacon Tools password, profile, or conventional account. Refunds, disputes, purchase revocation, abuse controls, or a required provider-policy shutdown can disable hosted access. Payment never overrides an aviation-data provider agreement.</p>
+        </details>
+      </section>
 
-        <h3>Optional support purchases</h3>
+      <section class="policy-section" id="support-purchases">
+        <span class="section-index">08 / OPTIONAL SUPPORT PURCHASES</span>
+        <h2>Support purchases are tips, not Relay Access.</h2>
         <p>The mobile app can offer three optional one-time consumable support products through Apple App Store or Google Play. They unlock nothing and create no lasting paid entitlement. They create no subscription, paywall, or Local Flight account. The store shows its localized price before its purchase sheet opens.</p>
-
-        <h3>Who processes the payment</h3>
         <p>Apple or Google processes the purchase, payment-card details, store account, refunds, and store purchase history under its own terms. Local Flight does not receive your card details, Apple ID, or Google account identity.</p>
-
-        <h3>What is sent for verification</h3>
-        <p>After the store reports a successful support purchase, Local Flight sends the store platform, product ID, random Local Flight installation identifier, app version, bundle or package identifier, and either the Apple transaction ID or Google purchase token over HTTPS to Beacon Relay. The service checks that support purchase with Apple’s App Store Server API or the Google Play Developer API.</p>
-        <p>The app finishes or consumes the purchase only after verification succeeds. If verification is interrupted, the unfinished purchase remains with the store so Local Flight can try again. A pending, cancelled, rejected, refunded, or revoked purchase does not unlock or change any Local Flight feature.</p>
-
-        <h3>What Beacon Tools retains</h3>
-        <p>Beacon Relay immediately turns the support-purchase proof into a keyed one-way hash and short reference. Its verification record keeps only that hash and reference, product ID, store platform and environment, installation fingerprint, verification status, first and last attempt times, attempt count, and a short error code when verification fails. A one-way network code may also be used for rate limits and abuse protection; the original connection address is discarded from the Local Flight application database.</p>
-        <p>Beacon Tools does not retain the raw Apple transaction ID, signed Apple transaction body, raw Google purchase token, price, currency, payment-card details, or store-account identity. Purchase evidence is never added to diagnostics, reports, heartbeats, or operator dashboards.</p>
-
+        <details class="technical-details">
+          <summary>Technical support-purchase verification and retention details</summary>
+          <p>After the store reports a successful support purchase, Local Flight sends the store platform, product ID, random Local Flight installation identifier, app version, bundle or package identifier, and either the Apple transaction ID or Google purchase token over HTTPS to Beacon Relay. The service checks that support purchase with Apple’s App Store Server API or the Google Play Developer API.</p>
+          <p>The app finishes or consumes the purchase only after verification succeeds. If verification is interrupted, the unfinished purchase remains with the store so Local Flight can try again. A pending, cancelled, rejected, refunded, or revoked purchase does not unlock or change any Local Flight feature.</p>
+          <p>Beacon Relay immediately turns the support-purchase proof into a keyed one-way hash and short reference. Its verification record keeps only that hash and reference, product ID, store platform and environment, installation fingerprint, verification status, first and last attempt times, attempt count, and a short error code when verification fails. A one-way network code may also be used for rate limits and abuse protection; the original connection address is discarded from the Local Flight application database.</p>
+          <p>Beacon Tools does not retain the raw Apple transaction ID, signed Apple transaction body, raw Google purchase token, price, currency, payment-card details, or store-account identity. Purchase evidence is never added to diagnostics, reports, heartbeats, or operator dashboards.</p>
+        </details>
         <h3>Your choices and requests</h3>
         <p>You can use every Local Flight feature without making a support purchase; these tips remain unrelated to Relay Access. Local Flight desktop also remains usable without Relay Access through Bring Your Own Keys or VATSIM. Removing the app does not erase records held by Apple or Google; use the store’s own controls for store purchase history or refunds. For a Beacon Tools data request, use the Support ID shown by Local Flight and, if available, the short purchase reference or approximate purchase time. See <a href="/privacy/choices/">Privacy choices</a> or contact <a href="mailto:privacy@beacontools.cc">privacy@beacontools.cc</a>.</p>
       </section>
 
       <section class="policy-section" id="services">
-        <span class="section-index">07 / SERVICES AND LEGAL REASONS</span>
+        <span class="section-index">09 / SERVICES AND LEGAL REASONS</span>
         <h2>Other services are used only when your setup needs them.</h2>
         <p>Depending on your choices, Local Flight may communicate with AeroDataBox, AviationStack, ADS-B Exchange or RapidAPI, OpenSky, VATSIM, aviationweather.gov, OurAirports, OpenStreetMap or Overpass, public terrain tile sources, Linear for consent-based report triage, the configured mailbox provider for website contact messages, and Apple App Store or Google Play for app ownership or optional purchases.</p>
         <p>Requests made with your own aviation-data keys use those locally stored keys. Beacon Relay paths use the hosted relay and shared cache. Stripe processes website Relay Access purchases. See <a href="https://stripe.com/privacy">Stripe</a>, <a href="https://linear.app/privacy">Linear</a>, <a href="https://www.apple.com/legal/privacy/">Apple</a>, and <a href="https://policies.google.com/privacy">Google</a> privacy information.</p>
@@ -125,7 +141,7 @@ import SiteLayout from "../../layouts/SiteLayout.astro";
       </section>
 
       <section class="policy-section" id="control">
-        <span class="section-index">08 / YOUR CONTROLS</span>
+        <span class="section-index">10 / YOUR CONTROLS</span>
         <h2>Your controls and rights.</h2>
         <h3>Email and support</h3>
         <p>Local Flight does not require an email address during normal app use. An email is used when you buy Relay Access through Stripe or voluntarily protect, recover, or transfer a license. Beacon Relay stores its keyed lookup and encrypted notification copy rather than a plain email field. If you use a Beacon Tools website form or email Beacon Tools directly, the optional reply email and message you provide are handled by the relay and mailbox provider so Beacon Tools can reply.</p>
