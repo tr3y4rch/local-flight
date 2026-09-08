@@ -686,6 +686,22 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         docs.addWidget(open_web)
         layout.addLayout(docs)
 
+        legal_links = self.QtWidgets.QHBoxLayout()
+        for title, url in (
+            ("Terms", "https://beacontools.cc/terms/"),
+            ("Impressum", "https://beacontools.cc/legal/"),
+            ("Privacy", "https://beacontools.cc/privacy/"),
+            ("Privacy choices", "https://beacontools.cc/privacy/choices"),
+            ("Data sources", "https://beacontools.cc/data-sources/"),
+            ("Software notices", "https://beacontools.cc/third-party-notices/"),
+        ):
+            button = self.QtWidgets.QPushButton(title)
+            button.setObjectName("Quiet")
+            button.clicked.connect(lambda _checked=False, target=url: webbrowser.open(target))
+            legal_links.addWidget(button)
+        legal_links.addStretch(1)
+        layout.addLayout(legal_links)
+
         self.doc_title = label(self.QtWidgets, "Project README", "Section")
         self.doc_summary = label(self.QtWidgets, "", "Muted", wrap=True)
         self.doc_text = self.QtWidgets.QTextEdit()

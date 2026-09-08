@@ -790,18 +790,23 @@
   function updateAttribution(data) {
     if (!osmAttribution) return;
     const attributions = Array.isArray(data?.attribution) ? data.attribution : [data?.attribution || {}];
-    const attribution = attributions.find(item => item && (item.text || item.url)) || {};
+    const applicable = attributions.filter(item => item && (item.text || item.url));
+    const attributionText = applicable
+      .map(item => String(item.text || "Data source").trim())
+      .filter((text, index, values) => text && values.indexOf(text) === index)
+      .join(" · ");
     const provider = String(data?.provider || data?.surface_provider || "");
     const meta = data?.meta || {};
     const isEstimated = Boolean(meta.estimated_surface) || provider === "localflight-estimated";
     const hasVisualLayers = (layers.map && mapFeatures.length) || ((layers.surface || layers.runways) && surfaceFeatures.length) || (layers.terrain && terrainFeatures.length);
     if (hasVisualLayers) {
-      osmAttribution.textContent = attribution.text || (isEstimated ? "Estimated airport surface" : "Map data / OpenStreetMap contributors");
-      if (isEstimated || !attribution.url) {
+      osmAttribution.textContent = attributionText || (isEstimated ? "Estimated airport surface" : "Map data / © OpenStreetMap contributors");
+      const singleUrl = applicable.length === 1 ? applicable[0].url : "";
+      if (isEstimated || !singleUrl) {
         osmAttribution.removeAttribute("href");
         osmAttribution.removeAttribute("target");
       } else {
-        osmAttribution.href = attribution.url;
+        osmAttribution.href = singleUrl;
         osmAttribution.target = "_blank";
       }
       osmAttribution.classList.add("visible");

@@ -174,7 +174,13 @@ def _fetch_aviationstack_records_windowed(cfg: AppConfig, *, now: datetime) -> t
     return records, meta
 
 
-def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
+def _fetch_real_schedule(cfg: AppConfig) -> List[Flight]:
+    """Fetch a real schedule without requiring either provider by name.
+
+    Relay installs consume the relay's canonical rows. Direct/BYOK installs use
+    whichever enabled schedule provider is available; auto mode prefers
+    AeroDataBox and can fill or fail over to AviationStack.
+    """
     from localflight.sources.web.aviationstack_client import (
         fetch_relay_schedule_records,
         _has_enabled_byok_key,
@@ -202,7 +208,7 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
             source_name=str(_relay_meta.get("provider") or "aviationstack"),
         )
         log.info(
-            "AviationStack relay snapshot: %s canonical records -> %d flights (%s, provider=%s, pages=%s, adaptive_extra=%s)",
+            "Shared relay schedule: %s canonical records -> %d flights (%s, provider=%s, pages=%s, adaptive_extra=%s)",
             len(records),
             len(flights),
             _relay_meta.get("cache_state") or "unknown",
@@ -283,6 +289,11 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
         elif provider_choice == "aerodatabox":
             raise RuntimeError("LOCALFLIGHT_REAL_SCHEDULE_PROVIDER=aerodatabox but AERODATABOX_API_KEY is not enabled")
 
+    if provider_choice == "aviationstack" and not _has_enabled_byok_key():
+        raise RuntimeError(
+            "LOCALFLIGHT_REAL_SCHEDULE_PROVIDER=aviationstack but AVIATIONSTACK_API_KEY is not enabled"
+        )
+
     records, fetch_meta = _fetch_aviationstack_records_windowed(cfg, now=now)
 
     flights = normalize_flights(
@@ -292,7 +303,7 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
         source_name="aviationstack",
     )
     log.info(
-        "AviationStack fair-fetch: dep raw=%d arr raw=%d normalized=%d dep_pages=%s arr_pages=%s dep_extra=%s arr_extra=%s",
+        "AviationStack fair-fetch: dep raw=%s arr raw=%s normalized=%d dep_pages=%s arr_pages=%s dep_extra=%s arr_extra=%s",
         fetch_meta.get("dep_raw"),
         fetch_meta.get("arr_raw"),
         len(flights),
@@ -302,6 +313,11 @@ def _fetch_aviationstack(cfg: AppConfig) -> List[Flight]:
         fetch_meta.get("arr_extra", 0),
     )
     return _dedupe_identical_flights(flights)
+
+
+# Compatibility for extensions and older tests that imported the historical
+# provider-specific helper directly. New code should use _fetch_real_schedule.
+_fetch_aviationstack = _fetch_real_schedule
 
 
 def _flight_identity_signature(flight: Flight) -> tuple[str, str, str, str, str, str, str]:
@@ -443,7 +459,7 @@ def _enrich_with_opensky(
 
 
 def _fetch_real(cfg: AppConfig) -> List[Flight]:
-    flights = _fetch_aviationstack(cfg)
+    flights = _fetch_real_schedule(cfg)
     from localflight.sources.web.aviationstack_client import _relay_uses_shared_schedule
     if _relay_uses_shared_schedule(cfg.source, data_route=cfg.data_route):
         return dedupe_codeshares(flights)

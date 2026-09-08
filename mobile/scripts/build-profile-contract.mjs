@@ -84,6 +84,8 @@ for (const profileName of ["development", "preview", "beta"]) {
 assert.equal(eas.build.development.environment, "development");
 assert.equal(eas.build.preview.environment, "preview");
 assert.equal(eas.build.beta.environment, "preview");
+assert.match(eas.build.beta.node, /^24\./);
+assert.equal(eas.submit.beta.android.track, "internal");
 assert.equal(eas.build.production.environment, "production");
 assert.equal(eas.build.production.env.EXPO_PUBLIC_LOCALFLIGHT_DEPLOYMENT, "production");
 assert.equal(eas.build.production.env.EXPO_PUBLIC_LOCALFLIGHT_RELAY_ORIGIN, production.canonicalOrigin);

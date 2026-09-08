@@ -31,7 +31,9 @@ if (!projectVersion) {
   throw new Error("pyproject.toml must declare the public Local Flight version");
 }
 
-export const currentRelease = projectVersion;
+export const candidateRelease = projectVersion;
+// Public downloads advance only after the complete signed package matrix is published.
+export const currentRelease = "0.6.0";
 export const releaseUrl = `${githubUrl}/releases/tag/v${currentRelease}`;
 export const relayOrigin = "https://relay.beacontools.cc";
 

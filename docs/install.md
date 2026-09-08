@@ -17,7 +17,9 @@ The website [Downloads section](https://beacontools.cc/local-flight#downloads) r
 - Desktop offers exactly **Beacon Relay**, **Bring Your Own Keys**, and **VATSIM**.
 - The official hosted relay is `https://relay.beacontools.cc`.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
-- The current release is `0.6.0` across desktop, Linux server, Raspberry Pi, relay compatibility, and mobile store-testing builds.
+- Public desktop, Linux server, and Raspberry Pi packages are `0.6.0`.
+  Source and mobile-testing candidate `0.6.1` is described in the
+  [candidate notes](release-notes-0.6.1.md); it is not yet a public package update.
 
 ---
 
@@ -226,7 +228,14 @@ lf update
 
 ## Mobile App
 
-The mobile app is aligned to `0.6.0` using iOS build 13 and Android versionCode 16 for testing. The paid iOS app includes Relay Access. Android is a free download: Companion and VATSIM work before purchase, while real-flight Standalone uses an optional one-time Relay Access product. Public availability is published at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development.
+The next mobile testing target is `0.6.1`, iOS build 14 and Android versionCode 17.
+Submission and tester availability must be confirmed separately. The planned
+purchase routes are a paid iOS app with included Relay Access, and a free Android
+app with optional one-time Relay Access for real-flight Standalone. Companion and
+VATSIM on Android do not require that purchase. These terms do not announce new
+public sales. Availability is published at
+[beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile).
+The commands below are for source development.
 
 Use it when you want a lightweight airport-board view, radar, history, control, and support tools from an iPhone, iPad, or Android device.
 

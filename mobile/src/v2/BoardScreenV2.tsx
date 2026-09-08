@@ -20,6 +20,8 @@ import { useMobileTheme } from "../theme/runtime";
 import { hapticLight, hapticSelection } from "../utils/haptics";
 import { boardRowsViewModel, type BoardRowViewModel } from "./boardModel";
 import { airportHeroViewModel } from "./airportHeroModel";
+import { weatherModeContext } from "../domain/weatherPresentation";
+import type { MobileWeatherDisplayMode } from "../storage/settings";
 
 export type V2LayoutClass = "compact" | "medium" | "expanded" | "large";
 
@@ -34,6 +36,7 @@ export type BoardScreenV2Props = {
   updatedLabel: string;
   connectionLabel: string;
   metar: Metar | null;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   pinnedCallsign: string;
   refreshing: boolean;
   error: string | null;
@@ -210,7 +213,8 @@ export function BoardScreenV2(props: BoardScreenV2Props) {
     localTime: props.localTime,
     connectionLabel: props.connectionLabel,
     freshnessLabel: props.updatedLabel,
-    metar: props.metar
+    metar: props.metar,
+    weatherDisplayMode: props.weatherDisplayMode
   });
 
   const header = (
@@ -248,7 +252,7 @@ export function BoardScreenV2(props: BoardScreenV2Props) {
             <Text style={styles.weatherTemperature}>{airportHero.temperature}</Text>
             <View style={styles.weatherCopy}>
               <Text style={styles.weatherSummary} numberOfLines={2}>{airportHero.weatherSummary}</Text>
-              <Text style={styles.weatherMeta}>Tap for weather details</Text>
+              <Text style={styles.weatherMeta}>{weatherModeContext(props.weatherDisplayMode)}</Text>
             </View>
             <Text style={styles.weatherCategory}>{airportHero.weatherCategory}</Text>
           </Pressable>

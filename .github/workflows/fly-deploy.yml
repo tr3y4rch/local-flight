@@ -198,6 +198,7 @@ jobs:
           --host-header localhost
           --expected-revision "$GITHUB_SHA"
           --require-license-core
+          --expected-environment staging
           --attempts 30
           --delay 2
 
@@ -302,5 +303,6 @@ jobs:
           python scripts/check_relay_access_deployment.py
           https://relay.beacontools.cc
           --expected-revision "$GITHUB_SHA"
+          --expected-environment production
           --attempts 30
           --delay 5

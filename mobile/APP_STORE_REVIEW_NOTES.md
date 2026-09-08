@@ -1,6 +1,6 @@
 # Local Flight Mobile App Store / TestFlight Review Notes
 
-This file is the working checklist for the `0.6.0` TestFlight/review build. It is not legal advice; keep the final App Store Connect answers aligned with the exact submitted build.
+This file is the working checklist for the `0.6.1` TestFlight/review build. It is not legal advice; keep the final App Store Connect answers aligned with the exact submitted build.
 
 Customer-facing English (U.S.) listing copy is maintained in
 [`store/ios/en-US/`](store/ios/en-US/). The checked metadata pack contains the
@@ -11,8 +11,8 @@ Run `npm run appstore:contract` before copying it into App Store Connect.
 
 - App name: **Local Flight**
 - Bundle identifier: `cc.beacontools.localflight`
-- Version: `0.6.0`
-- Build number: `13`
+- Version: `0.6.1`
+- Build number: `14` (reserved; verify uploaded counters before submission)
 - Minimum iOS version: `16.0` (`AppTransaction` ownership proof is required for the included Relay license)
 - Marketing URL: `https://beacontools.cc/local-flight/mobile`
 - Support URL: `https://beacontools.cc/support`
@@ -23,7 +23,7 @@ Run `npm run appstore:contract` before copying it into App Store Connect.
 - Companion is also included. It pairs with a Local Flight desktop, Linux server, or Pi host over the same local network by QR code or manual URL.
 - Remote Companion is part of Companion mode. After explicit host-side grant pairing, Companion uses the nearby host first and can fall back to encrypted relay routing when this device is away from the same Wi-Fi and the host is online.
 - Companion’s final explicit action pairs the host first and then makes one paid-app verification attempt. A successful check creates or finds the included license and leaves it available for another main device. Cancellation or a store/relay outage never blocks LAN or Remote Companion; More shows an explicit retry. Remote Companion still requires Relay Access on its desktop host. The iOS app never accepts or displays an LFRA key, and moving access always requires fresh AppTransaction verification plus a named confirmation.
-- This TestFlight build uses `https://relay-staging.beacontools.cc`; its iOS verifier requires `sandbox` evidence. The staging deployment accepts only the cross-platform `sandbox,test` set. The production profile uses `https://relay.beacontools.cc` and accepts only `production` evidence; the two deployments must not share a database.
+- The candidate TestFlight profile targets `https://relay-staging.beacontools.cc`; its iOS verifier requires `sandbox` evidence. The staging deployment accepts only the cross-platform `sandbox,test` set. The production profile uses `https://relay.beacontools.cc` and accepts only `production` evidence; the two deployments must not share a database.
 - Companion daily surfaces are **Board**, **Radar**, **History**, and **More**. Host/display controls and diagnostics are progressively disclosed inside More.
 
 ## Permission Rationale
@@ -63,16 +63,18 @@ The bundled iOS privacy manifest declares required-reason APIs and conservative 
 
 ## Optional In-App Support
 
+- New support purchases are currently held behind the relay's explicit legal/licensing switch. The submitted build must show **Purchases on hold**, offer no purchase button, and make no App Store verification request while the switch is off.
 - More includes three optional consumable support products: `cc.beacontools.localflight.support.small`, `.medium`, and `.large`.
 - Every product unlocks nothing and creates no entitlement. The sheet states this before purchase and displays only App Store-owned localized prices.
 - Local Flight sends the transaction ID to the Beacon Tools relay, which verifies it through Apple's App Store Server API. The app finishes the consumable only after verification.
+- The purchase buttons remain disabled until all three localized products and the Apple verifier report ready. This readiness check exposes no credential values.
 - The relay stores a keyed transaction hash, short reference, product ID, store environment, status, and timestamps. It does not retain the signed transaction, payment-card data, or Apple account identity.
 - No external Buy Me a Coffee or other external purchase call-to-action appears in App Store builds.
 - External project website, source, and release-note links are informational/support links only, not purchase links. The app should route users to `https://beacontools.cc/local-flight/mobile` first; GitHub remains available from that public project page for source/issues.
 
 ## Widgets And Live Activity
 
-- Build `13` includes small and medium iOS home-screen widgets and a capability-gated pinned-flight Live Activity through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
+- Candidate build `14` includes small and medium iOS home-screen widgets and a capability-gated pinned-flight Live Activity through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
 - The app writes a bounded local board snapshot into the shared App Group. The widget does not make LAN, relay, provider, analytics, or advertising requests.
 - The small widget shows the pinned flight or a clear open-app prompt. The medium widget shows a bounded airport-board glance with stale labeling.
 - On supported iPhones, **Pin & show on Lock Screen** explicitly starts a best-effort local Live Activity for the selected flight. It reads the same snapshot, adds no push notification infrastructure, keeps missing data stale instead of switching flights, and ends on unpin, dismissal, or two hours after a terminal state. Unsupported devices retain ordinary pinning and widgets.
@@ -97,7 +99,7 @@ Local Flight flight, weather, radar, and surface data are informational display 
 - Mode switch: change Standalone to Companion online and offline; verify the online release is immediate and the offline release remains visibly pending while LAN Companion stays usable.
 - Environment isolation: on physical devices, confirm TestFlight sends sandbox proof only to the staging relay and that the production relay/database rejects it.
 - Archive inspection: confirm `PrivacyInfo.xcprivacy` belongs to the actual Local Flight application target, appears in Copy Bundle Resources, and is present inside the archived IPA alongside the StoreKit proof module.
-- Purchase surface: open **More → Advanced diagnostics**, choose **Support Local Flight**, confirm all three localized products load, complete one sandbox purchase, and confirm the thank-you state. Interrupt relay access after store approval to verify the unfinished transaction is retained and safely retried before consumption.
+- Purchase surface: open **More**, choose **Support Local Flight**, confirm all three localized products load, complete one sandbox purchase, and confirm the thank-you state. Interrupt relay access after store approval to verify the unfinished transaction is retained and safely retried before consumption.
 - Widget: add small and medium Local Flight widgets, confirm empty/stale states, pin a flight in the app, and confirm the widget updates without requesting new permissions.
 - Live Activity: on a supported iPhone, choose **Pin & show on Lock Screen**, confirm the selected flight appears and becomes stale rather than switching; verify ordinary pinning on an unsupported device.
 - Navigation: both modes show Board/Radar/History/More. Compact widths use bottom tabs; iPad and compatible Apple-silicon Mac windows use the adaptive rail. Display is entered explicitly and always has an exit control.

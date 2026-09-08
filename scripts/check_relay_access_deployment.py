@@ -47,6 +47,7 @@ def validate_payloads(
     expected_version: str,
     expected_schema: int,
     expected_revision: str = "",
+    expected_environment: str = "",
     require_license_core: bool = False,
 ) -> None:
     if health.get("ok") is not True or health.get("service") != "beacon-relay":
@@ -62,6 +63,8 @@ def validate_payloads(
     access = health.get("access")
     if not isinstance(access, dict):
         raise RuntimeError("Relay health does not expose the safe access readiness contract")
+    if expected_environment and access.get("deployment_environment") != expected_environment:
+        raise RuntimeError("Relay deployment environment does not match the intended target")
     if access.get("schema_version") != expected_schema:
         raise RuntimeError("Relay health reports the wrong access schema version")
     if access.get("expected_schema_version") != expected_schema or access.get("catalog_ready") is not True:
@@ -112,6 +115,7 @@ def main() -> int:
     parser.add_argument("base_url", help="Relay origin, for example https://relay.beacontools.cc")
     parser.add_argument("--host-header", default="", help="Host header for a local container smoke test")
     parser.add_argument("--expected-revision", default=os.getenv("GITHUB_SHA", ""))
+    parser.add_argument("--expected-environment", choices=("staging", "production"), default="")
     parser.add_argument(
         "--require-license-core",
         action="store_true",
@@ -138,6 +142,7 @@ def main() -> int:
                 expected_version=version,
                 expected_schema=schema,
                 expected_revision=args.expected_revision,
+                expected_environment=args.expected_environment,
                 require_license_core=args.require_license_core,
             )
             print(

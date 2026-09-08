@@ -7,7 +7,8 @@ const siteRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const dist = path.join(siteRoot, "dist");
 const projectSource = fs.readFileSync(path.join(siteRoot, "..", "pyproject.toml"), "utf8");
 const projectVersion = projectSource.match(/^version = "([^"]+)"$/m)?.[1];
-assert.ok(projectVersion, "pyproject.toml must declare the public release version");
+assert.ok(projectVersion, "pyproject.toml must declare the candidate version");
+const publishedVersion = "0.6.0";
 const routes = [
   "index.html",
   "local-flight/index.html",
@@ -91,7 +92,7 @@ for (const route of publicRoutes) {
   assert.match(html, /data-menu-toggle/);
   assert.match(html, /data-clock="utc"/);
   assert.match(html, /data-clock="local"/);
-  assert.match(html, new RegExp(`data-site-release="${projectVersion}"`));
+  assert.match(html, new RegExp(`data-site-release="${publishedVersion}"`));
   assert.match(text, /Free, open-source Local Flight software\. Optional paid Beacon Relay access\. No advertising or behavioral tracking\./);
 }
 
@@ -114,10 +115,10 @@ assert.match(pageText["index.html"], /No required Beacon profile/);
 assert.match(pageText["index.html"], /no advertising, behavioral analytics, cross-site tracking, or sale of usage data/i);
 assert.match(builtPages.get("index.html"), /fids-0\.5\.1/);
 assert.match(pageText["local-flight/index.html"], /Build your own airport-style flight board\./);
-assert.match(pageText["local-flight/index.html"], new RegExp(`Current version: ${projectVersion.replaceAll(".", "\\.")}\\.`));
+assert.match(pageText["local-flight/index.html"], new RegExp(`Current version: ${publishedVersion.replaceAll(".", "\\.")}\\.`));
 assert.match(
   builtPages.get("local-flight/index.html"),
-  new RegExp(`href="https://github\\.com/tr3y4rch/local-flight/releases/tag/v${projectVersion.replaceAll(".", "\\.")}"`),
+  new RegExp(`href="https://github\\.com/tr3y4rch/local-flight/releases/tag/v${publishedVersion.replaceAll(".", "\\.")}"`),
   "The product page must link to the same release it displays",
 );
 assert.match(pageText["local-flight/index.html"], /airport-style arrivals and departures board \(FIDS\)/);
@@ -255,7 +256,8 @@ assert.match(themeSource, /beacontools\.theme/);
 assert.match(themeSource, /saved === "light" \|\| saved === "dark"/);
 const siteDataSource = fs.readFileSync(path.join(siteRoot, "src/data/site.ts"), "utf8");
 assert.match(siteDataSource, /pyproject\.toml/);
-assert.doesNotMatch(siteDataSource, /currentRelease\s*=\s*["'][0-9]/, "Public release must be derived from pyproject.toml");
+assert.match(siteDataSource, /candidateRelease = projectVersion/);
+assert.match(siteDataSource, /currentRelease = "0\.6\.0"/, "Downloads must remain at the published package version");
 assert.match(siteDataSource, /relayAccess:\s*"prelaunch"/);
 
 const relayHtml = fs.readFileSync(path.join(siteRoot, "..", "relay", "public", "index.html"), "utf8");

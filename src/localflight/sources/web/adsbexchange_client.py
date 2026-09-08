@@ -248,7 +248,39 @@ def _fetch_managed_relay(lat: float, lon: float, dist_nm: int, timeout_s: int) -
         data = r.json()
     except Exception as exc:
         raise ADSBExchangeError(f"Managed ADS-B relay response not valid JSON: {exc}") from exc
-    return data.get("ac") or []
+    raw_aircraft = data.get("ac")
+    if isinstance(raw_aircraft, list):
+        # Compatibility with third-party self-hosts that have not yet adopted
+        # the bounded Local Flight radar schema.
+        return raw_aircraft
+    blips = data.get("blips")
+    if not isinstance(blips, list):
+        return []
+    # Keep the rest of the desktop pipeline stable without forwarding an
+    # unchanged upstream ADS-B payload. Only fields present in the canonical
+    # relay schema are reconstructed.
+    aircraft: List[Dict[str, Any]] = []
+    for item in blips:
+        if not isinstance(item, dict):
+            continue
+        altitude_ft = item.get("altitude_ft")
+        aircraft.append({
+            "hex": item.get("icao24"),
+            "flight": item.get("callsign"),
+            "lat": item.get("lat"),
+            "lon": item.get("lon"),
+            "alt_baro": "ground" if item.get("on_ground") else altitude_ft,
+            "alt_geom": item.get("geo_altitude_ft"),
+            "gs": item.get("speed_kt"),
+            "track": item.get("heading_deg", item.get("track_deg")),
+            "baro_rate": item.get("vertical_rate_fpm"),
+            "squawk": item.get("squawk"),
+            "t": item.get("aircraft_type"),
+            "r": item.get("registration"),
+            "category": item.get("aircraft_category"),
+            "seen_pos": item.get("position_age_s"),
+        })
+    return aircraft
 
 
 def fetch_aircraft(

@@ -3750,6 +3750,57 @@ def _verify_google_iap(*, purchase_token: str, product_id: str) -> Dict[str, str
     return _validate_google_iap_payload(payload, product_id=product_id)
 
 
+def _support_purchases_enabled() -> bool:
+    return _env("RELAY_SUPPORT_PURCHASES_ENABLED", "0") == "1"
+
+
+def _mobile_iap_verification_ready(platform: str) -> bool:
+    """Return coarse public readiness without exposing credential details."""
+    if not _support_purchases_enabled():
+        return False
+    if platform == "ios":
+        key_id = _env("APPLE_IAP_KEY_ID")
+        issuer_id = _env("APPLE_IAP_ISSUER_ID")
+        if not key_id or not issuer_id:
+            return False
+        bundle_id = _env("APPLE_IAP_BUNDLE_ID", _IAP_BUNDLE_ID)
+        if bundle_id != _IAP_BUNDLE_ID:
+            return False
+        try:
+            from appstoreserverlibrary.api_client import AppStoreServerAPIClient  # noqa: F401
+            from appstoreserverlibrary.models.Environment import Environment
+
+            AppStoreServerAPIClient(
+                _apple_private_key(),
+                key_id,
+                issuer_id,
+                bundle_id,
+                Environment.PRODUCTION,
+            )
+        except (IapVerificationFailure, ImportError):
+            return False
+        except Exception:
+            return False
+        return True
+    if platform == "android":
+        package_name = _env("GOOGLE_PLAY_PACKAGE_NAME", _IAP_BUNDLE_ID)
+        if package_name != _IAP_BUNDLE_ID:
+            return False
+        try:
+            from google.oauth2 import service_account  # noqa: F401
+
+            service_account.Credentials.from_service_account_info(
+                _google_service_account_info(),
+                scopes=["https://www.googleapis.com/auth/androidpublisher"],
+            )
+        except (IapVerificationFailure, ImportError):
+            return False
+        except Exception:
+            return False
+        return True
+    return False
+
+
 def _check_heartbeat_rate_limit(install_id: str) -> bool:
     """True = allowed. False = cooldown not elapsed (5 min minimum between beats)."""
     now = time.time()
@@ -5388,8 +5439,19 @@ def _fetch_shared_schedule_from_upstream(
     provider_errors: Dict[str, str] = {}
     budget_limited: list[str] = []
     source_cache_providers: list[str] = []
+    providers_available = [
+        provider
+        for provider, configured in (
+            ("aerodatabox", _has_aerodatabox_key()),
+            ("aviationstack", _has_aviationstack_key()),
+        )
+        if configured
+    ]
+    providers_attempted: list[str] = []
 
     def _source_cache(provider: str, reason: str) -> Optional[Dict[str, Any]]:
+        if not _licensed_provider_allowed("schedule", provider):
+            return None
         cached = _load_provider_source_payload(
             provider=provider,
             airport_iata=airport_iata,
@@ -5415,6 +5477,9 @@ def _fetch_shared_schedule_from_upstream(
         meta["provider_errors"] = provider_errors
         meta["budget_limited_providers"] = sorted(set(budget_limited))
         meta["source_cache_providers"] = sorted(set(source_cache_providers))
+        meta["providers_available"] = list(providers_available)
+        meta["providers_attempted"] = list(dict.fromkeys(providers_attempted))
+        meta.setdefault("provider_failover", False)
         meta["schedule_provider_mode"] = mode
         meta["planner_version"] = _SHARED_SCHEDULE_PLANNER_VERSION
         meta["schema_version"] = _SHARED_SCHEDULE_SCHEMA_VERSION
@@ -5432,6 +5497,7 @@ def _fetch_shared_schedule_from_upstream(
                 return _finish(cached, provider="aviationstack", extra_meta={"stale_reason": "provider_not_configured"})
             raise HTTPException(status_code=503, detail="AviationStack schedule provider is selected but not configured")
         try:
+            providers_attempted.append("aviationstack")
             payload = _fetch_aviationstack_schedule_source_from_upstream(
                 airport_iata=airport_iata,
                 timezone_name=timezone_name,
@@ -5462,9 +5528,50 @@ def _fetch_shared_schedule_from_upstream(
                 raise
             raise HTTPException(status_code=503, detail="AviationStack schedule provider is unavailable") from exc
 
+    if mode == "aerodatabox":
+        if not _has_aerodatabox_key():
+            cached = _source_cache("aerodatabox", "provider_not_configured")
+            if cached is not None:
+                return _finish(cached, provider="aerodatabox", extra_meta={"stale_reason": "provider_not_configured"})
+            raise HTTPException(status_code=503, detail="AeroDataBox schedule provider is selected but not configured")
+        try:
+            providers_attempted.append("aerodatabox")
+            payload = _fetch_aerodatabox_schedule_source_from_upstream(
+                airport_iata=airport_iata,
+                timezone_name=timezone_name,
+                display_grace_minutes=display_grace_minutes,
+                display_horizon_hours=display_horizon_hours,
+            )
+            _store_provider_source_payload(
+                payload,
+                airport_iata=airport_iata,
+                timezone_name=timezone_name,
+                display_grace_minutes=display_grace_minutes,
+                display_horizon_hours=display_horizon_hours,
+            )
+            return _finish(payload, provider="aerodatabox", extra_meta={"fill_reason": "provider_selected"})
+        except UpstreamBudgetExceeded as exc:
+            budget_limited.append("aerodatabox")
+            provider_errors["aerodatabox"] = _provider_error_text(exc)
+            cached = _source_cache("aerodatabox", "budget_limited")
+            if cached is not None:
+                return _finish(cached, provider="aerodatabox", extra_meta={"stale_reason": "budget_limited"})
+            raise
+        except HTTPException as exc:
+            provider_errors["aerodatabox"] = _provider_error_text(exc)
+            cached = _source_cache("aerodatabox", "upstream_error")
+            if cached is not None:
+                return _finish(cached, provider="aerodatabox", extra_meta={"stale_reason": "upstream_error"})
+            raise
+
+    # Auto mode treats an absent provider as neutral. A failed preferred
+    # provider is remembered as stale fallback, but a configured alternate gets
+    # a live attempt before that stale snapshot is returned.
     primary: Optional[Dict[str, Any]] = None
+    primary_cache: Optional[Dict[str, Any]] = None
     if aerodatabox_allowed and _has_aerodatabox_key():
         try:
+            providers_attempted.append("aerodatabox")
             primary = _fetch_aerodatabox_schedule_source_from_upstream(
                 airport_iata=airport_iata,
                 timezone_name=timezone_name,
@@ -5481,24 +5588,17 @@ def _fetch_shared_schedule_from_upstream(
         except UpstreamBudgetExceeded as exc:
             budget_limited.append("aerodatabox")
             provider_errors["aerodatabox"] = _provider_error_text(exc)
-            primary = _source_cache("aerodatabox", "budget_limited")
-            if primary is None and mode == "aerodatabox":
-                raise
-        except HTTPException as exc:
+            primary_cache = _source_cache("aerodatabox", "budget_limited")
+        except (HTTPException, RuntimeError) as exc:
             provider_errors["aerodatabox"] = _provider_error_text(exc)
-            primary = _source_cache("aerodatabox", "upstream_error")
-            if primary is None and mode == "aerodatabox":
-                raise
-    elif mode == "aerodatabox":
-        primary = _source_cache("aerodatabox", "provider_not_configured")
-        if primary is None:
-            raise HTTPException(status_code=503, detail="AeroDataBox schedule provider is selected but not configured")
+            primary_cache = _source_cache("aerodatabox", "upstream_error")
 
     if primary is not None:
         primary_records = list(primary.get("records") or [])
         fill_reason = "primary_sparse" if schedule_records_need_fill(primary_records) else "not_needed"
         if mode == "auto" and fill_reason == "primary_sparse" and aviationstack_allowed and _has_aviationstack_key():
             try:
+                providers_attempted.append("aviationstack")
                 fill = _fetch_aviationstack_schedule_source_from_upstream(
                     airport_iata=airport_iata,
                     timezone_name=timezone_name,
@@ -5566,43 +5666,58 @@ def _fetch_shared_schedule_from_upstream(
                 )
         return _finish(primary, provider="aerodatabox", extra_meta={"fill_reason": fill_reason})
 
-    try:
-        if not aviationstack_allowed:
-            _require_licensed_provider_allowed("schedule", "aviationstack")
-        if not _has_aviationstack_key():
-            cached = _source_cache("aviationstack", "provider_not_configured")
-            if cached is not None:
-                return _finish(cached, provider="aviationstack", extra_meta={"stale_reason": "provider_not_configured"})
-            raise HTTPException(status_code=503, detail="No configured real schedule provider is available")
-        fallback = _fetch_aviationstack_schedule_source_from_upstream(
-            airport_iata=airport_iata,
-            timezone_name=timezone_name,
-            display_grace_minutes=display_grace_minutes,
-            display_horizon_hours=display_horizon_hours,
+    fallback_cache: Optional[Dict[str, Any]] = None
+    if aviationstack_allowed and _has_aviationstack_key():
+        try:
+            providers_attempted.append("aviationstack")
+            fallback = _fetch_aviationstack_schedule_source_from_upstream(
+                airport_iata=airport_iata,
+                timezone_name=timezone_name,
+                display_grace_minutes=display_grace_minutes,
+                display_horizon_hours=display_horizon_hours,
+            )
+            _store_provider_source_payload(
+                fallback,
+                airport_iata=airport_iata,
+                timezone_name=timezone_name,
+                display_grace_minutes=display_grace_minutes,
+                display_horizon_hours=display_horizon_hours,
+            )
+            return _finish(
+                fallback,
+                provider="aviationstack",
+                extra_meta={
+                    "fill_reason": "primary_unavailable" if "aerodatabox" in provider_errors else "only_provider",
+                    "provider_failover": "aerodatabox" in provider_errors,
+                },
+            )
+        except UpstreamBudgetExceeded as exc:
+            budget_limited.append("aviationstack")
+            provider_errors["aviationstack"] = _provider_error_text(exc)
+            fallback_cache = _source_cache("aviationstack", "budget_limited")
+        except (RuntimeError, HTTPException) as exc:
+            provider_errors["aviationstack"] = _provider_error_text(exc)
+            fallback_cache = _source_cache("aviationstack", "upstream_error")
+
+    if primary_cache is None and not _has_aerodatabox_key():
+        primary_cache = _source_cache("aerodatabox", "provider_not_configured")
+    if fallback_cache is None and not _has_aviationstack_key():
+        fallback_cache = _source_cache("aviationstack", "provider_not_configured")
+
+    cached_candidates = [payload for payload in (primary_cache, fallback_cache) if payload is not None]
+    if cached_candidates:
+        cached = max(cached_candidates, key=lambda item: str(item.get("generated_at") or ""))
+        cached_provider = str(cached.get("provider") or "aerodatabox")
+        return _finish(
+            cached,
+            provider=cached_provider,
+            extra_meta={
+                "fill_reason": "all_live_providers_unavailable",
+                "provider_failover": bool(provider_errors),
+            },
         )
-        _store_provider_source_payload(
-            fallback,
-            airport_iata=airport_iata,
-            timezone_name=timezone_name,
-            display_grace_minutes=display_grace_minutes,
-            display_horizon_hours=display_horizon_hours,
-        )
-        return _finish(fallback, provider="aviationstack", extra_meta={"fill_reason": "primary_unavailable"})
-    except UpstreamBudgetExceeded as exc:
-        budget_limited.append("aviationstack")
-        provider_errors["aviationstack"] = _provider_error_text(exc)
-        cached = _source_cache("aviationstack", "budget_limited")
-        if cached is not None:
-            return _finish(cached, provider="aviationstack", extra_meta={"stale_reason": "budget_limited"})
-        raise
-    except (RuntimeError, HTTPException) as exc:
-        provider_errors["aviationstack"] = _provider_error_text(exc)
-        cached = _source_cache("aviationstack", "upstream_error")
-        if cached is not None:
-            return _finish(cached, provider="aviationstack", extra_meta={"stale_reason": "upstream_error"})
-        if isinstance(exc, HTTPException):
-            raise
-        raise HTTPException(status_code=503, detail="No configured real schedule provider is available") from exc
+
+    raise HTTPException(status_code=503, detail="No configured real schedule provider is available")
 
 
 def _airport_surface_fresh_ttl_s() -> int:
@@ -14144,6 +14259,23 @@ def relay_mobile_radar(
     )
 
 
+@app.get("/v1/mobile/iap/status")
+def mobile_iap_status(platform: str = Query(..., min_length=3, max_length=7)) -> Dict[str, Any]:
+    normalized = {"ios": "ios", "apple": "ios", "android": "android", "google": "android"}.get(platform.strip().lower())
+    if not normalized:
+        raise HTTPException(status_code=422, detail="platform must be ios or android")
+    enabled = _support_purchases_enabled()
+    ready = _mobile_iap_verification_ready(normalized)
+    return {
+        "ok": True,
+        "platform": normalized,
+        "purchases_enabled": enabled,
+        "verification_ready": ready,
+        "product_ids": sorted(_IAP_PRODUCTS) if enabled else [],
+        "message": "Optional support purchases are available." if ready else "Optional support purchases are temporarily unavailable.",
+    }
+
+
 @app.post("/v1/mobile/iap/verify")
 def verify_mobile_iap(body: MobileIapVerifyIn, request: Request) -> Dict[str, Any]:
     platform_raw = body.platform.strip().lower()
@@ -15385,8 +15517,30 @@ def relay_radar(
         )
 
     t0 = time.monotonic()
-    payload = _fetch_adsbx_payload(lat, lon, radius_nm)
+    raw_payload = _fetch_adsbx_payload(lat, lon, radius_nm)
     latency_ms = int((time.monotonic() - t0) * 1000)
+    try:
+        decoded = json.loads(raw_payload.decode("utf-8") if isinstance(raw_payload, bytes) else str(raw_payload))
+    except (TypeError, ValueError):
+        decoded = {}
+    aircraft = decoded.get("ac") if isinstance(decoded, dict) and isinstance(decoded.get("ac"), list) else []
+    from localflight.radar.normalize import adsbx_aircraft_to_blips
+
+    blips = adsbx_aircraft_to_blips(
+        aircraft,
+        center_lat=float(lat),
+        center_lon=float(lon),
+        radius_nm=float(radius_nm),
+    )
+    payload = {
+        "schema_version": "localflight.radar.v1",
+        "generated_at": _utc_now(),
+        "center": {"lat": float(lat), "lon": float(lon)},
+        "radius_nm": float(radius_nm),
+        "source": "adsbexchange_relay",
+        "count": len(blips),
+        "blips": blips,
+    }
     used = _increment_usage(
         subject_key=access["subject_key"],
         service="radar",
@@ -15402,10 +15556,9 @@ def relay_radar(
         service="radar",
         plan=access["plan"],
     )
-    return Response(
+    return JSONResponse(
         content=payload,
         status_code=200,
-        media_type="application/json",
         headers=_quota_headers("radar", used, access["limit"], access["plan"]),
     )
 

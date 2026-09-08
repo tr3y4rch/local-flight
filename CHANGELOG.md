@@ -1,8 +1,21 @@
 # Local Flight changelog
 
-This is the public, user-facing changelog. Implementation-level history lives
-in `docs/engineering-changelog.md`; the current release overview is
-`docs/release-notes-0.6.0.md`.
+This is the public, user-facing changelog. The current candidate overview is
+[Local Flight 0.6.1](docs/release-notes-0.6.1.md). Public downloads remain 0.6.0
+until the new packages are published.
+
+## 0.6.1 - Release candidate
+
+- More dependable mobile loading states, Settings sheets, scrolling navigation,
+  and distinct plain-language, aviation, and raw-METAR weather views.
+- Optional support checks availability before starting a new purchase and stays
+  separate from Relay Access.
+- Shared schedule refresh coordination, honest cache age, and fallback when an
+  available schedule provider is down or not configured.
+- Normalized radar responses and bounded, access-aware mobile connection retries.
+- Relay Access email resend and safer recovery and simultaneous device moves.
+- Updated documentation distinguishes candidates, testing builds, and available
+  downloads. Production sales and public-store releases remain separately gated.
 
 ## 0.6.0 — universal Relay Access and explicit data routes
 
@@ -69,7 +82,8 @@ in `docs/engineering-changelog.md`; the current release overview is
 
 ### Distribution notes
 
-- Version 0.6.0 uses iOS build 13 and Android versionCode 16 for store testing.
+- Version 0.6.0 reserved iOS build 13 and Android versionCode 16 in source;
+  this historical reservation is not confirmation of store submission.
 - Windows, separate Apple silicon/Intel macOS packages, Linux AppImages,
   Ubuntu/Debian desktop and server packages, and the Raspberry Pi bundle retain
   the complete architecture-specific package and checksum matrix.

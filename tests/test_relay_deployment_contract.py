@@ -97,6 +97,17 @@ def test_relay_deployment_contract_accepts_matching_release() -> None:
     )
 
 
+def test_relay_deployment_contract_rejects_production_for_staging() -> None:
+    health, catalog, version, schema = _payloads()
+    health["access"]["deployment_environment"] = "production"
+    with pytest.raises(RuntimeError, match="environment"):
+        validate_payloads(health, catalog, expected_version=version,
+                          expected_schema=schema, expected_environment="staging")
+    health["access"]["deployment_environment"] = "staging"
+    validate_payloads(health, catalog, expected_version=version,
+                      expected_schema=schema, expected_environment="staging")
+
+
 def test_closed_relay_deployment_does_not_require_license_keyrings() -> None:
     health, catalog, version, schema = _payloads()
     health["access"]["keyrings_ready"] = False

@@ -123,6 +123,7 @@ def _iap_payload(*, platform: str = "ios") -> dict[str, str]:
 
 def test_mobile_iap_verification_is_idempotent_and_stores_no_raw_proof(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SUPPORT_PURCHASES_ENABLED", "0")
     calls: list[tuple[str, str]] = []
 
     def fake_verify(*, transaction_id: str, product_id: str) -> dict[str, str]:
@@ -173,8 +174,27 @@ def test_mobile_iap_verification_is_idempotent_and_stores_no_raw_proof(tmp_path:
         conn.close()
 
 
+@pytest.mark.parametrize("platform", ["ios", "android"])
+def test_support_readiness_fails_closed_without_keys_and_reveals_no_secrets(monkeypatch, platform) -> None:
+    monkeypatch.delenv("RELAY_SUPPORT_PURCHASES_ENABLED", raising=False)
+    client = TestClient(relay_main.app)
+    response = client.get("/v1/mobile/iap/status", params={"platform": platform})
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True, "platform": platform, "purchases_enabled": False,
+        "verification_ready": False, "product_ids": [],
+        "message": "Optional support purchases are temporarily unavailable.",
+    }
+    monkeypatch.setenv("RELAY_SUPPORT_PURCHASES_ENABLED", "1")
+    monkeypatch.setattr(relay_main, "_mobile_iap_verification_ready", lambda _: False)
+    response = client.get("/v1/mobile/iap/status", params={"platform": platform})
+    assert response.json()["verification_ready"] is False
+    assert len(response.json()["product_ids"]) == 3
+
+
 def test_mobile_iap_android_verification_never_persists_purchase_token(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SUPPORT_PURCHASES_ENABLED", "0")
     monkeypatch.setattr(
         relay_main,
         "_verify_google_iap",
@@ -3726,6 +3746,124 @@ def test_aerodatabox_auto_fuses_aviationstack_fill(tmp_path: Path, monkeypatch) 
     assert payload["records"][0]["status"] == "scheduled"
 
 
+def test_relay_auto_schedule_works_with_aerodatabox_only(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "auto")
+    monkeypatch.setattr(relay_main, "_has_aerodatabox_key", lambda: True)
+    monkeypatch.setattr(relay_main, "_has_aviationstack_key", lambda: False)
+    payload = _shared_snapshot_payload()
+    payload["provider"] = "aerodatabox"
+    monkeypatch.setattr(relay_main, "_fetch_aerodatabox_schedule_source_from_upstream", lambda **kwargs: payload)
+    monkeypatch.setattr(
+        relay_main,
+        "_fetch_aviationstack_schedule_source_from_upstream",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("absent AviationStack must not be called")),
+    )
+
+    result = relay_main._fetch_shared_schedule_from_upstream(
+        airport_iata="ZRH",
+        timezone_name="UTC",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+
+    assert result["provider"] == "aerodatabox"
+    assert result["meta"]["providers_available"] == ["aerodatabox"]
+    assert result["meta"]["providers_attempted"] == ["aerodatabox"]
+    assert result["meta"]["provider_errors"] == {}
+
+
+def test_relay_auto_schedule_works_with_aviationstack_only(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "auto")
+    monkeypatch.setattr(relay_main, "_has_aerodatabox_key", lambda: False)
+    monkeypatch.setattr(relay_main, "_has_aviationstack_key", lambda: True)
+    payload = _shared_snapshot_payload()
+    monkeypatch.setattr(
+        relay_main,
+        "_fetch_aerodatabox_schedule_source_from_upstream",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("absent AeroDataBox must not be called")),
+    )
+    monkeypatch.setattr(relay_main, "_fetch_aviationstack_schedule_source_from_upstream", lambda **kwargs: payload)
+
+    result = relay_main._fetch_shared_schedule_from_upstream(
+        airport_iata="ZRH",
+        timezone_name="UTC",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+
+    assert result["provider"] == "aviationstack"
+    assert result["meta"]["providers_available"] == ["aviationstack"]
+    assert result["meta"]["providers_attempted"] == ["aviationstack"]
+    assert result["meta"]["fill_reason"] == "only_provider"
+
+
+def test_relay_auto_prefers_live_fallback_over_stale_primary_cache(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "auto")
+    monkeypatch.setattr(relay_main, "_has_aerodatabox_key", lambda: True)
+    monkeypatch.setattr(relay_main, "_has_aviationstack_key", lambda: True)
+    stale = _shared_snapshot_payload()
+    stale["provider"] = "aerodatabox"
+    stale["generated_at"] = "2026-01-01T00:00:00+00:00"
+    live = _shared_snapshot_payload()
+    live["provider"] = "aviationstack"
+
+    def fail_primary(**kwargs):
+        raise HTTPException(status_code=502, detail="AeroDataBox temporarily unavailable")
+
+    monkeypatch.setattr(relay_main, "_fetch_aerodatabox_schedule_source_from_upstream", fail_primary)
+    monkeypatch.setattr(relay_main, "_fetch_aviationstack_schedule_source_from_upstream", lambda **kwargs: live)
+    monkeypatch.setattr(
+        relay_main,
+        "_load_provider_source_payload",
+        lambda *, provider, **kwargs: stale if provider == "aerodatabox" else None,
+    )
+
+    result = relay_main._fetch_shared_schedule_from_upstream(
+        airport_iata="ZRH",
+        timezone_name="UTC",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+
+    assert result["provider"] == "aviationstack"
+    assert result["meta"]["providers_attempted"] == ["aerodatabox", "aviationstack"]
+    assert result["meta"]["provider_failover"] is True
+    assert "aerodatabox" in result["meta"]["provider_errors"]
+
+
+def test_relay_auto_keeps_healthy_primary_when_sparse_fill_fails(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_SCHEDULE_PROVIDER", "auto")
+    monkeypatch.setattr(relay_main, "_has_aerodatabox_key", lambda: True)
+    monkeypatch.setattr(relay_main, "_has_aviationstack_key", lambda: True)
+    primary = _shared_snapshot_payload()
+    primary["provider"] = "aerodatabox"
+    # Missing operational fields make this a genuine sparse-fill fixture.
+    primary["records"][0].update(gate=None, terminal=None, aircraft_type=None)
+    monkeypatch.setattr(relay_main, "_fetch_aerodatabox_schedule_source_from_upstream", lambda **kwargs: primary)
+    monkeypatch.setattr(
+        relay_main,
+        "_fetch_aviationstack_schedule_source_from_upstream",
+        lambda **kwargs: (_ for _ in ()).throw(HTTPException(status_code=502, detail="AviationStack unavailable")),
+    )
+    monkeypatch.setattr(relay_main, "_load_provider_source_payload", lambda **kwargs: None)
+
+    result = relay_main._fetch_shared_schedule_from_upstream(
+        airport_iata="ZRH",
+        timezone_name="UTC",
+        display_grace_minutes=30,
+        display_horizon_hours=12,
+    )
+
+    assert result["provider"] == "aerodatabox"
+    assert result["meta"]["providers_attempted"] == ["aerodatabox", "aviationstack"]
+    assert "aviationstack" in result["meta"]["provider_errors"]
+    assert result["records"] == primary["records"]
+
+
 def test_upstream_budget_guard_is_atomic(tmp_path: Path, monkeypatch) -> None:
     _use_temp_db(tmp_path, monkeypatch)
     results: list[str] = []
@@ -3930,6 +4068,48 @@ def _activate_mobile_standalone(client: TestClient, install_id: str) -> str:
     )
     assert response.status_code == 200
     return str(response.json()["activation_token"])
+
+
+def test_official_radar_returns_only_canonical_blips(tmp_path: Path, monkeypatch) -> None:
+    _use_temp_db(tmp_path, monkeypatch)
+    client = TestClient(relay_main.app)
+    install_id = "00000000-0000-0000-0000-000000000904"
+    token = _activate_mobile_standalone(client, install_id)
+    raw = {
+        "ac": [{
+            "hex": "abc123",
+            "flight": "TST42",
+            "lat": 47.451,
+            "lon": 8.551,
+            "alt_baro": 2400,
+            "gs": 140,
+            "track": 90,
+            "seen_pos": 1.2,
+            "provider_internal_trace": "must-not-leak",
+        }],
+        "provider_internal": "must-not-leak",
+    }
+    monkeypatch.setattr(relay_main, "_fetch_adsbx_payload", lambda *_args: json.dumps(raw).encode("utf-8"))
+
+    response = client.get(
+        "/v1/radar",
+        params={
+            "lat": 47.45,
+            "lon": 8.55,
+            "radius_nm": 10,
+            "install_id": install_id,
+            "activation_token": token,
+            "client_kind": "desktop",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == "localflight.radar.v1"
+    assert payload["count"] == 1
+    assert payload["blips"][0]["callsign"] == "TST42"
+    assert "ac" not in payload
+    assert "provider_internal" not in json.dumps(payload)
 
 
 def test_mobile_standalone_fids_uses_shared_schedule_and_one_hour_policy(tmp_path: Path, monkeypatch) -> None:
