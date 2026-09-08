@@ -1,5 +1,6 @@
 ---
 import SiteLayout from "../../layouts/SiteLayout.astro";
+import { relayOrigin } from "../../data/site";
 ---
 
 <SiteLayout
@@ -70,7 +71,7 @@ import SiteLayout from "../../layouts/SiteLayout.astro";
       <section class="policy-section" id="online">
         <span class="section-index">03 / BEACON RELAY</span>
         <h2>What Beacon Relay receives.</h2>
-        <p>If you choose Beacon Tools’ shared online service (Beacon Relay), Remote Companion, or mobile Standalone, Local Flight connects to <code>https://relay.beacontools.cc</code>. The service can verify Relay Access, provide shared airport boards, radar and map helpers, apply fair-use limits, pass along encrypted paired-phone messages, and deliver reports you choose to send.</p>
+        <p>If you choose Beacon Tools’ shared online service (Beacon Relay), Remote Companion, or mobile Standalone, Local Flight connects to <code>{relayOrigin}</code>. The service can verify Relay Access, provide shared airport boards, radar and map helpers, apply fair-use limits, pass along encrypted paired-phone messages, and deliver reports you choose to send.</p>
         <p>The service reuses recent shared results where possible. If you use your own aviation-data API keys instead, those keys stay on your Local Flight computer and are sent only to the provider you selected.</p>
         <p>Beacon Tools keeps only the service records needed to run and protect the selected feature: a random ID used to operate the service, not an account; usage counts; broad app and device details; encrypted-message routing details; last-connected times; short-lived shared data; and the minimal Relay Access purchase, license, delivery, and receiver record described below.</p>
         <p>The Local Flight application database does not store raw IP addresses. Fly.io, Cloudflare, and other network providers may briefly process connection data in infrastructure or security logs under their own policies. The service does not store your personal aviation-data keys, names or email addresses from normal app use, readable Remote Companion messages, local movement history, Standalone movement history, payment-card details, or local logs unless you explicitly include cleaned logs in a report.</p>

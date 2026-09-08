@@ -1,3 +1,7 @@
+---
+import { relayOrigin } from "../data/site";
+---
+
 <section class="section" id="message">
   <div class="terminal-frame form-shell" data-reveal>
     <div class="form-context">
@@ -5,7 +9,7 @@
       <h2>Send a question.</h2>
       <p>Use this for guidance, mobile testing requests, or anything you can describe without a detailed issue report.</p>
     </div>
-    <form class="support-form" data-support-form="contact">
+    <form class="support-form" data-support-form="contact" data-relay-origin={relayOrigin}>
       <input type="text" name="company" class="honeypot" autocomplete="off" tabindex="-1" aria-hidden="true" />
       <div class="form-grid">
         <label>Topic
@@ -45,7 +49,7 @@
       <h2>Report something that isn’t working.</h2>
       <p>Use this when device details, steps, an approximate time, or optional cleaned text logs could help us understand the problem.</p>
     </div>
-    <form class="support-form" data-support-form="bug" enctype="multipart/form-data">
+    <form class="support-form" data-support-form="bug" data-relay-origin={relayOrigin} enctype="multipart/form-data">
       <input type="text" name="company" class="honeypot" autocomplete="off" tabindex="-1" aria-hidden="true" />
       <div class="form-grid">
         <label>Where are you seeing the problem?
