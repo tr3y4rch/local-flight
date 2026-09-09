@@ -16,6 +16,14 @@ import { relayOrigin } from "../../../../data/site";
       </div>
 
       <div class="management-panel">
+        <section id="operatorConfirmation" hidden aria-labelledby="operatorConfirmationTitle">
+          <span class="feature-index">EXPLICIT EMAIL CONFIRMATION</span>
+          <h2 id="operatorConfirmationTitle">Review this request.</h2>
+          <p id="operatorConfirmationDetails"></p>
+          <button class="action-button action-button--primary" id="operatorConfirmButton" type="button" disabled>Confirm request</button>
+          <p class="form-status" id="operatorConfirmationStatus" role="status" aria-live="polite"></p>
+          <p class="management-privacy">Opening this page does not approve anything. Confirm only if you requested this invitation or protected-email change.</p>
+        </section>
         <section id="managementRecovery" aria-labelledby="recoveryTitle">
           <span class="feature-index">RECOVER ACCESS</span>
           <h2 id="recoveryTitle">Send a private access link.</h2>
@@ -66,7 +74,8 @@ import { relayOrigin } from "../../../../data/site";
         <span class="license-state" data-license-state></span>
       </div>
       <dl class="license-facts">
-        <div><dt>Purchased</dt><dd data-license-date></dd></div>
+        <div><dt data-license-date-label>Purchased</dt><dd data-license-date></dd></div>
+        <div data-license-duration-row hidden><dt>Duration</dt><dd data-license-duration></dd></div>
         <div><dt>Key reference</dt><dd class="mono" data-license-key-ref></dd></div>
         <div><dt>Current main device</dt><dd data-license-receiver></dd></div>
         <div><dt>Key delivery</dt><dd data-license-delivery></dd></div>
@@ -87,6 +96,10 @@ import { relayOrigin } from "../../../../data/site";
       <p class="form-status" data-license-status role="status" aria-live="polite"></p>
     </article>
   </template>
+
+  <style>
+    #operatorConfirmation[hidden], #operatorConfirmation [hidden], [data-license-duration-row][hidden] { display: none !important; }
+  </style>
 
   <script is:inline>
     (() => {
@@ -113,6 +126,8 @@ import { relayOrigin } from "../../../../data/site";
         google: "ANDROID / GOOGLE PLAY",
         google_app: "ANDROID / GOOGLE PLAY",
         google_play: "ANDROID / GOOGLE PLAY",
+        operator_test: "OPERATOR TEST GRANT",
+        operator_complimentary: "COMPLIMENTARY GRANT",
       }[String(source || "").toLowerCase()] || "BEACON RELAY ACCESS");
 
       const stateLabel = (state) => ({
@@ -138,7 +153,8 @@ import { relayOrigin } from "../../../../data/site";
       const deliveryLabel = (license) => {
         const delivery = license.key_delivery || license.delivery || {};
         const state = String(delivery.state || delivery.status || "").toLowerCase();
-        if (state === "sent") return "Sent by email";
+        if (state === "sent") return "Accepted by SMTP; recipient delivery unknown";
+        if (state === "uncertain") return "Email send outcome uncertain — contact support";
         if (state === "pending" || state === "sending") return "Email delivery pending";
         if (state === "needs_attention" || state === "failed") return "Email needs attention";
         if (state === "revealed") return "Revealed once";
@@ -251,17 +267,21 @@ import { relayOrigin } from "../../../../data/site";
           card.querySelector("[data-license-source]").textContent = sourceLabel(license.purchase_source);
           card.querySelector("[data-license-title]").textContent = license.product_name || "Beacon Relay Access";
           const state = card.querySelector("[data-license-state]");
-          state.textContent = stateLabel(license.status);
-          state.dataset.state = String(license.status || "unknown").toLowerCase();
+          state.textContent = stateLabel(license.effective_state || license.status);
+          state.dataset.state = String(license.effective_state || license.status || "unknown").toLowerCase();
           card.querySelector("[data-license-date]").textContent = dateLabel(license.created_at || license.purchased_at);
+          const operatorGrant = String(license.purchase_source || "").startsWith("operator_");
+          card.querySelector("[data-license-date-label]").textContent = operatorGrant ? "Granted" : "Purchased";
+          card.querySelector("[data-license-duration-row]").hidden = !operatorGrant;
+          card.querySelector("[data-license-duration]").textContent = license.expires_at ? new Date(license.expires_at).toLocaleString(undefined,{timeZoneName:"short"}) : "Permanent";
           card.querySelector("[data-license-key-ref]").textContent = license.key_ref || "Masked reference unavailable";
           card.querySelector("[data-license-receiver]").textContent = receiverLabel(license.receiver);
           card.querySelector("[data-license-delivery]").textContent = deliveryLabel(license);
-          const active = String(license.status || "").toLowerCase() === "active";
+          const active = String(license.effective_state || license.status || "").toLowerCase() === "active" && (!license.expires_at || new Date(license.expires_at) > new Date());
           const hasReceiver = Boolean(license.receiver?.device_kind);
           card.querySelectorAll("[data-license-action]").forEach((button) => {
             const action = button.dataset.licenseAction;
-            button.disabled = (!active && action !== "rotate_key") || (action === "revoke_receiver" && !hasReceiver);
+            button.disabled = !active || (action === "revoke_receiver" && !hasReceiver);
             button.addEventListener("click", () => handleLicenseAction(button, license, card));
           });
           licenseList.append(card);
@@ -356,7 +376,44 @@ import { relayOrigin } from "../../../../data/site";
         }
       });
 
-      exchangeFragment();
+      const operatorFragment = new URLSearchParams(location.hash.slice(1));
+      let operatorToken = operatorFragment.get("operator_claim") || operatorFragment.get("email_change") || "";
+      if (operatorToken) {
+        // Fragments are never sent to the server and are removed before any IO.
+        // Inspection is non-consuming; mail scanners cannot approve this flow.
+        const kind = operatorFragment.has("operator_claim") ? "invitation" : "email_change";
+        history.replaceState(null, "", location.pathname);
+        recovery.hidden = true;
+        const panel = document.getElementById("operatorConfirmation");
+        const status = document.getElementById("operatorConfirmationStatus");
+        const confirm = document.getElementById("operatorConfirmButton");
+        panel.hidden = false;
+        const operatorRequest = async (path) => {
+          const response = await fetch(`${relay}/v1/access/operator/${path}`, { method:"POST", headers:{"Content-Type":"application/json"}, cache:"no-store", body:JSON.stringify({token:operatorToken,kind}) });
+          if (!response.ok) return apiError(response);
+          return response.json();
+        };
+        status.textContent = "Checking request…";
+        operatorRequest("inspect").then(result => {
+          document.getElementById("operatorConfirmationTitle").textContent = kind === "invitation" ? "Accept your Relay Access invitation." : "Confirm this protected-email change.";
+          const duration = result.expires_at ? new Date(result.expires_at).toLocaleString(undefined,{timeZoneName:"short"}) : "Permanent";
+          document.getElementById("operatorConfirmationDetails").textContent = kind === "invitation" ? `Recipient: ${result.recipient}. ${result.grant_kind} grant. Duration: ${duration}. One independent receiver; normal provider limits apply. Confirm to activate the license and queue its key by email.` : `Proposed address: ${result.recipient}. Both mailboxes must confirm before ${duration}. Completion rotates the key, disconnects the current receiver, and emails the replacement only to the new address. Other licenses remain unchanged.`;
+          status.textContent = "Review the details, then confirm explicitly.";
+          confirm.disabled = false;
+        }).catch(error => { status.textContent = error.message;status.dataset.tone="bad"; });
+        confirm.addEventListener("click",async()=>{
+          confirm.disabled=true;
+          try {
+            const result=await operatorRequest(kind === "invitation" ? "claim" : "email-change/confirm");
+            operatorToken="";
+            confirm.hidden=true;
+            status.textContent=kind === "invitation" ? "Invitation accepted. Your license key email is queued; SMTP acceptance does not guarantee inbox delivery." : result.status === "completed" ? "Both addresses confirmed. Your key was replaced and the old receiver disconnected. Check the new address for the replacement key." : "This address is confirmed. The other mailbox must also confirm before the deadline; existing access is unchanged for now.";
+            status.dataset.tone="ok";
+          } catch(error) { status.textContent=error.message;status.dataset.tone="bad";confirm.disabled=false; }
+        });
+      } else {
+        exchangeFragment();
+      }
     })();
   </script>
 </LicenseManagementLayout>

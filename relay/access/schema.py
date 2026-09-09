@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 
-ACCESS_SCHEMA_VERSION = 7
+ACCESS_SCHEMA_VERSION = 8
 
 
 def _now() -> str:
@@ -372,6 +372,90 @@ def _apply_access_schema(conn: sqlite3.Connection) -> None:
         """
     )
     _record_migration(conn, 7)
+
+    # Operator authority is deliberately separate from financial purchase proof.
+    _add_column(conn, "notification_outbox", "subject_ref TEXT")
+    _execute_script(conn, """
+        CREATE INDEX IF NOT EXISTS idx_notification_operator_subject ON notification_outbox(subject_ref) WHERE subject_ref IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS operator_grants (
+            grant_id TEXT PRIMARY KEY,
+            license_id TEXT UNIQUE REFERENCES relay_licenses(license_id),
+            kind TEXT NOT NULL,
+            environment TEXT NOT NULL,
+            status TEXT NOT NULL,
+            email_ciphertext TEXT NOT NULL,
+            email_hmac TEXT NOT NULL,
+            hash_key_id TEXT NOT NULL,
+            encryption_key_id TEXT NOT NULL,
+            reason_ciphertext TEXT NOT NULL,
+            request_id TEXT NOT NULL UNIQUE,
+            request_fingerprint TEXT NOT NULL,
+            expires_at TEXT,
+            invitation_expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_operator_grants_email ON operator_grants(email_hmac);
+        CREATE INDEX IF NOT EXISTS idx_operator_grants_expiry ON operator_grants(status, expires_at);
+        CREATE TABLE IF NOT EXISTS operator_audit (
+            event_id TEXT PRIMARY KEY,
+            license_id TEXT,
+            target_ref TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT 'owner',
+            action TEXT NOT NULL,
+            request_id TEXT NOT NULL,
+            reason_ciphertext TEXT NOT NULL,
+            encryption_key_id TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            before_json TEXT NOT NULL DEFAULT '{}',
+            after_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            UNIQUE(action, request_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_operator_audit_license ON operator_audit(license_id, created_at);
+        CREATE TABLE IF NOT EXISTS operator_notes (
+            note_id TEXT PRIMARY KEY,
+            license_id TEXT NOT NULL REFERENCES relay_licenses(license_id),
+            note_ciphertext TEXT NOT NULL,
+            encryption_key_id TEXT NOT NULL,
+            request_id TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS email_change_requests (
+            change_id TEXT PRIMARY KEY,
+            license_id TEXT NOT NULL REFERENCES relay_licenses(license_id),
+            old_holder_id TEXT NOT NULL,
+            expected_key_version INTEGER NOT NULL,
+            new_email_ciphertext TEXT NOT NULL,
+            new_email_hmac TEXT NOT NULL,
+            hash_key_id TEXT NOT NULL,
+            encryption_key_id TEXT NOT NULL,
+            old_confirmed_at TEXT,
+            new_confirmed_at TEXT,
+            status TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            request_id TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_email_change_license ON email_change_requests(license_id, status);
+        CREATE INDEX IF NOT EXISTS idx_operator_notes_license ON operator_notes(license_id, created_at);
+        CREATE TABLE IF NOT EXISTS mail_attempts (
+            attempt_id TEXT PRIMARY KEY,
+            message_ref TEXT NOT NULL,
+            message_kind TEXT NOT NULL,
+            message_id TEXT NOT NULL UNIQUE,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            stage TEXT NOT NULL DEFAULT 'queued',
+            outcome TEXT NOT NULL DEFAULT 'sending',
+            detail_code TEXT,
+            smtp_code INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_mail_attempt_message ON mail_attempts(message_ref, started_at);
+        CREATE INDEX IF NOT EXISTS idx_mail_attempt_recovery ON mail_attempts(outcome, started_at);
+    """)
+    _record_migration(conn, 8)
 
 
 def ensure_access_schema(conn: sqlite3.Connection) -> None:

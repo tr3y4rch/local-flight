@@ -780,7 +780,7 @@ def test_operator_search_paginates_over_six_hundred_and_csrf_protects_actions(
             "sec-fetch-site": "cross-site",
         },
         auth=ADMIN_AUTH,
-        json={"action": "suspend_license"},
+        json={"action": "suspend_license", "reason":"Test operator suspension", "request_id":"fake-suspend-request-001", "confirmed":True},
     )
     assert cross_site.status_code == 403
     assert cross_site.json()["detail"]["code"] == "admin_csrf_rejected"
@@ -793,7 +793,7 @@ def test_operator_search_paginates_over_six_hundred_and_csrf_protects_actions(
             "sec-fetch-site": "same-origin",
         },
         auth=ADMIN_AUTH,
-        json={"action": "suspend_license"},
+        json={"action": "suspend_license", "reason":"Test operator suspension", "request_id":"fake-suspend-request-001", "confirmed":True},
     )
     assert same_origin.status_code == 200
     assert same_origin.json()["license"]["status"] == "suspended"
@@ -823,13 +823,13 @@ def test_operator_retries_notifications_reconciliation_and_resolves_events(
         detail_code="smtp_timeout",
     )
     retry_notice = client.post(
-        f"/admin/api/access/{license_record.license_id}/action",
+        f"/admin/api/operator/email/notification/{claimed['notification_id']}/action",
         headers=ADMIN_HOST,
         auth=ADMIN_AUTH,
-        json={"action": "retry_notifications"},
+        json={"action": "retry", "reason":"Test selected notification retry", "request_id":"fake-notice-retry-001"},
     )
     assert retry_notice.status_code == 200
-    assert retry_notice.json()["retried"] == 1
+    assert retry_notice.json()["status"] == "pending"
     assert service.admin_notification_snapshot()[0]["status"] == "sent"
     assert [message for message in mailer.messages if message["kind"] == "magic_link"]
 
@@ -838,7 +838,7 @@ def test_operator_retries_notifications_reconciliation_and_resolves_events(
         f"/admin/api/access/{license_record.license_id}/action",
         headers=ADMIN_HOST,
         auth=ADMIN_AUTH,
-        json={"action": "retry_reconciliation"},
+        json={"action": "retry_reconciliation", "reason":"Test provider recheck", "request_id":"fake-provider-retry-001"},
     )
     assert reconciliation.status_code == 200
     assert reconciliation.json()["queued"] is True
@@ -857,7 +857,7 @@ def test_operator_retries_notifications_reconciliation_and_resolves_events(
         f"/admin/api/access/events/{event['event_ref']}/action",
         headers=ADMIN_HOST,
         auth=ADMIN_AUTH,
-        json={"action": "mark_resolved"},
+        json={"action": "mark_resolved", "reason":"Investigated test event", "request_id":"fake-event-resolve-001"},
     )
     assert resolved.status_code == 200
     assert resolved.json()["status"] == "processed"

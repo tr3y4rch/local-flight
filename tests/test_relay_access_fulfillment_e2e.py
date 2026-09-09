@@ -387,17 +387,10 @@ def test_stripe_ios_entitlement_and_google_product_create_portable_distinct_lice
     assert relay_main._deliver_pending_license_emails(limit=1) == 0
     failed = service.admin_delivery_snapshot()
     assert len(failed) == 1
-    assert failed[0]["status"] == "failed"
+    assert failed[0]["status"] == "uncertain"
     assert failed[0]["attempt_count"] == 1
-    conn = sqlite3.connect(harness.database)
-    try:
-        conn.execute(
-            "UPDATE license_deliveries SET next_attempt_at=? WHERE delivery_id=?",
-            ("2000-01-01T00:00:00+00:00", failed[0]["delivery_id"]),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    assert relay_main._deliver_pending_license_emails(limit=10) == 0
+    service.operator_mail_action(kind="license",message_ref=failed[0]["delivery_id"],action="retry",reason="Acknowledge duplicate risk in test",request_id="fake-uncertain-retry-001",acknowledge_duplicate=True)
     assert relay_main._deliver_pending_license_emails(limit=10) == 1
     assert service.admin_delivery_snapshot()[0]["status"] == "sent"
 

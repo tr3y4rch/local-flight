@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,9 +29,10 @@ def test_operator_browser_navigation_actions_and_mobile(
 ) -> None:
     playwright = pytest.importorskip("playwright.sync_api")
     with playwright.sync_playwright() as runtime:
-        if not Path(runtime.chromium.executable_path).is_file():
+        executable = os.environ.get("OPERATOR_TEST_CHROMIUM")
+        if not Path(executable or runtime.chromium.executable_path).is_file():
             pytest.skip("Install Playwright Chromium to run the operator browser contract")
-        browser = runtime.chromium.launch()
+        browser = runtime.chromium.launch(executable_path=executable or None)
         context = browser.new_context(viewport={"width": 1440, "height": 1000})
         errors: list[str] = []
         calls: list[tuple[str, str, int]] = []
@@ -82,9 +84,11 @@ def test_operator_browser_navigation_actions_and_mobile(
         page.locator("#actionDialogConfirm").click()
         page.get_by_text("No active retention holds.", exact=True).wait_for()
         page.locator('button[data-view="access"]').click()
-        page.locator('input[data-filter="q"]').fill("fake-email@example.test")
-        page.locator('button[data-apply-filter="access"]').click()
-        page.locator("#syncStatus").get_by_text("Updated", exact=False).wait_for()
+        page.get_by_role("button", name="Licenses", exact=True).click()
+        page.locator('#operatorSearch input[name="q"]').fill("fake-email@example.test")
+        with page.expect_response("**/admin/api/operator/licenses/search"):
+            page.locator('#operatorSearch button[type="submit"]').click()
+        assert any(method == "POST" and url.endswith("/admin/api/operator/licenses/search") for method, url, _ in calls)
         assert all("fake-email" not in url for _, url, _ in calls)
         page.set_viewport_size({"width": 390, "height": 844})
         page.locator("#menuButton").click()

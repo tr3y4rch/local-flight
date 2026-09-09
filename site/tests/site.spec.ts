@@ -1,6 +1,37 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
+for (const kind of ["invitation", "email_change"]) {
+  test(`operator ${kind} requires explicit fragment confirmation`, async ({ page }) => {
+    const token = kind === "invitation" ? "lfrop_fake_browser_confirmation_token" : "lfrec_fake_browser_confirmation_token";
+    const fragment = kind === "invitation" ? "operator_claim" : "email_change";
+    let approvals = 0;
+    const requests: string[] = [];
+    page.on("request", request => requests.push(request.url()));
+    await page.route("**/v1/access/operator/**", async route => {
+      const request = route.request();
+      expect(request.postDataJSON().token).toBe(token);
+      if (request.url().endsWith("/inspect")) {
+        await route.fulfill({ contentType:"application/json", body:JSON.stringify({kind,recipient:"p***@example.test",grant_kind:"test",expires_at:"2030-01-01T12:00:00Z"}) });
+      } else {
+        approvals++;
+        await route.fulfill({ contentType:"application/json", body:JSON.stringify({ok:true,status:"completed"}) });
+      }
+    });
+    await page.goto(`/local-flight/relay-access/manage/#${fragment}=${token}`);
+    await expect(page.locator("#operatorConfirmButton")).toBeEnabled();
+    expect(approvals).toBe(0);
+    expect(new URL(page.url()).hash).toBe("");
+    expect(requests.every(url => !url.includes(token))).toBe(true);
+    await page.locator("#operatorConfirmButton").focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#operatorConfirmButton")).toBeHidden();
+    expect(approvals).toBe(1);
+    await expect(page.locator("#managementLicenseKey")).toHaveValue("");
+    expect((await new AxeBuilder({page}).analyze()).violations).toEqual([]);
+  });
+}
+
 const routes = [
   "/",
   "/local-flight/",

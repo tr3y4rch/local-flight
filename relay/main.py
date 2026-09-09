@@ -29,6 +29,8 @@ import requests as _req
 import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -70,6 +72,7 @@ from relay.access.mobile_verifiers import (
     apple_root_certificates,
 )
 from relay.access.schema import ACCESS_SCHEMA_VERSION, access_schema_version
+from relay.access.models import PurchaseEnvironmentMismatch
 
 AVIATIONSTACK_URL = "https://api.aviationstack.com/v1/flights"
 AERODATABOX_RAPIDAPI_URL = "https://aerodatabox.p.rapidapi.com"
@@ -146,6 +149,7 @@ class RemoteCompanionHostSession:
     install_ref: str
     install_id: str
     websocket: WebSocket
+    activation_id: str = ""
     pending: dict[str, asyncio.Future] = field(default_factory=dict)
 
 _REPORT_CRASH_DEDUPE_HOURS = 6
@@ -1934,6 +1938,7 @@ def _license_service() -> LicenseService:
         key_secret=_access_secret("RELAY_ACCESS_KEY_SECRET", "key"),
         encryption_secret=_access_secret("RELAY_ACCESS_ENCRYPTION_SECRET", "encryption"),
         product_code=_env("RELAY_ACCESS_PRODUCT_CODE", "beacon_relay_lifetime_v1"),
+        deployment_environment=_access_deployment_environment(),
         key_secret_id=_env("RELAY_ACCESS_KEY_SECRET_ID", "v1"),
         hash_secret_id=_env("RELAY_ACCESS_HASH_SECRET_ID", "v1"),
         encryption_secret_id=_env("RELAY_ACCESS_ENCRYPTION_SECRET_ID", "v1"),
@@ -8828,7 +8833,7 @@ def _render_admin_legacy(username: str, *, created_token: str = "", message: str
 _ADMIN_ASSET_DIR = Path(__file__).resolve().parent / "admin"
 _ADMIN_HTML_TEMPLATE = (_ADMIN_ASSET_DIR / "admin.html").read_text(encoding="utf-8")
 _ADMIN_CSS = (_ADMIN_ASSET_DIR / "admin.css").read_text(encoding="utf-8")
-_ADMIN_JS = (_ADMIN_ASSET_DIR / "admin.js").read_text(encoding="utf-8")
+_ADMIN_JS = (_ADMIN_ASSET_DIR / "admin.js").read_text(encoding="utf-8") + "\n" + (_ADMIN_ASSET_DIR / "operator.js").read_text(encoding="utf-8")
 _ADMIN_SHELL = _ADMIN_HTML_TEMPLATE.replace("__ADMIN_CSS__", _ADMIN_CSS).replace("__ADMIN_JS__", _ADMIN_JS)
 _PUBLIC_LANDING_HTML = (
     (Path(__file__).resolve().parent / "public" / "index.html").read_text(encoding="utf-8")
@@ -10624,6 +10629,13 @@ async def _structured_access_http_exception(request: Request, exc: HTTPException
     )
 
 
+@app.exception_handler(RequestValidationError)
+async def _private_access_validation_error(request: Request, exc: RequestValidationError) -> Response:
+    if request.url.path.startswith(("/admin/api/operator", "/v1/access/", "/admin/api/access")):
+        return JSONResponse({"detail":{"code":"invalid_request","message":"Check the required fields and try again."}},status_code=422,headers={"Cache-Control":"no-store"})
+    return await request_validation_exception_handler(request, exc)
+
+
 @app.middleware("http")
 async def _surface_gate(request: Request, call_next):
     surface = _request_surface(request)
@@ -11138,6 +11150,9 @@ class AccessActivationCommitIn(BaseModel):
 
 class AccessAdminActionIn(BaseModel):
     action: str = Field(..., min_length=3, max_length=32)
+    reason: str = Field(..., min_length=3, max_length=2000)
+    request_id: str = Field(..., pattern=r"^[a-zA-Z0-9_-]{8,80}$")
+    confirmed: bool = False
 
     @field_validator("action", mode="before")
     @classmethod
@@ -11178,7 +11193,15 @@ def _access_license_payload(record: Any) -> Dict[str, Any]:
         "refunded": "purchase_refunded",
         "revoked": "purchase_revoked",
     }[access_state]
+    duration = {}
+    if str(record.purchase_source).startswith("operator_"):
+        try:
+            authority = _license_service().authority(record.license_id, active=False)
+            duration = {"expires_at":authority["expires_at"],"entitlement_source":authority["source"],"effective_state":authority["effective_state"]}
+        except Exception:
+            duration = {"effective_state":"unavailable"}
     return {
+        **duration,
         "license_ref": record.license_ref,
         "product_code": record.product_code,
         "purchase_source": record.purchase_source,
@@ -11262,21 +11285,47 @@ def _deliver_pending_license_emails(*, limit: int = 10) -> int:
     service = _license_service()
     delivered = 0
     for item in service.claim_due_license_emails(limit=limit):
+        attempt = None
+        transport_accepted = False
         try:
+            attempt = service.begin_mail_attempt(kind="license", message_ref=str(item["delivery_id"]))
+            mailer.message_id = attempt["message_id"]
             mailer.send_license(
                 email=str(item["email"]),
                 license_key=str(item["license_key"]),
                 recovery_url=_access_site_url("local-flight/relay-access/manage/"),
             )
+            transport_accepted = True
+            service.finish_mail_attempt(attempt["attempt_id"], outcome="accepted", stage="accepted")
             service.finish_license_email(str(item["delivery_id"]), sent=True)
             delivered += 1
         except Exception as exc:
+            if transport_accepted:
+                # A persistence failure after SMTP acceptance must never enqueue
+                # another send. Interrupted-job recovery marks it uncertain.
+                continue
+            if _finish_mail_transport_error(service, attempt, exc):
+                continue
             service.finish_license_email(
                 str(item["delivery_id"]),
                 sent=False,
-                detail_code=exc.__class__.__name__,
+                detail_code=getattr(exc, "detail_code", "mail_transport_failed"),
             )
     return delivered
+
+
+def _finish_mail_transport_error(service, attempt, exc) -> bool:
+    """Persist only categorized evidence, never exception text or SMTP payloads."""
+    if attempt is None:
+        return False
+    uncertain = bool(getattr(exc, "uncertain", False))
+    service.finish_mail_attempt(
+        attempt["attempt_id"], outcome="uncertain" if uncertain else "failed",
+        stage=getattr(exc, "stage", "connect"),
+        detail_code=getattr(exc, "detail_code", "mail_transport_failed"),
+        smtp_code=getattr(exc, "smtp_code", None),
+    )
+    return uncertain
 
 
 def _deliver_pending_notifications(*, limit: int = 10) -> int:
@@ -11286,7 +11335,11 @@ def _deliver_pending_notifications(*, limit: int = 10) -> int:
     service = _license_service()
     delivered = 0
     for item in service.claim_due_notifications(limit=limit):
+        attempt = None
+        transport_accepted = False
         try:
+            attempt = service.begin_mail_attempt(kind="notification", message_ref=str(item["notification_id"]))
+            mailer.message_id = attempt["message_id"]
             purpose = str(item.get("purpose") or "")
             payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
             if purpose.startswith("magic_link:"):
@@ -11303,15 +11356,29 @@ def _deliver_pending_notifications(*, limit: int = 10) -> int:
                     email=str(item["email"]),
                     device_name=str(payload.get("device_name") or "New main device"),
                 )
+            elif purpose.startswith("operator:"):
+                fragment = "operator_claim" if purpose == "operator:invitation" else "email_change"
+                token = str(payload.get("token") or "")
+                mailer.send_operator_message(
+                    email=str(item["email"]), purpose=purpose,
+                    action_url=_access_site_url(f"local-flight/relay-access/manage/#{fragment}={token}") if token else "",
+                    expires_at=str(payload.get("expires_at") or ""),
+                )
             else:
                 raise InvalidChallenge("Notification purpose is not supported")
+            transport_accepted = True
+            service.finish_mail_attempt(attempt["attempt_id"], outcome="accepted", stage="accepted")
             service.finish_notification(str(item["notification_id"]), sent=True)
             delivered += 1
         except Exception as exc:
+            if transport_accepted:
+                continue
+            if _finish_mail_transport_error(service, attempt, exc):
+                continue
             service.finish_notification(
                 str(item["notification_id"]),
                 sent=False,
-                detail_code=exc.__class__.__name__,
+                detail_code=getattr(exc, "detail_code", "mail_transport_failed"),
             )
     return delivered
 
@@ -11507,6 +11574,7 @@ async def _relay_access_maintenance_loop() -> None:
                 await asyncio.to_thread(_license_service().cleanup)
                 await asyncio.to_thread(_maybe_create_access_backup)
                 service = _license_service()
+                await asyncio.to_thread(service.expire_operator_grants)
                 await asyncio.to_thread(service.queue_due_reconciliations, limit=20)
                 await asyncio.to_thread(_process_provider_operations, limit=20)
                 if _mobile_reconciliation_ready("android"):
@@ -13767,7 +13835,7 @@ def remote_companion_host_ticket(
         raise _access_exception(exc) from exc
 
 
-def _consume_remote_companion_host_ticket(*, install_id: str, ticket: str) -> str:
+def _consume_remote_companion_host_ticket(*, install_id: str, ticket: str, with_authority: bool = False):
     result = _license_service().consume_remote_companion_ws_ticket(
         ticket=ticket,
         install_id=install_id,
@@ -13796,7 +13864,7 @@ def _consume_remote_companion_host_ticket(*, install_id: str, ticket: str) -> st
             or str(activation["access_plan"] or "managed").strip().lower() != "managed"
         ):
             raise LicenseInactive("Managed Relay credential is no longer active")
-        return expected_ref
+        return result if with_authority else expected_ref
     if _access_mode() != "licensed":
         raise LicenseInactive("Licensed Remote Companion ticket is not accepted in legacy mode")
     if not _provider_access_policy().allows("remote_companion", "relay"):
@@ -13806,7 +13874,7 @@ def _consume_remote_companion_host_ticket(*, install_id: str, ticket: str) -> st
         and not _enabled_env("RELAY_ACCESS_ALLOW_TEST_LICENSES")
     ):
         raise LicenseInactive("A test-store Relay Access license cannot authorize production Remote Companion")
-    return expected_ref
+    return result if with_authority else expected_ref
 
 
 def _websocket_bearer_token(websocket: WebSocket) -> str:
@@ -13825,9 +13893,12 @@ async def remote_companion_host_ws(
 ) -> None:
     try:
         install_id = _validate_install_id(install_id)
+        activation_id = ""
         ticket = _websocket_bearer_token(websocket)
         if ticket.startswith("lfrws_"):
-            install_ref = _consume_remote_companion_host_ticket(install_id=install_id, ticket=ticket)
+            authority = _consume_remote_companion_host_ticket(install_id=install_id, ticket=ticket, with_authority=True)
+            install_ref = str(authority["install_ref"])
+            activation_id = str(authority.get("activation_id") or "")
         elif _access_mode() == "legacy" and activation_token:
             # Temporary compatibility for pre-ticket desktop releases. Licensed
             # mode never accepts a long-lived receiver credential in the URL.
@@ -13842,6 +13913,7 @@ async def remote_companion_host_ws(
         install_ref=install_ref,
         install_id=_validate_install_id(install_id),
         websocket=websocket,
+        activation_id=activation_id,
     )
     previous = _REMOTE_COMPANION_HOSTS.get(install_ref)
     if previous is not None:
@@ -13858,7 +13930,14 @@ async def remote_companion_host_ws(
     )
     try:
         while True:
-            message = await websocket.receive_json()
+            if session.activation_id:
+                _license_service().check_receiver_authority(install_id=session.install_id, activation_id=session.activation_id)
+            try:
+                message = await asyncio.wait_for(websocket.receive_json(), timeout=15)
+            except asyncio.TimeoutError:
+                continue
+            if session.activation_id:
+                _license_service().check_receiver_authority(install_id=session.install_id, activation_id=session.activation_id)
             if not isinstance(message, dict) or message.get("type") != "response":
                 continue
             request_id = str(message.get("request_id") or "")
@@ -13867,6 +13946,8 @@ async def remote_companion_host_ws(
                 future.set_result(message)
     except WebSocketDisconnect:
         pass
+    except (LicenseInactive, LicenseNotFound, PurchaseEnvironmentMismatch):
+        await websocket.close(code=1008)
     except Exception:
         pass
     finally:
@@ -13889,6 +13970,11 @@ async def remote_companion_request(request: Request, body: RemoteCompanionReques
     session = _REMOTE_COMPANION_HOSTS.get(body.install_ref)
     if session is None:
         raise HTTPException(status_code=503, detail="remote_host_offline")
+    if session.activation_id:
+        try:
+            _license_service().check_receiver_authority(install_id=session.install_id, activation_id=session.activation_id)
+        except Exception as exc:
+            raise HTTPException(status_code=403, detail="remote_host_access_inactive") from exc
     max_pending = _remote_companion_max_pending()
     if len(session.pending) >= max_pending:
         raise HTTPException(
@@ -13910,6 +13996,8 @@ async def remote_companion_request(request: Request, body: RemoteCompanionReques
             }
         )
         response = await asyncio.wait_for(future, timeout=_REMOTE_COMPANION_TIMEOUT_S)
+        if session.activation_id:
+            _license_service().check_receiver_authority(install_id=session.install_id, activation_id=session.activation_id)
     except asyncio.TimeoutError as exc:
         session.pending.pop(body.request_id, None)
         raise HTTPException(status_code=504, detail="remote_host_timeout") from exc
@@ -16248,46 +16336,29 @@ def admin_api_access_detail(
 def admin_api_access_action(
     license_id: str,
     body: AccessAdminActionIn,
+    request: Request,
     _username: str = Depends(_require_admin),
 ) -> Dict[str, Any]:
     service = _license_service()
     try:
+        _check_access_rate_limit(request,action="operator_mutation",limit=60,window_seconds=600)
         action = body.action.strip().lower()
-        if action == "revoke_license":
-            return {"ok": True, "license": _access_license_payload(service.admin_set_license_status(license_id, "revoked"))}
-        if action == "suspend_license":
-            return {"ok": True, "license": _access_license_payload(service.admin_set_license_status(license_id, "suspended"))}
-        if action == "reactivate_license":
-            return {"ok": True, "license": _access_license_payload(service.admin_set_license_status(license_id, "active"))}
-        if action == "revoke_receiver":
-            return {"ok": True, "revoked": service.admin_revoke_activation(license_id)}
-        if action == "retry_deliveries":
-            return {"ok": True, "retried": service.admin_retry_deliveries(license_id)}
-        if action == "retry_notifications":
-            retried = service.admin_retry_notifications(license_id)
-            try:
-                _deliver_pending_notifications(limit=max(1, retried))
-            except Exception:
-                pass
-            return {"ok": True, "retried": retried}
+        if action in {"retry_deliveries", "retry_notifications"}:
+            raise InvalidChallenge("Select an individual email in the support workspace to retry it")
+        if action in {"revoke_license","suspend_license","reactivate_license","revoke_receiver","rotate_key"}:
+            if not body.confirmed:
+                raise InvalidChallenge("Explicit impact confirmation is required")
+            result = service.operator_license_action(license_id,action=action,reason=body.reason,request_id=body.request_id)
+            return {**result,"license":_access_license_payload(service.admin_license_detail(license_id)["license"])}
         if action == "retry_reconciliation":
-            operation_id = service.admin_retry_reconciliation(license_id)
+            operation_id = service.queue_provider_operation(license_id=license_id,operation="reconcile",dedupe_suffix="operator-"+body.request_id)
+            result = {"ok": True, "queued": True, "operation_ref": operation_id[:16]}
+            service.record_operator_event(action=action,target=license_id,reason=body.reason,request_id=body.request_id,after=result)
             try:
                 _process_provider_operations(limit=1)
             except Exception:
                 pass
-            return {"ok": True, "queued": True, "operation_ref": operation_id[:16]}
-        if action == "rotate_key":
-            record = service.admin_rotate_license_key(license_id)
-            try:
-                _deliver_pending_license_emails(limit=1)
-            except Exception:
-                pass
-            return {
-                "ok": True,
-                "license": _access_license_payload(record),
-                "delivery": "queued",
-            }
+            return result
         raise InvalidChallenge("Admin license action is not supported")
     except Exception as exc:
         raise _access_exception(exc) from exc
@@ -16297,17 +16368,20 @@ def admin_api_access_action(
 def admin_api_access_event_action(
     event_ref: str,
     body: AccessAdminActionIn,
+    request: Request,
     _username: str = Depends(_require_admin),
 ) -> Dict[str, Any]:
     service = _license_service()
     try:
+        _check_access_rate_limit(request,action="operator_mutation",limit=60,window_seconds=600)
         result = service.admin_resolve_purchase_event(event_ref, action=body.action)
         if body.action.strip().lower() == "retry_reconciliation" and result.get("license_id"):
-            service.admin_retry_reconciliation(str(result["license_id"]))
+            service.queue_provider_operation(license_id=str(result["license_id"]),operation="reconcile",dedupe_suffix="operator-"+body.request_id)
             try:
                 _process_provider_operations(limit=1)
             except Exception:
                 pass
+        service.record_operator_event(action="event:"+body.action,target=event_ref,reason=body.reason,request_id=body.request_id,after={"status":result["status"]})
         return {
             "ok": True,
             "event_ref": result["event_ref"],
@@ -16320,15 +16394,21 @@ def admin_api_access_event_action(
 @app.post("/admin/api/access-backups/action")
 def admin_api_access_backup_action(
     body: AccessAdminActionIn,
+    request: Request,
     _username: str = Depends(_require_admin),
 ) -> Dict[str, Any]:
     try:
+        _check_access_rate_limit(request,action="operator_mutation",limit=60,window_seconds=600)
         action = body.action.strip().lower()
+        _license_service().record_operator_event(action=action+":requested",target="backup",reason=body.reason,request_id=body.request_id,outcome="started")
         if action == "create_backup":
             result = _maybe_create_access_backup(force=True)
+            _license_service().record_operator_event(action=action,target="backup",reason=body.reason,request_id=body.request_id,after={"configured":result is not None})
             return {"ok": True, "backup": result or _access_backup_health()}
         if action == "verify_latest":
-            return {"ok": True, "backup": _access_backup_health()}
+            result = _access_backup_health()
+            _license_service().record_operator_event(action=action,target="backup",reason=body.reason,request_id=body.request_id,after=result)
+            return {"ok": True, "backup": result}
         raise InvalidChallenge("Backup action is not supported")
     except Exception as exc:
         raise _access_exception(exc) from exc
@@ -17863,6 +17943,12 @@ def admin_correct_schedule(
     conn.commit()
     conn.close()
     return HTMLResponse(_render_admin(username, message=f"Schedule total corrected to {total:,} ({offset:,} offset stored for {month})."))
+
+
+from relay.access.operator_routes import create_operator_router
+import sys
+
+app.include_router(create_operator_router(sys.modules[__name__]))
 
 
 def main() -> None:

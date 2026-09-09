@@ -15,7 +15,10 @@ from urllib.request import Request, urlopen
 def admin_revision(assets: Path) -> str:
     shell = (assets / "admin.html").read_text(encoding="utf-8")
     for token, name in (("__ADMIN_CSS__", "admin.css"), ("__ADMIN_JS__", "admin.js")):
-        shell = shell.replace(token, (assets / name).read_text(encoding="utf-8"))
+        content = (assets / name).read_text(encoding="utf-8")
+        if name == "admin.js":
+            content += "\n" + (assets / "operator.js").read_text(encoding="utf-8")
+        shell = shell.replace(token, content)
     return hashlib.sha256(shell.encode()).hexdigest()[:12]
 
 
@@ -38,6 +41,7 @@ def main() -> int:
         f"/admin/api/{name}" for name in
         ("overview", "fleet", "usage", "schedules", "surfaces", "reports", "activations", "retention", "access")
     ]
+    paths += ["/admin/api/operator/configuration", "/admin/api/operator/attention"]
     for path in paths:
         request = Request(args.base_url.rstrip("/") + path, headers=headers)
         with urlopen(request, timeout=20) as response:
@@ -51,6 +55,8 @@ def main() -> int:
             if path == "/admin":
                 if b'content="network-ops-v2"' not in body or b"Command center" not in body:
                     raise SystemExit("The redesigned operator shell is missing")
+                if b"renderOperatorWorkspace" not in body or b"Needs attention" not in body:
+                    raise SystemExit("The Relay Access support workspace is missing")
             elif not isinstance(json.loads(body), dict):
                 raise SystemExit(f"Operator route returned an invalid response: {path}")
         print(f"PASS {path}")

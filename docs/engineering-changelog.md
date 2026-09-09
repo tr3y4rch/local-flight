@@ -7,6 +7,15 @@ hashes, and personal build identifiers belong outside Git.
 
 ## 0.6.1 candidate alignment
 
+- Added a scoped license-support workspace with accurate SMTP attempt evidence,
+  explicit delivery retries, encrypted support notes, and sanitized diagnostics.
+- Added independently authorized complimentary/test grants with verified
+  invitations, absolute expiry, and environment enforcement across access paths.
+- Added dual-confirmation, license-scoped email ownership changes with key
+  rotation and receiver invalidation; preserved existing purchase authority.
+- Extended additive migration, encrypted restore, operator/browser, and public
+  confirmation regression coverage. Issuance remains separately readiness-gated;
+  SMTP acceptance does not establish recipient delivery.
 - Reconciled schedule and licensing recovery work with website polish and the
   compatible mobile/desktop fixes, preserving the two-step receiver transfer.
 - Separated candidate metadata from published download metadata. Kept native
