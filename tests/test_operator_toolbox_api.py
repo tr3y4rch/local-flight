@@ -129,6 +129,7 @@ def test_operator_routes_full_claim_diagnostics_and_privacy(
     assert note.status_code == 200, note.text
     history = post(client, "history/search", license_id=license_id).json()
     assert history["items"][0]["actor"] == "owner"
+    assert "[redacted" in history["items"][0]["note"]
     assert all(i["actor"] != "invented-name" for i in history["items"])
     search = post(client, "licenses/search", q="recipient@example.test")
     assert search.status_code == 200, search.text

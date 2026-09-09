@@ -1162,6 +1162,18 @@ class OperatorSupportMixin:
                 }
                 for row in rows[:limit]
             ]
+            for item, row in zip(items, rows[:limit]):
+                if row["action"] == "add_note":
+                    note = conn.execute(
+                        "SELECT * FROM operator_notes WHERE request_id=? AND license_id=?",
+                        (row["request_id"], row["license_id"]),
+                    ).fetchone()
+                    if note:
+                        item["note"] = self._open(
+                            note["encryption_key_id"],
+                            "operator-note",
+                            note["note_ciphertext"],
+                        )
             return {
                 "items": items,
                 "has_more": len(rows) > limit,

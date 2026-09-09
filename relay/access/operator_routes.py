@@ -185,8 +185,13 @@ def create_operator_router(b) -> APIRouter:
     router = APIRouter()
     owner = Depends(b._require_admin)
 
-    def guarded(request, action="operator_mutation"):
-        b._check_access_rate_limit(request, action=action, limit=60, window_seconds=600)
+    def guarded(request, *, read=False):
+        b._check_access_rate_limit(
+            request,
+            action="operator_read" if read else "operator_mutation",
+            limit=300 if read else 60,
+            window_seconds=60 if read else 600,
+        )
 
     def execute(request, fn, mutation=None):
         try:
@@ -203,7 +208,10 @@ def create_operator_router(b) -> APIRouter:
                         "message": "Open the confirmation on the configured license-management site.",
                     },
                 )
-            guarded(request)
+            guarded(
+                request,
+                read=mutation is None and request.url.path.startswith("/admin/"),
+            )
             return fn()
         except HTTPException:
             raise

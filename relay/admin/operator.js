@@ -11,7 +11,7 @@ const opReason = { name: "reason", label: "Operator reason (required)", type: "t
 const opTabs = (items, selected, attr) => `<nav class="operator-tabs" aria-label="${attr === "view" ? "Relay Access views" : "License sections"}">${items.map(([id,label]) => `<button class="operator-tab ${selected === id ? "selected" : ""}" type="button" data-op-${attr}="${id}" ${selected === id ? 'aria-current="page"' : ""}>${label}</button>`).join("")}</nav>`;
 
 function opHistory(page) {
-  return (page.items || []).length ? `<ol class="operator-timeline">${page.items.map(row => `<li><div><strong>${esc(titleCase(row.action))}</strong>${badge(row.outcome)}</div><p>${esc(row.reason)}</p><small>${esc(opWhen(row.created_at))} · ${esc(row.actor === "owner" ? "Authenticated owner" : titleCase(row.actor))}</small><details><summary>Change evidence</summary><pre>${esc(JSON.stringify({ before: row.before, after: row.after }, null, 2))}</pre></details></li>`).join("")}</ol>` : emptyTable("No operator actions recorded yet.");
+  return (page.items || []).length ? `<ol class="operator-timeline">${page.items.map(row => `<li><div><strong>${esc(titleCase(row.action))}</strong>${badge(row.outcome)}</div><p>${esc(row.reason)}</p>${row.note ? `<p class="operator-note">${esc(row.note)}</p>` : ""}<small>${esc(opWhen(row.created_at))} · ${esc(row.actor === "owner" ? "Authenticated owner" : titleCase(row.actor))}</small><details><summary>Change evidence</summary><pre>${esc(JSON.stringify({ before: row.before, after: row.after }, null, 2))}</pre></details></li>`).join("")}</ol>` : emptyTable("No operator actions recorded yet.");
 }
 
 function opEmail(page) {
