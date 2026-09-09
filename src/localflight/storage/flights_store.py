@@ -11,6 +11,20 @@ from localflight.core.models import Flight
 from localflight.storage.config import config_path
 
 
+_SCHEDULE_FIELDS = frozenset({
+    "snapshot_id", "source_fetched_at", "provider_fetched_at", "coverage_from", "coverage_to",
+    "coverage_complete", "next_refresh_at", "refresh_after_s", "expires_at", "notices",
+    "cache_state", "provider", "generated_at", "managed",
+})
+
+
+def safe_schedule_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    # Provider errors and arbitrary diagnostic metadata must not become a new
+    # public data surface through saved snapshots or /api/fids/status.
+    from localflight.core.notices import sanitize_client_payload
+    return sanitize_client_payload({key: value for key, value in metadata.items() if key in _SCHEDULE_FIELDS})
+
+
 def _json_safe(obj: Any) -> Any:
     """
     Recursively convert objects into JSON-serializable forms.
@@ -82,6 +96,7 @@ def save_snapshot(
     flights: Iterable[Flight],
     *,
     at: Optional[datetime] = None,
+    metadata: Optional[dict[str, Any]] = None,
 ) -> Path:
     """
     Write one snapshot as JSON.
@@ -100,6 +115,11 @@ def save_snapshot(
         "count": 0,
         "flights": [],
     }
+
+    if metadata is not None:
+        payload["schedule_meta"] = safe_schedule_metadata(metadata)
+        payload["received_at"] = ts.isoformat()
+        payload["generated_at"] = metadata.get("source_fetched_at") or ""
 
     flights_list = list(flights)
     payload["count"] = len(flights_list)
@@ -127,6 +147,24 @@ def list_snapshots(airport_iata: str) -> List[Path]:
             if key in seen:
                 continue
             seen.add(key)
+            try:
+                stored = json.loads(path.read_text(encoding="utf-8"))
+                metadata = stored.get("schedule_meta") or {}
+                expires = metadata.get("expires_at")
+                if expires and datetime.fromisoformat(expires.replace("Z", "+00:00")) <= _utcnow():
+                    path.unlink(missing_ok=True)
+                    continue
+                if metadata.get("managed"):
+                    source_time = metadata.get("source_fetched_at")
+                    start = datetime.fromisoformat(source_time.replace("Z", "+00:00")) if source_time else _snapshot_timestamp(path)
+                    if (_utcnow() - start).total_seconds() > 86400:
+                        path.unlink(missing_ok=True)
+                        continue
+                    end = metadata.get("coverage_to")
+                    if end and datetime.fromisoformat(end.replace("Z", "+00:00")) <= _utcnow():
+                        continue
+            except (ValueError, OSError, TypeError):
+                continue
             snapshots.append(path)
 
     snapshots.sort(key=_snapshot_sort_key)
@@ -186,3 +224,20 @@ def _snapshot_sort_key(path: Path) -> tuple[datetime, str, str]:
         "1" if path.parent == canonical else "0",
         path.name,
     )
+
+
+def latest_schedule_metadata(airport_iata: str) -> dict[str, Any]:
+    path = load_latest_snapshot_path(airport_iata)
+    if path is None:
+        return {}
+    try:
+        meta = dict(json.loads(path.read_text(encoding="utf-8")).get("schedule_meta") or {})
+        if meta.get("managed"):
+            fetched = meta.get("source_fetched_at")
+            if not fetched:
+                meta["cache_state"] = "unknown"
+            elif (_utcnow() - datetime.fromisoformat(fetched.replace("Z", "+00:00"))).total_seconds() >= 900:
+                meta["cache_state"] = "stale"
+        return safe_schedule_metadata(meta)
+    except (OSError, ValueError, TypeError):
+        return {}

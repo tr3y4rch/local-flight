@@ -30,6 +30,8 @@ const launchPresentation = read("src/domain/launchPresentation.ts");
 const standaloneApi = read("src/api/standalone.ts");
 const relayOrigins = read("src/access/relayOrigins.ts");
 const companionApi = read("src/api/client.ts");
+const insetModal = read("src/components/InsetModalScaffold.tsx");
+const weatherPresentation = read("src/domain/weatherPresentation.ts");
 
 for (const tab of ["Board", "Radar", "History", "More"]) {
   assert.ok(navigator.includes(`<Tabs.Screen name="${tab}"`), `missing stable ${tab} tab`);
@@ -50,14 +52,28 @@ assert.match(nativeShortcutHost, /requireNativeViewManager/);
 assert.match(nativeShortcutHost, /Platform\.OS !== "ios" && Platform\.OS !== "android"/);
 assert.match(navigator, /openMobileMorePanel/);
 assert.match(navigator, /screen: action === "pairing" \? "More" : "Board"/);
-assert.match(navigator, /minHeight: 66 \+ insets\.bottom/);
-assert.match(navigator, /paddingBottom: Math\.max\(6, insets\.bottom\)/);
+assert.match(navigator, /height: compactTabVisualHeight \+ insets\.bottom/);
+assert.match(navigator, /paddingBottom: insets\.bottom/);
+assert.match(navigator, /window\.height < 650 \? 62 : 66/);
+assert.doesNotMatch(navigator, /opacity\.setValue\(0\)/, "Tab focus must never blank cached screen content");
+assert.match(navigator, /tabBarMinimizeBehavior: "onScrollDown"/);
+assert.match(navigator, /<RadarRoute[^>]+nativeScrollRoot/);
+assert.match(navigator, /<MoreRoute[^>]+nativeScrollRoot/);
+assert.match(insetModal, /useSafeAreaInsets/);
+assert.match(insetModal, /statusBarTranslucent: true, navigationBarTranslucent: true/);
+for (const modalSource of [more, history, radar]) {
+  assert.match(modalSource, /InsetModalScaffold/);
+  assert.doesNotMatch(modalSource, /SafeAreaView,?\n/);
+  assert.match(modalSource, /minHeight: (58|60)/);
+}
 
 for (const column of ["Time", "Flight", "Route", "Status", "Aircraft", "Gate"]) {
   assert.ok(board.includes(`>${column}<`), `wide Board missing ${column} column`);
 }
 assert.match(board, /updatedLabel/);
 assert.match(board, /connectionLabel/);
+assert.match(board, /weatherDisplayMode/);
+assert.match(board, /weatherModeContext/);
 assert.match(board, /const listRows = pinned \? rows\.filter\(\(row\) => !row\.pinned\) : rows/);
 assert.match(board, /data=\{listRows\}/);
 assert.match(board, /ListEmptyComponent=\{pinned \? null/);
@@ -85,6 +101,7 @@ assert.match(radar, /Aviation details/);
 assert.match(radar, /dismissRequestKey/);
 assert.match(radar, /RadarScopeV2/);
 assert.match(radar, /board_status/);
+assert.match(radar, /weatherSummaryForDisplay/);
 assert.match(radarScope, /groundData\?\.center/);
 assert.match(radarScope, /projectBlip\(blip, props\.data\.center/);
 assert.match(radarScope, /Airport surface ready/);
@@ -99,19 +116,24 @@ assert.match(history, /const \[draft, setDraft\]/);
 assert.match(history, /props\.onApplyFilters\(draft\)/);
 assert.match(history, /dismissRequestKey/);
 for (const section of [
-  "Airport & Connection",
+  "Airport and connection",
   "Appearance",
-  "Board & Display",
+  "Board and display",
   "Widgets & Live Activity",
-  "Host & Displays",
-  "Help & Privacy",
-  "Advanced diagnostics"
+  "Host and displays",
+  "Help and privacy",
+  "Troubleshooting"
 ]) {
   assert.ok(more.includes(section), `More missing ${section}`);
 }
 assert.match(more, /dismissRequestKey/);
 assert.doesNotMatch(more, /legacySettingsContent|hostSettingsContent|advancedSettingsContent|helpSettingsContent/);
 assert.match(more, /weatherDisplayMode/);
+for (const mode of ["passenger", "pilot", "vatsim"]) {
+  assert.match(weatherPresentation, new RegExp(`mode === "${mode}"|mode: MobileWeatherDisplayMode`));
+}
+assert.match(appScreens, /mode === "passenger"[\s\S]*mode === "pilot"/);
+assert.match(appScreens, /RAW METAR/);
 assert.match(more, /panel === "support"/);
 assert.ok(
   more.indexOf("styles.supportFooter") > more.indexOf("styles.setupButton"),
@@ -130,6 +152,8 @@ assert.match(settings, /liveActivityAppearance: "system"/);
 assert.match(more, /Home Screen widgets/);
 assert.match(more, /Lock Screen Live Activity/);
 assert.match(more, /touch and hold the flight to expand it/);
+assert.match(more, /Platform\.OS === "android" \? "Widgets" : "Widgets & Live Activity"/);
+assert.match(more, /const supportsLiveActivitySettings = Platform\.OS === "ios"/);
 assert.match(nativeActivity, /snapshot\.preferences\.liveActivityEnabled == true/);
 assert.match(nativeActivity, /pushType: nil/);
 assert.match(nativeActivity, /2 \* 60 \* 60/);

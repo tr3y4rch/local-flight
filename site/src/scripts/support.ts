@@ -1,4 +1,3 @@
-const supportRelay = "https://relay.beacontools.cc";
 export {};
 
 type SupportPayload = { ok?: boolean; detail?: string; message?: string };
@@ -20,7 +19,7 @@ async function responsePayload(response: Response): Promise<SupportPayload> {
   return response.json().catch(() => ({})) as Promise<SupportPayload>;
 }
 
-async function submitContact(formData: FormData): Promise<string> {
+async function submitContact(formData: FormData, supportRelay: string): Promise<string> {
   const data = Object.fromEntries(formData.entries());
   const response = await fetch(`${supportRelay}/v1/site/contact`, {
     method: "POST",
@@ -32,7 +31,7 @@ async function submitContact(formData: FormData): Promise<string> {
   return payload.message || "Your question was sent.";
 }
 
-async function submitBug(formData: FormData): Promise<string> {
+async function submitBug(formData: FormData, supportRelay: string): Promise<string> {
   const response = await fetch(`${supportRelay}/v1/site/bug-report`, {
     method: "POST",
     body: formData,
@@ -49,7 +48,9 @@ document.querySelectorAll<HTMLFormElement>("[data-support-form]").forEach((form)
     const formData = new FormData(form);
     disableForm(form, true);
     try {
-      const message = form.dataset.supportForm === "contact" ? await submitContact(formData) : await submitBug(formData);
+      const origin = form.dataset.relayOrigin;
+      if (!origin) throw new Error("This form is unavailable. Please reload the page.");
+      const message = form.dataset.supportForm === "contact" ? await submitContact(formData, origin) : await submitBug(formData, origin);
       form.reset();
       setStatus(form, message, "ok");
     } catch (error) {

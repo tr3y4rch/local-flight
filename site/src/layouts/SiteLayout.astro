@@ -10,6 +10,7 @@ interface Props {
   active?: NavKey;
   bodyClass?: string;
   image?: string;
+  noindex?: boolean;
 }
 
 const {
@@ -18,6 +19,7 @@ const {
   active = "home",
   bodyClass = "",
   image = "/assets/beacon-tools-icon-512.png",
+  noindex = false,
 } = Astro.props;
 const pageTitle = title === "Beacon Tools" ? title : `${title} | Beacon Tools`;
 const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site) : Astro.url;
@@ -33,6 +35,8 @@ const socialImage = Astro.site ? new URL(image, Astro.site) : image;
     <meta name="color-scheme" content="dark light" />
     <title>{pageTitle}</title>
     <meta name="description" content={description} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    {noindex && <meta name="referrer" content="no-referrer" />}
     <link rel="canonical" href={canonical} />
     <meta property="og:type" content="website" />
     <meta property="og:title" content={pageTitle} />

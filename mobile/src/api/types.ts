@@ -12,7 +12,19 @@ export type StandalonePolicy = {
   source?: "real" | "virtual";
 };
 
-export type MobileBoardResponse = {
+export type ScheduleFreshness = {
+  snapshot_id?: string;
+  source_fetched_at?: string;
+  provider_fetched_at?: Record<string, string>;
+  coverage_from?: string;
+  coverage_to?: string;
+  coverage_complete?: boolean;
+  next_refresh_at?: string;
+  expires_at?: string;
+  notices?: ClientNotice[];
+};
+
+export type MobileBoardResponse = ScheduleFreshness & {
   schema_version: "mobile-board-v2" | string;
   source?: "real" | "virtual";
   generated_at: string;
@@ -532,6 +544,7 @@ export type FlightIntel = {
 };
 
 export type FidsRow = {
+  field_sources?: Record<string, { provider: string; fetched_at: string; expires_at: string }>;
   id: string;
   view: FlightView | string;
   display_time: string;

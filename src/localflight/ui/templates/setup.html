@@ -690,11 +690,11 @@
         <div class="panel-head">
         <div>
           <h2>Direct provider keys</h2>
-          <p class="sub">Only needed for Bring Your Own Keys. Keep schedule and radar private by entering your own providers here: AeroDataBox or AviationStack for schedules, ADS-B Exchange on RapidAPI for radar, and OpenSky as an optional fallback.</p>
+          <p class="sub">Only needed for Use Your Own Keys. Either AeroDataBox or AviationStack can run schedules alone. Add both for sparse fill and failover; radar providers remain optional.</p>
         </div>
       </div>
       <div class="provider-path" aria-label="Direct provider data path">
-        <span><strong>Schedules</strong>AeroDataBox primary, AviationStack fill or fallback.</span>
+        <span><strong>Schedules</strong>Either key works alone; both add fill and failover.</span>
         <span><strong>Radar</strong>ADS-B Exchange via RapidAPI when you provide a key.</span>
         <span><strong>Fallback</strong>OpenSky positions only when configured or available.</span>
         <span><strong>Privacy</strong>Provider keys stay on this server install.</span>

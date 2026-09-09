@@ -161,9 +161,7 @@ def _fill_ops_locations(target: Dict[str, Any], source: Dict[str, Any]) -> int:
 
 def schedule_records_need_fill(records: list[Dict[str, Any]]) -> bool:
     if not records:
-        return True
-    if len(records) < 8:
-        return True
+        return False
     sample = records[: min(20, len(records))]
     missing_identity = sum(1 for row in sample if not _present(row.get("callsign") or row.get("flight_number")))
     missing_route_or_time = sum(
@@ -249,3 +247,54 @@ def merge_schedule_records(
         "conflict_count": conflict_count,
         "conflict_fields": conflict_fields,
     }
+
+
+def enrich_schedule_records(
+    primary_records: list[Dict[str, Any]], fill_records: list[Dict[str, Any]], *,
+    fetched_at: str, now: Optional[datetime] = None,
+) -> tuple[list[Dict[str, Any]], Dict[str, Any]]:
+    """Fill absent fields on an unambiguous movement; never change primary facts."""
+    current = now or datetime.now(timezone.utc)
+    try:
+        fetched = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+        age = (current - fetched).total_seconds()
+    except (ValueError, TypeError):
+        age = float("inf")
+    merged = [{**row, "field_sources": dict(row.get("field_sources") or {})} for row in primary_records]
+    count = 0
+    if not 0 <= age < 3600:
+        return merged, {"filled_fields": 0, "enrichment_source": "aviationstack"}
+    index: dict[tuple, list[int]] = {}
+    for i, row in enumerate(merged):
+        # Route and published schedule are required; estimates are not identity.
+        if not row.get("scheduled") or not all(_route_key(row)):
+            continue
+        for key in _identity_keys(row):
+            index.setdefault(key, []).append(i)
+    matched: dict[int, list[dict]] = {}
+    for source in fill_records:
+        if not source.get("scheduled") or not all(_route_key(source)):
+            continue
+        candidates = {i for key in _identity_keys(source) for i in index.get(key, [])}
+        if len(candidates) == 1:
+            matched.setdefault(candidates.pop(), []).append(source)
+    fields = ("aircraft_type", "aircraft_type_full", "aircraft_registration", "airline_name")
+    if age < 900:
+        fields += ("gate", "terminal")
+    for i, sources in matched.items():
+        for name in fields:
+            if _present(merged[i].get(name)):
+                continue
+            values = {_text(row.get(name)) for row in sources if _present(row.get(name))}
+            if len(values) != 1:
+                continue
+            merged[i][name] = values.pop()
+            merged[i].setdefault("field_sources", {})[name] = {
+                "provider": "aviationstack", "fetched_at": fetched_at,
+                "expires_at": datetime.fromtimestamp(fetched.timestamp() + (900 if name in {"gate", "terminal"} else 3600), timezone.utc).isoformat(),
+            }
+            if name in {"gate", "terminal"}:
+                merged[i][name + "_source"] = "aviationstack.enrichment"
+                merged[i][name + "_confidence"] = "medium"
+            count += 1
+    return merged, {"filled_fields": count, "enrichment_source": "aviationstack"}

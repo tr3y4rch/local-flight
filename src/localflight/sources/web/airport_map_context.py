@@ -306,7 +306,7 @@ def build_map_context_payload(
         "cache_state": cache_state,
         "provider": AIRPORT_MAP_PROVIDER,
         "schema_version": AIRPORT_MAP_SCHEMA_VERSION,
-        "attribution": {"text": "OpenStreetMap contributors", "url": AIRPORT_MAP_LICENSE_URL},
+        "attribution": {"text": AIRPORT_MAP_ATTRIBUTION, "url": AIRPORT_MAP_LICENSE_URL},
         "center": {
             "lat": float(center_lat),
             "lon": float(center_lon),

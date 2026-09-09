@@ -28,6 +28,18 @@ for (const suffix of ["small", "medium", "large"]) {
 }
 assert.doesNotMatch(products, /\$|CHF|EUR|USD|displayPrice:\s*["']/i, "Product prices must come from the store");
 assert.match(hook, /displayPrice:\s*product\.displayPrice/);
+assert.match(hook, /productStatusAndroid/);
+assert.match(hook, /no-offers-available/);
+assert.match(hook, /not-found/);
+assert.match(hook, /supportCatalogDiagnostic/);
+assert.match(hook, /loadedCount/);
+assert.match(hook, /missingCount/);
+assert.match(hook, /views\.length !== SUPPORT_PRODUCT_IDS\.length/);
+assert.match(hook, /getSupportPurchaseReadiness/);
+assert.match(hook, /result\.purchases_enabled/);
+assert.doesNotMatch(hook, /if \(!purchasesEnabled\) return;/, "A new-purchase hold must not block unfinished purchase recovery");
+assert.match(hook, /!purchasesEnabled \|\| !iap\.connected/);
+assert.match(hook, /!verificationReady/);
 assert.match(hook, /verifySupportPurchase\(/);
 assert.match(hook, /finishTransaction\(\{ purchase, isConsumable: true \}\)/);
 assert.ok(
@@ -36,14 +48,17 @@ assert.ok(
 );
 assert.match(hook, /getAvailablePurchases\(/, "Unfinished purchases must be recovered after launch");
 assert.match(api, /\/v1\/mobile\/iap\/verify/);
+assert.match(api, /\/v1\/mobile\/iap\/status/);
 assert.match(api, /await delay\(1200\)/, "Relay verification gets one bounded retry");
 assert.match(api, /status == null \|\| status >= 500/, "Rate limits must not trigger an immediate retry");
 assert.doesNotMatch([hook, api, screens].join("\n"), /buymeacoffee|patreon|paypal/i);
-assert.match(screens, /Nothing is locked|unlocks no features/i);
-assert.match(screens, /Local Flight never receives card details/);
-assert.match(supportContent, /Nothing is locked or changed/);
-assert.match(supportContent, /Local Flight never receives card details/);
-assert.match(more, /Optional one-time support · unlocks nothing/);
+assert.match(screens, /Every app feature stays the same|unlocks no features/i);
+assert.match(screens, /Apple or Google handles payment details/);
+assert.match(supportContent, /Tips unlock nothing and do not include Relay Access/);
+assert.match(supportContent, /Apple or Google handles payment details/);
+assert.match(supportContent, /Purchases on hold/);
+assert.match(supportContent, /Existing purchases can still be checked/);
+assert.match(more, /Optional one-time support\. No features are locked\./);
 assert.ok(
   more.indexOf("styles.supportFooter") > more.indexOf("styles.setupButton"),
   "V2 support must remain a quiet final setting instead of a primary app feature."
@@ -80,6 +95,11 @@ assert.doesNotMatch(screens, /Store price:|label="Recovery"/, "The support sheet
 assert.match(relay, /CREATE TABLE IF NOT EXISTS iap_transactions/);
 assert.match(relay, /transaction_hash\s+TEXT PRIMARY KEY/);
 assert.match(relay, /@app\.post\("\/v1\/mobile\/iap\/verify"\)/);
+assert.match(relay, /@app\.get\("\/v1\/mobile\/iap\/status"\)/);
+assert.match(relay, /_mobile_iap_verification_ready/);
+assert.match(relay, /RELAY_SUPPORT_PURCHASES_ENABLED/);
+const verificationRoute = relay.slice(relay.indexOf('def verify_mobile_iap('), relay.indexOf('\n@app.', relay.indexOf('def verify_mobile_iap(')));
+assert.doesNotMatch(verificationRoute, /_support_purchases_enabled\(/, "Confirmed purchases remain recoverable during a sales hold");
 assert.match(relay, /_verify_apple_iap/);
 assert.match(relay, /_verify_google_iap/);
 assert.doesNotMatch(

@@ -215,13 +215,17 @@ async function ensureHistoryMigrations(database: SQLite.SQLiteDatabase): Promise
     ["codeshares_json", "TEXT"],
     ["sold_as_json", "TEXT"],
     ["operating_callsign", "TEXT"],
-    ["identity_source", "TEXT"]
+    ["identity_source", "TEXT"],
+    ["expires_at", "TEXT"]
   ];
   for (const [name, definition] of additions) {
     if (!existing.has(name)) {
       await database.runAsync(`ALTER TABLE standalone_fids_history ADD COLUMN ${name} ${definition}`);
     }
   }
+  await database.runAsync(`UPDATE standalone_fids_history
+    SET expires_at=strftime('%Y-%m-%dT%H:%M:%fZ', COALESCE(first_seen_ts, snapshot_ts), '+7 days')
+    WHERE expires_at IS NULL AND COALESCE(airport_key, '') NOT LIKE '%:VIRTUAL'`);
   await database.runAsync(`
     UPDATE standalone_fids_history
     SET event_time = COALESCE(event_time, sched_time, snapshot_ts),
@@ -513,6 +517,7 @@ function rowToInsert(
 }
 
 async function pruneHistory(database: SQLite.SQLiteDatabase): Promise<void> {
+  await database.runAsync("DELETE FROM standalone_fids_history WHERE expires_at IS NOT NULL AND expires_at <= ?", nowIso());
   await database.runAsync("DELETE FROM standalone_fids_history WHERE COALESCE(event_time, last_seen_ts, snapshot_ts) < ?", cutoffIso(30));
   await database.runAsync(`
     DELETE FROM standalone_fids_history
@@ -528,7 +533,8 @@ async function storeStandaloneFidsRowsNow(
   airport: StandaloneAirport,
   rows: FidsRow[],
   snapshotTs = nowIso(),
-  source: StandaloneFlightSource = "real"
+  source: StandaloneFlightSource = "real",
+  expiresAt?: string
 ): Promise<void> {
   const key = airportKey(airport, source);
   historyDiagnostics = {
@@ -538,8 +544,11 @@ async function storeStandaloneFidsRowsNow(
     last_store_rows: rows.length,
     last_store_error: null
   };
-  if (!rows.length) return;
   const database = await db();
+  await pruneHistory(database);
+  if (!rows.length || !snapshotTs) return;
+  const expiry = source === "virtual" ? null : expiresAt || new Date(Date.parse(snapshotTs) + 7 * 86400_000).toISOString();
+  if (expiry && expiry <= nowIso()) return;
   await database.withExclusiveTransactionAsync(async (txn) => {
     for (const row of rows) {
       const stored = rowToInsert(airport, row, snapshotTs, source);
@@ -556,7 +565,8 @@ async function storeStandaloneFidsRowsNow(
           snapshot_ts = excluded.snapshot_ts,
           event_time = COALESCE(excluded.event_time, standalone_fids_history.event_time),
           last_seen_ts = excluded.last_seen_ts,
-          observation_count = COALESCE(standalone_fids_history.observation_count, 1) + 1,
+          observation_count = COALESCE(standalone_fids_history.observation_count, 1)
+            + CASE WHEN excluded.snapshot_ts = standalone_fids_history.snapshot_ts THEN 0 ELSE 1 END,
           callsign = COALESCE(excluded.callsign, standalone_fids_history.callsign),
           flight_number = COALESCE(excluded.flight_number, standalone_fids_history.flight_number),
           airline_iata = COALESCE(excluded.airline_iata, standalone_fids_history.airline_iata),
@@ -573,6 +583,7 @@ async function storeStandaloneFidsRowsNow(
           operating_callsign = COALESCE(excluded.operating_callsign, standalone_fids_history.operating_callsign),
           identity_source = COALESCE(excluded.identity_source, standalone_fids_history.identity_source),
           row_json = excluded.row_json
+        WHERE excluded.snapshot_ts >= standalone_fids_history.snapshot_ts
         `,
         stored.movementKey,
         stored.airportKey,
@@ -599,6 +610,10 @@ async function storeStandaloneFidsRowsNow(
         stored.identitySource,
         stored.rowJson
       );
+      if (expiry) await txn.runAsync(
+        "UPDATE standalone_fids_history SET expires_at=MIN(COALESCE(expires_at, ?), ?) WHERE movement_key=?",
+        expiry, expiry, stored.movementKey
+      );
     }
   });
   await pruneHistory(database);
@@ -608,9 +623,10 @@ export async function storeStandaloneFidsRows(
   airport: StandaloneAirport,
   rows: FidsRow[],
   snapshotTs = nowIso(),
-  source: StandaloneFlightSource = "real"
+  source: StandaloneFlightSource = "real",
+  expiresAt?: string
 ): Promise<void> {
-  return enqueueHistory(() => storeStandaloneFidsRowsNow(airport, rows, snapshotTs, source)).catch((exc) => {
+  return enqueueHistory(() => storeStandaloneFidsRowsNow(airport, rows, snapshotTs, source, expiresAt)).catch((exc) => {
     historyDiagnostics = {
       ...historyDiagnostics,
       airport_key: airportKey(airport, source),
@@ -701,6 +717,7 @@ async function getStandaloneHistoryNow(
   source: StandaloneFlightSource = "real"
 ): Promise<HistoryResponse> {
   const database = await db();
+  await pruneHistory(database);
   const key = airportKey(airport, source);
   const since = new Date(Date.now() - Math.max(1, hours) * 60 * 60 * 1000).toISOString();
   const upper = upperBoundIso();

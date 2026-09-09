@@ -2555,6 +2555,25 @@ Board connection: Local Flight server -> assigned Matrix settings -> live displa
     }
   }
 
+  function saveGeneratedMainPy(content) {
+    const blob = new Blob([content], {type: "text/x-python;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "main.py";
+    link.hidden = true;
+    document.body.appendChild(link);
+    link.click();
+
+    // Safari may not start reading a Blob URL until after the click handler
+    // returns. Keep the link and URL alive briefly instead of revoking them
+    // during the same task, which can silently cancel the download.
+    window.setTimeout(() => {
+      link.remove();
+      URL.revokeObjectURL(url);
+    }, 1000);
+  }
+
   // ── Download main.py ────────────────────────────────────────────────────
   window.downloadMainPy = async function() {
     const state = validateDownloadSetup();
@@ -2590,13 +2609,7 @@ Board connection: Local Flight server -> assigned Matrix settings -> live displa
       }
       const content = await response.text();
       validateDownloadedMainPy(content);
-      const blob = new Blob([content], {type: "text/x-python"});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "main.py";
-      a.click();
-      URL.revokeObjectURL(url);
+      saveGeneratedMainPy(content);
       if (downloadHint) {
         downloadHint.textContent = "Downloaded main.py. Save it to the MicroPython device as main.py.";
         downloadHint.style.color = "#00e84a";

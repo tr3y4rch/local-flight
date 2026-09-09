@@ -79,8 +79,8 @@ class LocalStripeAdapter(StripeAdapter):
         success_url: str,
         cancel_url: str,
     ) -> StripeCheckout:
-        assert success_url.startswith("https://beacontools.cc/")
-        assert cancel_url.startswith("https://beacontools.cc/")
+        assert success_url.startswith("https://staging.beacontools.cc/")
+        assert cancel_url.startswith("https://staging.beacontools.cc/")
         session_id = f"cs_test_{checkout_ref}"
         self.session_ids[checkout_ref] = session_id
         return StripeCheckout(
@@ -119,7 +119,7 @@ def access_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AccessHar
         "RELAY_ACCESS_HASH_SECRET_ID": "test-hash-v1",
         "RELAY_ACCESS_KEY_SECRET_ID": "test-v1",
         "RELAY_ACCESS_ENCRYPTION_SECRET_ID": "test-encryption-v1",
-        "RELAY_ACCESS_SITE_URL": "https://beacontools.cc",
+        "RELAY_ACCESS_SITE_URL": "https://staging.beacontools.cc",
         "RELAY_ACCESS_SALES_ENABLED": "1",
         "RELAY_ACCESS_SCHEDULE_ENABLED": "1",
         "RELAY_ACCESS_AERODATABOX_ENABLED": "1",

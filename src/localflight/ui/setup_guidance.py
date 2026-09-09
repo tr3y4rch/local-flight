@@ -55,8 +55,8 @@ SOURCE_OPTIONS: tuple[dict[str, str], ...] = (
         "title": "Bring Your Own Keys",
         "short_title": "BYOK",
         "icon": "\U0001F511",  # 🔑
-        "body": "Use your own supported provider keys on this device. Your provider account and usage limits apply.",
-        "note": "Use your own keys is selected. The next step collects AeroDataBox or AviationStack for schedules, plus optional ADS-B Exchange radar.",
+        "body": "Use your own provider accounts when you want your own quotas and direct real-data keys on this device.",
+        "note": "Use your own keys is selected. Either AeroDataBox or AviationStack can run schedules alone; adding both enables sparse fill and failover. ADS-B Exchange radar is optional.",
         "finish_label": "Your own provider keys",
     },
     {

@@ -1333,21 +1333,37 @@ export function WeatherDetailsSheet({
               <Text style={styles.sheetEmpty}>{weatherModeOption(mode).detail}</Text>
             </FilterSection>
 
-            <InfoLine label="Condition" value={weatherCondition(metar)} />
-            <InfoLine label="Temperature / dewpoint" value={`${metarTemperature(metar)} / ${metarDewpoint(metar)}`} />
-            <InfoLine label="Wind" value={metarWind(metar)} />
-            <InfoLine label="Visibility" value={metarVisibility(metar)} />
-            <InfoLine label="Ceiling / clouds" value={metarClouds(metar)} />
-            <InfoLine label="QNH" value={metarQnh(metar)} />
-            <InfoLine label="Hazards" value={metarHazards(metar)} />
-            <InfoLine label="Board wording" value={weatherSummaryForMode(metar, mode)} />
-            <InfoLine label="Source" value={metarSource(metar)} />
-            <InfoLine label="Airport" value={[airportCode, airportName].filter(Boolean).join(" · ") || "Not configured"} />
-
-            <View style={styles.weatherSheetRawCard}>
-              <Text style={styles.weatherSheetRawLabel}>RAW METAR</Text>
-              <Text style={styles.weatherSheetRawText}>{raw || "No METAR report is available yet."}</Text>
-            </View>
+            {mode === "passenger" ? (
+              <>
+                <InfoLine label="At a glance" value={weatherSummaryForMode(metar, mode)} />
+                <InfoLine label="Temperature" value={metarTemperature(metar)} />
+                <InfoLine label="Wind" value={metarWind(metar)} />
+                <InfoLine label="Visibility" value={metarVisibility(metar)} />
+                {metarHazards(metar) !== "None reported" ? <InfoLine label="Reported weather" value={metarHazards(metar)} /> : null}
+              </>
+            ) : mode === "pilot" ? (
+              <>
+                <InfoLine label="Flight category" value={category} />
+                <InfoLine label="Condition" value={weatherCondition(metar)} />
+                <InfoLine label="Temperature / dewpoint" value={`${metarTemperature(metar)} / ${metarDewpoint(metar)}`} />
+                <InfoLine label="Wind" value={metarWind(metar)} />
+                <InfoLine label="Visibility" value={metarVisibility(metar)} />
+                <InfoLine label="Ceiling / clouds" value={metarClouds(metar)} />
+                <InfoLine label="QNH" value={metarQnh(metar)} />
+                <InfoLine label="Hazards" value={metarHazards(metar)} />
+                <InfoLine label="Source" value={metarSource(metar)} />
+              </>
+            ) : (
+              <>
+                <View style={styles.weatherSheetRawCard}>
+                  <Text style={styles.weatherSheetRawLabel}>RAW METAR</Text>
+                  <Text style={styles.weatherSheetRawText}>{raw || "No METAR report is available yet."}</Text>
+                </View>
+                <InfoLine label="Flight category" value={category} />
+                <InfoLine label="Station" value={[airportCode, airportName].filter(Boolean).join(" · ") || "Not configured"} />
+                <InfoLine label="Source" value={metarSource(metar)} />
+              </>
+            )}
             <Text style={styles.sheetEmpty}>Weather is informational only and must not be used for navigation or safety decisions.</Text>
           </ScrollView>
         </View>
@@ -2364,6 +2380,27 @@ function radarDisplayBlips(blips: RadarBlip[], radiusNm: RadarRadius): RadarBlip
   return blips.filter((blip) => radarBlipVisibleForRadius(blip, radiusNm));
 }
 
+function radarVisibleAttributions(
+  groundData: RadarMapResponse | null,
+  layers: MobileRadarDrawingLayers
+): Array<{ text: string; url?: string }> {
+  const entries = Array.isArray(groundData?.attribution) ? groundData.attribution : [];
+  const visible = entries.filter((entry) => {
+    const value = `${entry.text || ""} ${entry.url || ""}`.toLowerCase();
+    const terrainCredit = /terrain|elevation|joerd/.test(value);
+    return terrainCredit ? layers.terrain : (layers.surface || layers.runways);
+  });
+  const seen = new Set<string>();
+  return visible.flatMap((entry) => {
+    let text = String(entry.text || "Data source").trim();
+    if (/^openstreetmap contributors$/i.test(text)) text = "© OpenStreetMap contributors";
+    const key = `${text}|${entry.url || ""}`;
+    if (!text || seen.has(key)) return [];
+    seen.add(key);
+    return [{ text, url: entry.url }];
+  });
+}
+
 export function RadarScreen({
   data,
   groundData,
@@ -2416,6 +2453,7 @@ export function RadarScreen({
   const effectiveLayerCount = drawingLayers;
   const groundFeatureCount = radarGroundFeatureCount(groundData, effectiveLayerCount);
   const groundUnavailable = radarGroundUnavailable(groundData, groundError);
+  const groundAttributions = radarVisibleAttributions(groundData, effectiveLayerCount);
 
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [, setTick] = useState(0);
@@ -2477,6 +2515,21 @@ export function RadarScreen({
             onOpenDetail={onOpenDetail}
             compact={compact}
           />
+
+          {groundAttributions.length ? (
+            <View style={styles.radarAttributionRow} accessibilityLabel={`Map data attribution: ${groundAttributions.map((entry) => entry.text).join(", ")}`}>
+              {groundAttributions.map((entry, index) => (
+                <Pressable
+                  key={`${entry.text}-${entry.url || index}`}
+                  disabled={!entry.url}
+                  onPress={() => entry.url ? void Linking.openURL(entry.url) : undefined}
+                  {...accessibleButton({ label: `${entry.text}. Open data-source information`, disabled: !entry.url })}
+                >
+                  <Text style={styles.radarAttributionText}>{entry.text}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
 
           <RadarLayerControls
             layers={drawingLayers}
@@ -4951,6 +5004,7 @@ export function CompanionSetupScreen({
   pairingUrl = "",
   pairingNonce = 0,
   pairingExpectedServerFingerprint = "",
+  pairingRelayUrl = "",
   initialDiagnosticsMode,
   initialRelayActivationGrant = "",
   onPairingLoaded,
@@ -4971,6 +5025,7 @@ export function CompanionSetupScreen({
   pairingUrl?: string;
   pairingNonce?: number;
   pairingExpectedServerFingerprint?: string;
+  pairingRelayUrl?: string;
   initialDiagnosticsMode: MobileDiagnosticsMode;
   initialRelayActivationGrant?: string;
   onPairingLoaded?: (pairing: PairingLinkResult) => void;
@@ -7435,7 +7490,9 @@ function SupportPurchaseSheet({
   controller: SupportPurchaseController;
   onClose: () => void;
 }) {
-  const catalogReady = controller.connected && controller.products.length === SUPPORT_PRODUCT_IDS.length;
+  const catalogReady = controller.connected
+    && controller.verificationReady
+    && controller.products.length === SUPPORT_PRODUCT_IDS.length;
   const showStoreStatus = controller.status !== "ready";
   const canRetry = controller.status === "error" || controller.status === "unavailable";
   return (
@@ -7471,12 +7528,14 @@ function SupportPurchaseSheet({
               <View style={styles.supportHeroCopy}>
                 <Text style={styles.supportHeroTitle}>Optional, one-time support.</Text>
                 <Text style={styles.supportHeroBody}>
-                  Choose an amount below. Nothing is locked, and the store handles the payment.
+                  {controller.purchasesEnabled
+                    ? "Choose a one-time amount if you would like to help. Every app feature stays the same. Tips do not include Relay Access."
+                    : "Support purchases are temporarily unavailable. Your existing access is unchanged."}
                 </Text>
               </View>
             </View>
 
-            {showStoreStatus ? <InfoLine label="Store" value={controller.message} /> : null}
+            {showStoreStatus ? <InfoLine label="Support status" value={controller.message} /> : null}
 
             {catalogReady ? controller.products.map((product) => (
               <View key={product.id} style={styles.settingsCard}>
@@ -7500,8 +7559,8 @@ function SupportPurchaseSheet({
             )) : (
               <View style={styles.settingsCard}>
                 <InfoLine
-                  label="Purchases unavailable"
-                  value="Support purchases are not available right now. Nothing in the app depends on them."
+                  label={controller.purchasesEnabled ? "Purchases unavailable" : "Purchases on hold"}
+                  value="New support purchases are unavailable. Existing purchases can still be checked."
                 />
               </View>
             )}
@@ -7518,7 +7577,9 @@ function SupportPurchaseSheet({
               </Pressable>
             ) : null}
 
-            <Text style={styles.sheetEmpty}>Apple or Google handles payment. Local Flight never receives card details.</Text>
+            <Text style={styles.sheetEmpty}>{controller.purchasesEnabled
+              ? "Apple or Google handles payment details. Local Flight receives only the confirmation needed to complete the purchase."
+              : "No App Store or Google Play purchase can be started while this hold is active."}</Text>
           </ScrollView>
         </View>
       </View>

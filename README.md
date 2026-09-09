@@ -16,13 +16,16 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 ## Status
 
-`0.6.0` is the current Local Flight release line for desktop, Linux server, Raspberry Pi, relay compatibility, and mobile testing:
+`0.6.1` is the current source and mobile-testing candidate. Public desktop,
+Linux server, and Raspberry Pi downloads remain at `0.6.0` until replacement
+packages pass validation. Read the [candidate release notes](docs/release-notes-0.6.1.md).
+The platform family includes:
 
 - Native desktop app for Windows, Apple silicon and Intel Macs, and 64-bit Linux, with four switchable FIDS board styles (Classic / PAX / VATSIM / Nerd)
 - Portable Linux AppImages plus integrated Ubuntu/Debian desktop and headless-server packages for x86-64 and ARM64
 - LAN browser UI that mirrors the native Qt shell — same nav, same tokens, same components — with an automatic mobile view for phones and a compact layout for 7" Raspberry Pi screens
 - Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
-- Mobile app with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. iOS build 13 and Android versionCode 16 use the same `0.6.0` feature contract during store testing.
+- Mobile app with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. The `0.6.1` candidate reserves iOS build 14 and Android versionCode 17; build processing and tester availability are separate steps.
 - Interstate 75 W / HUB75 Matrix client and preview tools
 - Beacon Tools public site and privacy page for release/App Store/TestFlight metadata
 
@@ -142,7 +145,10 @@ The Pi installer asks how the Pi should run and defaults to headless.
 
 ### Mobile App
 
-Version `0.6.0` (iOS build 13 and Android versionCode 16) is in TestFlight and Google Play internal testing. Public availability and tester access are listed at [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile). The commands below are for source development, not ordinary installation.
+Version `0.6.1` (iOS build 14 and Android versionCode 17) is the next testing target,
+not a claim that the build is already available. Tester access is listed at
+[beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile).
+The commands below are for source development, not ordinary installation.
 
 ```bash
 cd mobile

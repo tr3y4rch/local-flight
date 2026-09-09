@@ -827,7 +827,13 @@ def _surface_from_map(radar_map: dict[str, Any], radar_payload: dict[str, Any]) 
     surface = radar_map.get("surface_features") if isinstance(radar_map.get("surface_features"), list) else []
     sources = radar_map.get("sources") if isinstance(radar_map.get("sources"), dict) else {}
     attribution_list = radar_map.get("attribution") if isinstance(radar_map.get("attribution"), list) else []
-    attribution = attribution_list[0] if attribution_list and isinstance(attribution_list[0], dict) else {}
+    attribution_entries = [item for item in attribution_list if isinstance(item, dict) and (item.get("text") or item.get("url"))]
+    attribution_texts = list(dict.fromkeys(str(item.get("text") or "Data source").strip() for item in attribution_entries))
+    attribution_urls = list(dict.fromkeys(str(item.get("url") or "").strip() for item in attribution_entries if item.get("url")))
+    attribution = {
+        "text": " · ".join(text for text in attribution_texts if text),
+        "url": attribution_urls[0] if len(attribution_urls) == 1 else "https://beacontools.cc/data-sources/",
+    }
     return {
         "provider": sources.get("surface") or "radar-map",
         "cache_state": sources.get("surface_cache_state") or "map",

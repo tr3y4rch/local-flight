@@ -9,6 +9,7 @@ import { accessibleButton, useReducedMotionPreference } from "../accessibility/m
 import { BrandWordmark } from "../components/Brand";
 import { V2Text as Text } from "../components/V2Text";
 import { LocalFlightIcon } from "../theme/icons";
+import type { MobileWeatherDisplayMode } from "../storage/settings";
 import { BOARD_FONT_FAMILY, type MobileAppearance } from "../theme/tokens";
 import { useMobileTheme } from "../theme/runtime";
 import { boardRowsViewModel, type BoardRowViewModel } from "./boardModel";
@@ -23,6 +24,7 @@ export type DisplayScreenV2Props = {
   localTime: string;
   updatedLabel: string;
   metar: Metar | null;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   pinnedCallsign: string;
   pageSeconds?: number;
   entryReason: "manual" | "rotation" | "deep-link";
@@ -53,6 +55,7 @@ export function DisplayScreenV2({
   localTime,
   updatedLabel,
   metar,
+  weatherDisplayMode,
   pinnedCallsign,
   pageSeconds = 8,
   entryReason,
@@ -87,7 +90,8 @@ export function DisplayScreenV2({
     location: airportLocation,
     localTime,
     freshnessLabel: updatedLabel,
-    metar
+    metar,
+    weatherDisplayMode
   });
 
   useEffect(() => {

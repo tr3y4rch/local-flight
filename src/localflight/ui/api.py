@@ -586,6 +586,17 @@ def _dict_to_flight(d: dict) -> Flight:
         except Exception:
             return None
 
+    d = dict(d)
+    for name, evidence in (d.get("field_sources") or {}).items():
+        if not isinstance(evidence, dict):
+            continue
+        expiry = _dt(evidence.get("expires_at"))
+        if expiry and expiry.tzinfo and expiry <= datetime.now(timezone.utc):
+            if name in {"gate", "terminal", "aircraft_type", "aircraft_type_full", "aircraft_registration", "airline_name"}:
+                d[name] = None
+                if name == "airline_name":
+                    d["airline"] = {**(d.get("airline") or {}), "name": None}
+
     def _airport(x: Optional[dict]) -> Optional[AirportRef]:
         if not x:
             return None
@@ -729,6 +740,11 @@ def _dict_to_flight(d: dict) -> Flight:
         source=d.get("source"),
         enriched_by=d.get("enriched_by"),
         updated_at=_dt(d.get("updated_at")),
+        provider_status=d.get("provider_status"),
+        movement_quality=tuple(d.get("movement_quality") or ()),
+        status_uncertain=bool(d.get("status_uncertain")),
+        runway_time=_dt(d.get("runway_time")),
+        field_sources=dict(d.get("field_sources") or {}),
     )
 
 
@@ -781,6 +797,7 @@ class ConfigPatch(BaseModel):
 
 
 class FIDSRowOut(BaseModel):
+    field_sources: Dict[str, Any] = Field(default_factory=dict)
     id:             str
     view:           str
     display_time:   str
@@ -867,12 +884,13 @@ def _fids_rows_from_flights(
         refresh_seconds=cfg.refresh_seconds,
         flights=filtered,
         last_refreshed=last_refreshed,
-        reference_now=last_refreshed,
+        reference_now=datetime.now(timezone.utc),
         source_status=source_status or cfg.source,
     )
     rows = list(ctx["rows"])[:limit]
     return [
         FIDSRowOut(
+            field_sources=next((f.field_sources for f in filtered if f.callsign == r.callsign), {}),
             id=r.id, view=r.view, display_time=r.display_time,
             flight_display=r.flight_display, airline_display=r.airline_display,
             codeshare_display=r.codeshare_display, route_display=r.route_display,
@@ -944,7 +962,16 @@ def _fids_rows_from_flights(
 @router.get("/api/health")
 def api_health() -> Dict[str, Any]:
     payload = asdict(load_state())
-    notices = []
+    from localflight.storage.flights_store import latest_schedule_metadata
+    metadata = latest_schedule_metadata(load_config().airport_iata)
+    if metadata:
+        payload["schedule"] = metadata
+        payload["cache_state"] = metadata.get("cache_state") or payload.get("cache_state")
+    notices = list(metadata.get("notices") or [])
+    if payload.get("cache_state") in {"stale", "unknown"}:
+        notices.append(make_notice("scheduler.cached_data", "warning",
+            "Showing previously fetched flight information.",
+            next_step="Local Flight checks for updates automatically."))
     if not payload.get("last_success_utc"):
         retry_after = payload.get("retry_after_s")
         notices.append(
@@ -1091,6 +1118,14 @@ def api_fids(
         last_refreshed=last_refreshed,
         source_status=cfg.source,
     )
+
+
+@router.get("/api/fids/status")
+def api_fids_status() -> Dict[str, Any]:
+    """Additive freshness contract; /api/fids retains its row-list shape."""
+    from localflight.storage.flights_store import latest_schedule_metadata
+    cfg = load_config()
+    return latest_schedule_metadata(cfg.airport_iata)
 
 
 @router.get("/api/fids/detail")

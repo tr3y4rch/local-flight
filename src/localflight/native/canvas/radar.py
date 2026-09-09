@@ -270,7 +270,7 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                 painter.setClipPath(path)
                 self._draw_dynamic_layers(painter, QtCore, QtGui, viewport)
                 painter.restore()
-                self._draw_footer(painter, QtGui, rect)
+                self._draw_footer(painter, QtCore, QtGui, rect)
 
             def mouseMoveEvent(self, event: Any) -> None:
                 viewport = self._viewport(self.rect())
@@ -673,11 +673,12 @@ class RadarCanvas:  # pragma: no cover - optional Qt runtime
                     painter.drawText(QtCore.QPointF(x + 9, cursor_y), line)
                     cursor_y += metrics.height() + 1
 
-            def _draw_footer(self, painter: Any, QtGui: Any, rect: Any) -> None:
+            def _draw_footer(self, painter: Any, QtCore: Any, QtGui: Any, rect: Any) -> None:
                 painter.setPen(self._radar_color(QtGui, "grid_label", 190))
                 painter.drawText(14, rect.height() - 14, self.status)
-                if self.attribution and (self.layers.get("surface", True) or self.layers.get("runways", True)):
-                    painter.drawText(rect.width() - 320, rect.height() - 14, self.attribution[:48])
+                if self.attribution and (self.layers.get("surface", True) or self.layers.get("runways", True) or self.layers.get("terrain", False)):
+                    footer_rect = QtCore.QRectF(max(240, rect.width() * 0.38), rect.height() - 30, max(0, rect.width() * 0.6 - 14), 22)
+                    painter.drawText(footer_rect, int(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter), self.attribution)
 
             def _ring_values(self, radius_nm: float) -> tuple[float, ...]:
                 radius = float(radius_nm or 1.0)

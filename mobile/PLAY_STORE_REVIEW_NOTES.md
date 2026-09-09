@@ -1,13 +1,13 @@
 # Local Flight Mobile Google Play Review Notes
 
-This file is the working checklist for the `0.6.0` Play internal-testing build. It is not legal advice; keep the final Play Console answers aligned with the exact submitted AAB.
+This file is the working checklist for the `0.6.1` Play internal-testing build. It is not legal advice; keep the final Play Console answers aligned with the exact submitted AAB.
 
 ## Reviewer Test Path
 
 - App name: **Local Flight**
 - Android package: `cc.beacontools.localflight`
-- Version name: `0.6.0`
-- Version code: `16`
+- Version name: `0.6.1`
+- Version code: `17` (reserved; verify uploaded counters before submission)
 - Project / support URL: `https://beacontools.cc/local-flight/mobile`
 - Privacy Policy URL: `https://beacontools.cc/privacy`
 - Recommended review path: choose **Use without a Local Flight host** on first launch so the app can be tested without a desktop, Linux server, or Raspberry Pi host. The app explains that this is Standalone mode after the choice.
@@ -17,7 +17,7 @@ This file is the working checklist for the `0.6.0` Play internal-testing build. 
 - Remote Companion is part of Companion mode. After explicit host-side grant pairing, Companion uses the nearby host first and can fall back to encrypted relay routing when this device is away from the same Wi-Fi and the host is online.
 - Companion’s final explicit action pairs the host without querying or purchasing the Relay Access product. VATSIM likewise uses no purchase or licensing endpoint. A store or relay outage never blocks LAN Companion or VATSIM. Remote Companion still requires Relay Access on its desktop host. Mobile never accepts or displays an LFRA key, and moving access always requires an explicit, integrity-protected transfer plus a named confirmation.
 - Google Play Billing queries the non-consumable managed product `cc.beacontools.localflight.relay_access`. Only a `PURCHASED` purchase token can create or restore Relay Access; `PENDING` never grants access. Grant-based transfers use a request-bound Play Integrity Standard token. Purchase-token verification, acknowledgement, Integrity-token decryption, and refund/revocation reconciliation remain server-side.
-- This internal-track build uses `https://relay-staging.beacontools.cc`; its Android verifier requires `test` evidence. The staging deployment accepts only the cross-platform `sandbox,test` set. The production profile uses `https://relay.beacontools.cc` and accepts only `production` evidence; the two deployments must not share a database.
+- The candidate internal-track profile targets `https://relay-staging.beacontools.cc`; its Android verifier requires `test` evidence. The staging deployment accepts only the cross-platform `sandbox,test` set. The production profile uses `https://relay.beacontools.cc` and accepts only `production` evidence; the two deployments must not share a database.
 
 ## Permission And Network Rationale
 
@@ -52,19 +52,21 @@ Play Console Data Safety answers should be conservative:
 - Switching from real-flight Standalone to Companion pairs the host first and then releases the phone. Switching to VATSIM also releases real-flight access. If the relay is temporarily unreachable, the encrypted device credential is retained only to retry that release; LAN Companion and VATSIM can continue and show `release_pending` without allowing direct Relay runtime use.
 - The app contains no Stripe checkout, price, web-purchase prompt, or direct link to the Relay Access sales page.
 - The existing three consumable support products remain unrelated to Relay Access and unlock nothing.
-- Before submission, change the Play listing to a free app, create and activate the Relay managed product, configure its one-time price, link the correct staging/production Cloud projects to Play Integrity, and install the Cloud project number in each EAS environment. Existing paid-download customers need an explicit migration/grant policy because Google Play Billing cannot infer historical ownership of the paid APK.
+- Before internal testing, verify the existing listing and product configuration without changing pricing or production tracks. Link the correct staging Cloud project to Play Integrity and provide its public project number through the testing EAS environment. If existing paid-download customers require migration, stop for a separate migration decision; Google Play Billing cannot infer historical ownership of the paid APK.
 
 ## Optional In-App Support
 
+- New support purchases are currently held behind the relay's explicit legal/licensing switch. The submitted build must show **Purchases on hold**, offer no purchase button, and make no Google Play verification request while the switch is off.
 - More includes three optional consumable support products: `cc.beacontools.localflight.support.small`, `.medium`, and `.large`.
 - Every product unlocks nothing and creates no entitlement. The sheet states this before purchase and displays only Google Play-owned localized prices.
 - Local Flight sends the purchase token to the Beacon Tools relay, which verifies it through the Google Play Developer API. The app consumes the product only after verification.
+- The purchase buttons remain disabled until all three localized products and the Google Play verifier report ready. This readiness check exposes no credential values.
 - The relay stores a keyed transaction hash, short reference, product ID, store environment, status, and timestamps. It does not retain the purchase token, payment-card data, or Google account identity.
 - No external Buy Me a Coffee or other external purchase call-to-action appears in Play builds.
 
 ## Home-Screen Widget
 
-- Version code `16` includes a resizable Android home-screen widget with compact one-row and wide up-to-three-row layouts.
+- Candidate version code `17` includes a resizable Android home-screen widget with compact one-row and wide up-to-three-row layouts.
 - The app writes a bounded snapshot to its private files directory. The widget reads that local file only; it does not make LAN, relay, provider, analytics, or advertising requests.
 - The widget refresh action rereads local app data and does not trigger an external data fetch. Android's periodic widget update remains at 30 minutes.
 
@@ -86,7 +88,7 @@ Local Flight flight, weather, radar, and surface data are informational display 
 - Mode switch: change Standalone to Companion online and offline; verify the online release is immediate and the offline release remains visibly pending while LAN Companion stays usable.
 - Environment isolation: on physical devices, confirm an authorized internal-track tester sends test proof only to the staging relay and that the production relay/database rejects it.
 - Release manifest: build the final AAB with `LOCALFLIGHT_PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` set and run `npm run android-manifest:contract`; the merged release manifest must contain `com.android.vending.BILLING`, the product/project metadata, no `CHECK_LICENSE`, and no microphone, legacy external-storage, or overlay permission.
-- Purchase surface: open **More → Advanced diagnostics**, choose **Support Local Flight**, confirm all three localized products load, complete one license-tester purchase, and confirm the thank-you state. Interrupt relay access after store approval to verify the unfinished transaction is retained and safely retried before consumption.
+- Purchase surface: open **More**, choose **Support Local Flight**, confirm all three localized products load, complete one license-tester purchase, and confirm the thank-you state. Interrupt relay access after store approval to verify the unfinished transaction is retained and safely retried before consumption.
 - Widget: add and resize the Local Flight widget, confirm compact/medium layouts, empty/stale states, app tap-through, and local refresh behavior.
 - Navigation: both modes show Board/Radar/History/More. Compact widths use bottom tabs; tablets and foldables use an adaptive rail. Display is entered explicitly and always has an exit control.
 - Accessibility: only claim Play listing accessibility support after real Android common-task testing with TalkBack, font scaling, contrast, and reduced animation.

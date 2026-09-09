@@ -4,7 +4,7 @@ import {
   Modal,
   Pressable,
   RefreshControl,
-  SafeAreaView,
+  ScrollView,
   StyleSheet,
   View
 } from "react-native";
@@ -12,10 +12,13 @@ import {
 import type { Metar, RadarBlip, RadarMapResponse, RadarResponse } from "../api/types";
 import { accessibleButton, tapTargetHitSlop } from "../accessibility/mobileA11y";
 import { MotionPressable } from "../components/MotionPressable";
+import { InsetModalScaffold, insetModalPresentationProps } from "../components/InsetModalScaffold";
 import { V2Text as Text } from "../components/V2Text";
 import { englishCopy } from "../content/en";
 import type { RadarRadius } from "../domain/types";
+import { weatherModeContext, weatherSummaryForDisplay, weatherTemperature } from "../domain/weatherPresentation";
 import type { MobileRadarDrawingLayers } from "../storage/settings";
+import type { MobileWeatherDisplayMode } from "../storage/settings";
 import { LocalFlightIcon } from "../theme/icons";
 import { useMobileTheme } from "../theme/runtime";
 import { BOARD_FONT_FAMILY, type MobileAppearance } from "../theme/tokens";
@@ -28,6 +31,7 @@ export type RadarScreenV2Props = {
   groundData: RadarMapResponse | null;
   groundError: string | null;
   metar: Metar | null;
+  weatherDisplayMode: MobileWeatherDisplayMode;
   radiusNm: RadarRadius;
   radiusOptions: RadarRadius[];
   drawingLayers: MobileRadarDrawingLayers;
@@ -50,15 +54,6 @@ export type RadarScreenV2Props = {
 function clean(value: unknown): string {
   const text = String(value ?? "").trim();
   return text && text !== "-" ? text : "";
-}
-
-function weatherSummary(metar: Metar | null): string {
-  return clean(metar?.weather_summary) || clean(metar?.decoded_summary) || clean(metar?.weather_label) || "Weather unavailable";
-}
-
-function temperature(metar: Metar | null): string {
-  const value = metar?.temperature_c ?? metar?.temp_c;
-  return typeof value === "number" ? `${Math.round(value)}°` : "--°";
 }
 
 function altitude(blip: RadarBlip): string {
@@ -224,15 +219,15 @@ export function RadarScreenV2(props: RadarScreenV2Props) {
         {expanded && detailsVisible ? <View style={styles.inspector}>{details}</View> : null}
       </View>
 
-      <MotionPressable style={styles.weatherCard} interactiveStyle={styles.pressed} onPress={props.onOpenWeather} {...accessibleButton({ label: `${weatherSummary(props.metar)}, ${temperature(props.metar)}. Opens weather details.` })}>
+      <MotionPressable style={styles.weatherCard} interactiveStyle={styles.pressed} onPress={props.onOpenWeather} {...accessibleButton({ label: `${weatherSummaryForDisplay(props.metar, props.weatherDisplayMode)}, ${weatherTemperature(props.metar)}. Opens weather details.` })}>
         <View style={styles.weatherIcon}>
           <LocalFlightIcon name="weather-partly-cloudy" size={21} color={appearance.blue} />
         </View>
         <View style={styles.weatherCopy}>
-          <Text style={styles.weatherTitle}>{weatherSummary(props.metar)}</Text>
-          <Text style={styles.weatherMeta}>Airport weather · tap for plain language, aviation details, or Raw METAR</Text>
+          <Text style={styles.weatherTitle}>{weatherSummaryForDisplay(props.metar, props.weatherDisplayMode)}</Text>
+          <Text style={styles.weatherMeta}>{weatherModeContext(props.weatherDisplayMode)} · tap for details</Text>
         </View>
-        <Text style={styles.weatherTemperature}>{temperature(props.metar)}</Text>
+        <Text style={styles.weatherTemperature}>{weatherTemperature(props.metar)}</Text>
         <LocalFlightIcon name="chevron-right" size={18} color={appearance.textDim} />
       </MotionPressable>
 
@@ -293,16 +288,20 @@ export function RadarScreenV2(props: RadarScreenV2Props) {
       />
 
       {!expanded ? (
-        <Modal visible={detailsVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailsVisible(false)}>
-          <SafeAreaView style={styles.sheetSafe}>
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetHeaderTitle}>Aviation details</Text>
-              <Pressable style={styles.closeButton} onPress={() => setDetailsVisible(false)} {...accessibleButton({ label: "Close Aviation Details" })}>
-                <LocalFlightIcon name="close" size={21} color={appearance.text} />
-              </Pressable>
-            </View>
-            {details}
-          </SafeAreaView>
+        <Modal visible={detailsVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailsVisible(false)} {...insetModalPresentationProps}>
+          <InsetModalScaffold backgroundColor={appearance.bg}>
+            {(insets) => <>
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetHeaderTitle}>Aviation details</Text>
+                <Pressable style={styles.closeButton} onPress={() => setDetailsVisible(false)} {...accessibleButton({ label: "Close Aviation Details" })}>
+                  <LocalFlightIcon name="close" size={21} color={appearance.text} />
+                </Pressable>
+              </View>
+              <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }} showsVerticalScrollIndicator={false}>
+                {details}
+              </ScrollView>
+            </>}
+          </InsetModalScaffold>
         </Modal>
       ) : null}
     </>
@@ -356,7 +355,7 @@ function makeStyles(a: MobileAppearance, layoutClass: LayoutWidthClass) {
     emptyTitle: { color: a.text, fontSize: 18, fontWeight: "700", marginTop: 13 },
     emptyBody: { color: a.textMuted, fontSize: 14, lineHeight: 20, textAlign: "center", marginTop: 5, maxWidth: 390 },
     sheetSafe: { flex: 1, backgroundColor: a.bg },
-    sheetHeader: { height: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: a.line },
+    sheetHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, paddingVertical: 7, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: a.line },
     sheetHeaderTitle: { color: a.text, fontSize: 17, fontWeight: "700" },
     closeButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: a.lineSoft },
     detailsBody: { padding: 18 },

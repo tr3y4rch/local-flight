@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Local Flight Beacon Relay | Beacon Tools</title>
-  <meta name="description" content="Beacon Relay is Beacon Tools' licensed shared online service for Local Flight boards, Standalone mobile mode, and encrypted Remote Companion messages.">
+  <meta name="description" content="Beacon Relay is the optional paid hosted service for Local Flight real-flight data and end-to-end encrypted Remote Companion messages. Purchases are in prelaunch.">
   <meta name="robots" content="noindex, nofollow">
   <meta name="color-scheme" content="dark light">
   <link rel="canonical" href="https://beacontools.cc/network/">
@@ -218,7 +218,7 @@
 
     .hero {
       position: relative;
-      padding-block: clamp(76px, 10vw, 148px) clamp(64px, 8vw, 118px);
+      padding-block: clamp(64px, 7vw, 104px) clamp(58px, 6vw, 88px);
       border-bottom: 1px solid var(--line-soft);
     }
 
@@ -243,7 +243,7 @@
     }
 
     .hero-copy {
-      grid-column: 1 / span 7;
+      grid-column: 1 / span 9;
     }
 
     .eyebrow,
@@ -293,8 +293,8 @@
     h1 {
       max-width: 900px;
       margin-bottom: 30px;
-      font-size: clamp(3.25rem, 7.1vw, 7.6rem);
-      font-weight: 760;
+      font-size: clamp(2.7rem, 5.4vw, 5.7rem);
+      font-weight: 670;
     }
 
     h1 span {
@@ -429,8 +429,8 @@
 
     h2 {
       margin-bottom: 18px;
-      font-size: clamp(2.2rem, 4.6vw, 4.8rem);
-      font-weight: 720;
+      font-size: clamp(2rem, 3.6vw, 3.7rem);
+      font-weight: 650;
     }
 
     .section-intro p {
@@ -620,7 +620,7 @@
 
     @media (max-width: 980px) {
       .hero-copy {
-        grid-column: 1 / span 8;
+        grid-column: 1 / span 10;
       }
 
       .service-panel {
@@ -762,7 +762,7 @@
     <div class="frame header-row">
       <a class="brand" href="https://beacontools.cc/" aria-label="Beacon Tools home">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span><strong>Beacon Tools</strong><small>Open-source aviation displays</small></span>
+        <span><strong>Beacon Tools</strong><small>Local-first aviation displays</small></span>
       </a>
       <nav class="site-nav" aria-label="Beacon Tools destinations">
         <a href="https://beacontools.cc/network/">How It Connects</a>
@@ -786,50 +786,40 @@
     <section class="hero" aria-labelledby="page-title">
       <div class="frame terminal-grid">
         <div class="hero-copy">
-          <p class="eyebrow">Beacon Relay / Beacon Tools shared service</p>
-          <h1 id="page-title">You’ve reached the Local Flight <span>shared service.</span></h1>
-          <p class="lede">Beacon Relay serves licensed Local Flight receivers with shared airport boards, mobile Standalone data, and end-to-end encrypted Remote Companion messages. It is not a live flight-tracking website.</p>
-          <div class="status-line" role="status"><i aria-hidden="true"></i>Relay endpoint reached</div>
+          <p class="eyebrow">Beacon Relay / Optional Local Flight hosting</p>
+          <h1 id="page-title">Beacon Relay is the hosted service behind selected Local Flight features.</h1>
+          <p class="lede">It supplies provider-authorized real-flight data and passes end-to-end encrypted Remote Companion messages for Local Flight apps. This endpoint is not a live flight-tracking website.</p>
+          <div class="status-line" role="status"><i aria-hidden="true"></i>Relay endpoint reached · purchases in prelaunch</div>
           <nav class="actions" aria-label="Relay information">
-            <a class="primary-action" href="https://beacontools.cc/network/">See how the shared service works <span aria-hidden="true">→</span></a>
+            <a class="primary-action" href="https://beacontools.cc/local-flight/relay-access/">Understand Relay Access <span aria-hidden="true">→</span></a>
             <a class="text-action" href="https://beacontools.cc/local-flight/">Visit Local Flight <span aria-hidden="true">↗</span></a>
           </nav>
         </div>
-
-        <aside class="service-panel" aria-label="Relay endpoint summary">
-          <header><span>Endpoint / Summary</span><span>Reached</span></header>
-          <dl class="service-table">
-            <div><dt>Service</dt><dd>Beacon Relay for Local Flight apps</dd></div>
-            <div><dt>Board data</dt><dd>Shared saved airport boards</dd></div>
-            <div><dt>Companion</dt><dd>End-to-end encrypted messages</dd></div>
-            <div><dt>Health</dt><dd>/health · JSON</dd></div>
-          </dl>
-        </aside>
       </div>
     </section>
 
     <section class="path-section" aria-labelledby="path-heading">
       <div class="frame terminal-grid">
         <div class="section-intro">
-          <span class="section-index">01 / CONNECTION</span>
-          <h2 id="path-heading">Only the feature you choose uses this path.</h2>
-          <p>Local Flight connects to Beacon Relay only for the shared-service features you select. Screens on your home or local network (LAN) connect directly to your own Local Flight computer.</p>
+          <span class="section-index">01 / WHY IT IS PAID</span>
+          <h2 id="path-heading">The application is free. Hosting has continuing costs.</h2>
+          <p>Local Flight itself remains free and open source. Bring Your Own Keys and VATSIM remain available without Relay Access.</p>
         </div>
         <div class="connection-path" aria-label="Illustrative relay connection path">
           <article class="route-stop">
-            <span class="route-label">01 / Client</span>
-            <strong>Your Local Flight app</strong>
-            <p>Sends an allowed request from a Local Flight computer or Standalone phone.</p>
+            <span class="route-label">Service</span>
+            <strong>Provider-authorized aviation data</strong>
+            <p>Hosted real-flight data must be licensed and operated independently from the open-source app.</p>
           </article>
           <article class="route-stop">
-            <span class="route-label">02 / Relay</span>
-            <strong>Beacon Relay</strong>
-            <p>Applies update limits, reuses recent shared results, and enforces access and privacy protections.</p>
+            <span class="route-label">Operation</span>
+            <strong>Servers, delivery, and protection</strong>
+            <p>Payments, license delivery, abuse protection, infrastructure, and maintenance continue after a download.</p>
           </article>
           <article class="route-stop">
-            <span class="route-label">03 / Result</span>
-            <strong>Data or encrypted message</strong>
-            <p>Returns shared airport data or passes along an encrypted Remote Companion message.</p>
+            <span class="route-label">Model</span>
+            <strong>Paid directly, without tracking</strong>
+            <p>Charging for hosting helps avoid advertising, behavioral tracking, selling usage data, or requiring an account for the desktop software.</p>
           </article>
         </div>
       </div>
@@ -837,21 +827,21 @@
 
     <section class="facts-section" aria-labelledby="facts-heading">
       <div class="frame">
-        <span class="section-index">02 / BOUNDARIES</span>
-        <h2 id="facts-heading">What reaching this page means.</h2>
+        <span class="section-index">02 / SERVICE BOUNDARIES</span>
+        <h2 id="facts-heading">Only the feature you choose uses this path.</h2>
         <div class="fact-grid">
           <article class="fact">
-            <h3>The web service answered.</h3>
-            <p>Beacon Relay received this browser request. A separate machine-readable service check is available for apps and service monitoring.</p>
+            <h3>Local screens stay local.</h3>
+            <p>Desktop windows, LAN browsers, LED matrices, and Companion phones connect to your own Local Flight computer. Beacon Relay is not in that screen connection.</p>
             <a class="health-link" href="/health"><code>/health</code> · JSON →</a>
           </article>
           <article class="fact">
-            <h3>It is not a data guarantee.</h3>
-            <p>Upstream aviation data can still be delayed, cached, rate-limited, incomplete, or temporarily unavailable. Local Flight shows freshness in the app.</p>
+            <h3>Hosted data is optional.</h3>
+            <p>Beacon Relay receives an allowed Local Flight request, applies update limits and privacy protections, then returns shared airport data. Relay Access purchasing is not open yet.</p>
           </article>
           <article class="fact">
-            <h3>The privacy boundary stays narrow.</h3>
-            <p>Remote Companion messages remain end-to-end encrypted. The encryption key stays on the paired devices, so Beacon Tools cannot read the request or response.</p>
+            <h3>Remote messages stay unreadable.</h3>
+            <p>The encryption key stays on the paired phone and computer. Beacon Relay passes along the encrypted message, so Beacon Tools cannot read the request or response.</p>
           </article>
         </div>
       </div>
@@ -872,7 +862,7 @@
         <a href="https://beacontools.cc/support/">Support</a>
         <a href="https://github.com/tr3y4rch/local-flight">Source on GitHub</a>
       </nav>
-      <p class="footer-meta">Free, open-source flight boards · no account or subscription required</p>
+      <p class="footer-meta">Free open-source software · optional paid hosting · no advertising or behavioral tracking</p>
     </div>
   </footer>
 </body>

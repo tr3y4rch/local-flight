@@ -20,8 +20,8 @@ const activeFiles = [
 const forbidden = [
   /every\s+3\s+hours?/i,
   /every\s+three\s+hours?/i,
-  /every\s+5\s+minutes?/i,
-  /every\s+five\s+minutes?/i,
+  /(?:nearby traffic|radar)[\s\S]{0,80}every\s+5\s+minutes?/i,
+  /(?:nearby traffic|radar)[\s\S]{0,80}every\s+five\s+minutes?/i,
   /\b3H\s*\/\s*5M\b/i,
   /\b3\s*h\b[\s\S]{0,60}\b5\s*min\b/i
 ];

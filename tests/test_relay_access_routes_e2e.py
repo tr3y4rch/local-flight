@@ -213,7 +213,9 @@ def test_health_identifies_release_and_safe_access_readiness(
     assert response.status_code == 200
     payload = response.json()
     assert payload["service"] == "beacon-relay"
-    assert payload["version"] == "0.6.0"
+    from scripts.check_relay_access_deployment import source_contract
+
+    assert payload["version"] == source_contract()[0]
     assert payload["revision"] == revision
     assert payload["access"]["schema_version"] == ACCESS_SCHEMA_VERSION
     assert payload["access"]["expected_schema_version"] == ACCESS_SCHEMA_VERSION

@@ -1,7 +1,8 @@
 import { defineConfig } from "astro/config";
+import { resolveDeployment } from "./deployment.mjs";
 
 export default defineConfig({
-  site: "https://beacontools.cc",
+  site: resolveDeployment().siteOrigin,
   output: "static",
   trailingSlash: "always",
   outDir: "./dist",

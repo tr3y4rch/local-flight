@@ -12,6 +12,7 @@ import type {
   RadarResponse
 } from "./types";
 import { LocalFlightApiError } from "./client";
+import { shouldRetryOfficialPublicRelay } from "./relayFallbackPolicy";
 import { activatePaidMobileOwnership, type MobileRelayAccessSnapshot } from "../access/paidAppAccess";
 import { mobileRelayOrigins, primaryMobileRelayOrigin } from "../access/relayOrigins";
 import { appVersion, getCompanionIdentity, mobileOsLabel, mobileReportOrigin } from "../device/identity";
@@ -61,57 +62,69 @@ async function installFingerprint(installId: string): Promise<string> {
   return digest.slice(0, 12);
 }
 
+export type StandaloneRelayDiagnostic = {
+  routeFamily: string;
+  httpClass: "network" | "2xx" | "3xx" | "4xx" | "5xx";
+  attemptCount: number;
+  recoveredByOfficialFallback: boolean;
+};
+
+let lastStandaloneRelayDiagnostic: StandaloneRelayDiagnostic | null = null;
+
+export function getLastStandaloneRelayDiagnostic(): StandaloneRelayDiagnostic | null {
+  return lastStandaloneRelayDiagnostic ? { ...lastStandaloneRelayDiagnostic } : null;
+}
+
+function relayFailure(payload: unknown, status: number): LocalFlightApiError {
+  const data = payload && typeof payload === "object"
+    ? payload as { code?: string; detail?: string | { code?: string }; error?: { code?: string } }
+    : null;
+  const code = typeof data?.detail === "object" ? data.detail?.code || data.code : data?.error?.code || data?.code;
+  const message = status === 429 ? "The relay is busy. Please wait before trying again."
+    : status === 401 || status === 403 ? "Relay Access needs attention. Open Settings to check your access."
+    : "The relay could not complete this request. Please try again later.";
+  return new LocalFlightApiError(message, status, code || "", payload);
+}
+
 async function fetchRelayJson<T>(
   relayUrl: string | undefined,
   path: string,
   init?: RequestInit
 ): Promise<T> {
-  let response: Response | null = null;
   let lastError: unknown = null;
-  for (const base of relayBases(relayUrl)) {
+  const bases = relayBases(relayUrl);
+  const routeFamily = path.split("?", 1)[0] || "/";
+  // Only reads may use build-approved alternates; mutations must not replay
+  // after an ambiguous timeout. Origin selection preserves environment isolation.
+  const canRetry = !init?.method || init.method.toUpperCase() === "GET";
+  for (let index = 0; index < bases.length; index += 1) {
     try {
-      response = await fetchRelayResponse(base, path, init);
-      // The canonical relay and its official origin can be deployed a few
-      // minutes apart. A missing route is a compatibility result, not an
-      // authorization failure, so allow the other public entry point to serve
-      // it. Never retry authorization or allowance responses on another base.
-      if (ROUTE_UNAVAILABLE_STATUSES.has(response.status)) continue;
-      break;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (!response) throw lastError || new LocalFlightApiError("The Local Flight relay could not be reached.");
-  if (!response.ok) {
-    let message = `Relay HTTP ${response.status} for ${path}`;
-    let code = "";
-    let details: unknown = null;
-    try {
-      const data = (await response.json()) as {
-        code?: string;
-        detail?: string | { code?: string; message?: string };
-        error?: { code?: string; message?: string; info?: unknown };
+      const response = await fetchRelayResponse(bases[index]!, path, init);
+      let payload: unknown = null;
+      try { payload = JSON.parse(await response.text()) as unknown; } catch { /* Non-JSON edge response. */ }
+      const httpClass = response.status >= 500 ? "5xx" : response.status >= 400 ? "4xx" : response.status >= 300 ? "3xx" : "2xx";
+      lastStandaloneRelayDiagnostic = {
+        routeFamily, httpClass, attemptCount: index + 1,
+        recoveredByOfficialFallback: response.ok && index > 0
       };
-      details = data;
-      if (typeof data.detail === "string" && data.detail.trim()) {
-        message = data.detail;
-        code = data.code || "";
-      } else if (data.detail && typeof data.detail === "object") {
-        message = data.detail.message || message;
-        code = data.detail.code || data.code || "";
-      } else if (typeof data.error?.info === "string" && data.error.info.trim()) {
-        message = data.error.info;
-        code = data.error.code || data.code || "";
-      } else if (data.error?.message) {
-        message = data.error.message;
-        code = data.error.code || data.code || "";
-      }
-    } catch {
-      // Ignore non-JSON relay errors.
+      const retryable = shouldRetryOfficialPublicRelay({
+        status: response.status, contentType: response.headers.get("content-type") || "",
+        hasJsonPayload: payload !== null
+      });
+      if (canRetry && index < bases.length - 1 && retryable) continue;
+      if (!response.ok) throw relayFailure(payload, response.status);
+      if (payload === null) throw new LocalFlightApiError("The relay returned an unreadable response. Please try again later.", 502);
+      return payload as T;
+    } catch (error) {
+      if (error instanceof LocalFlightApiError && error.status) throw error;
+      lastError = error;
+      lastStandaloneRelayDiagnostic = {
+        routeFamily, httpClass: "network", attemptCount: index + 1, recoveredByOfficialFallback: false
+      };
+      if (!canRetry) break;
     }
-    throw new LocalFlightApiError(message, response.status, code, details);
   }
-  return response.json() as Promise<T>;
+  throw lastError || new LocalFlightApiError("The Local Flight relay could not be reached.");
 }
 
 async function fetchRelayResponse(base: string, path: string, init?: RequestInit): Promise<Response> {
