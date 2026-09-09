@@ -14,7 +14,27 @@ from localflight.storage.private_files import ensure_private_dir, ensure_private
 IDENTITY_BUNDLE_VERSION = 1
 RELAY_ACCESS_STATE_VERSION = 1
 RELAY_LOCAL_STATES = {"none", "checking", "active", "inactive", "unreachable", "release_pending"}
-LICENSE_ACCESS_STATES = {"active", "suspended", "refunded", "revoked"}
+LICENSE_ACCESS_STATES = {
+    "active",
+    "grace",
+    "cancelled_active",
+    "past_due",
+    "expired",
+    "suspended",
+    "refunded",
+    "revoked",
+}
+# Only provider-confirmed paid-through states authorize hosted access. A
+# cancelled subscription keeps access until its period end, and an
+# authoritative billing grace is honored until the reported boundary.
+AUTHORIZED_ACCESS_STATES = {"active", "grace", "cancelled_active"}
+INACTIVE_ACCESS_STATES = LICENSE_ACCESS_STATES - AUTHORIZED_ACCESS_STATES
+RELAY_ACCESS_DETAIL_KEYS = (
+    "entitlement_kind",
+    "current_period_end",
+    "grace_expires_at",
+    "renewal_state",
+)
 
 
 def _config_dir() -> Path:
@@ -202,7 +222,7 @@ def get_activation_token() -> str:
         return ""
     summary = get_relay_access_summary()
     if token.startswith("lfr_"):
-        if summary.get("relay_state") != "active" or summary.get("access_state") != "active":
+        if summary.get("relay_state") != "active" or summary.get("access_state") not in AUTHORIZED_ACCESS_STATES:
             return ""
     elif token.startswith("lfm_"):
         explicit = os.getenv("LOCALFLIGHT_ENABLE_LEGACY_RELAY_COMPAT", "").strip().lower()
@@ -276,6 +296,8 @@ def get_relay_access_summary() -> dict[str, Any]:
         "last_successful_check_time": str(raw.get("last_successful_check_time") or "")[:64],
         "release_retry_after_s": release_retry_after_s,
         "release_retry_not_before": str(raw.get("release_retry_not_before") or "")[:64],
+        **{key: str(raw.get(key) or "")[:64] for key in RELAY_ACCESS_DETAIL_KEYS},
+        "founder": bool(raw.get("founder")),
         "credential_reference": f"{token[:12]}…" if token else "",
         "credential_present": bool(token),
     }
@@ -293,9 +315,12 @@ def update_relay_access_summary(**changes: Any) -> dict[str, Any]:
         "current_main_device_description",
         "last_successful_check_time",
         "release_retry_not_before",
+        *RELAY_ACCESS_DETAIL_KEYS,
     ):
         if key in changes:
             current[key] = str(changes[key] or "")
+    if "founder" in changes:
+        current["founder"] = bool(changes["founder"])
     if "release_retry_after_s" in changes:
         try:
             current["release_retry_after_s"] = max(0, int(changes["release_retry_after_s"] or 0))
@@ -318,6 +343,8 @@ def update_relay_access_summary(**changes: Any) -> dict[str, Any]:
             "last_successful_check_time",
             "release_retry_after_s",
             "release_retry_not_before",
+            "founder",
+            *RELAY_ACCESS_DETAIL_KEYS,
         )},
     }
     try:

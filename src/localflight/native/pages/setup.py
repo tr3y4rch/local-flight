@@ -1098,7 +1098,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         prefix = str(info.get("activation_token_prefix") or "")
         relay_state = str(info.get("relay_state") or "none")
         access_state = str(info.get("access_state") or "")
-        cached_active = prefix.startswith("lfr_") and relay_state == "active" and access_state == "active"
+        cached_active = prefix.startswith("lfr_") and relay_state == "active" and access_state in {"active", "grace", "cancelled_active"}
         self._stored_activation = False
         if cached_active:
             self.activation_token.clear()
@@ -1197,6 +1197,8 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             "invalid_license_key": "That Relay Access key or activation code was not accepted. Check it and try again.",
             "credential_not_found": "This desktop's saved Relay Access credential is no longer recognized. Activate access again.",
             "license_inactive": "Relay Access is not active. Open Relay Access details for the current status.",
+            "past_due": "Relay Access has a billing problem. Update payment with your provider, or choose BYOK or VATSIM.",
+            "expired": "Relay Access has ended. Renew it with your provider, enter a new key, or choose BYOK or VATSIM.",
             "suspended": "Relay Access is suspended. Open Relay Access details for the current status.",
             "refunded": "Relay Access was refunded and cannot be used on this desktop.",
             "revoked": "Relay Access was revoked and cannot be used on this desktop.",

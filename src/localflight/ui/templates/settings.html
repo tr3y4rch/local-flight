@@ -968,7 +968,13 @@ async function clearProviderKeys() {
     const route = (data.config || {}).data_route || "relay";
     const routeLabel = { relay: "Beacon Relay", byok: "Bring Your Own Keys", vatsim: "VATSIM" }[route] || "Unknown";
     const relayState = String(data.relay_state || "none").replaceAll("_", " ");
-    const accessState = String(data.access_state || "not confirmed").replaceAll("_", " ");
+    let accessState = String(data.access_state || "not confirmed").replaceAll("_", " ");
+    if (data.founder) accessState += " · founder";
+    if (data.current_period_end) {
+      const periodEnd = new Date(data.current_period_end);
+      const through = Number.isNaN(periodEnd.getTime()) ? "" : ` through ${periodEnd.toLocaleDateString()}`;
+      accessState += data.renewal_state === "renews" ? `${through} · renews automatically` : `${through} · ends at period end`;
+    }
     setText("clientInstallId", safeId(data.install_fingerprint || data.install_id));
     setText("clientMode", routeLabel);
     setText("clientAccessState", relayState);

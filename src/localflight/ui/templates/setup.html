@@ -1255,7 +1255,7 @@
         return;
       }
       const prefix = data.activation_token_prefix || data.token_prefix || "";
-      if (data.ok && data.access_state !== "suspended" && data.access_state !== "refunded" && data.access_state !== "revoked" && prefix.startsWith("lfr_")) {
+      if (data.ok && !["past_due", "expired", "suspended", "refunded", "revoked"].includes(data.access_state) && prefix.startsWith("lfr_")) {
         if (prefix) el("activationToken").dataset.prefix = prefix;
         managedVerified = true;
         el("relayLinkState").textContent = prefix ? `Active (${prefix}...)` : "Active";

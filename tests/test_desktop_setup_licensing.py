@@ -606,3 +606,104 @@ def test_browser_requires_fresh_verification_and_reveals_recovery_field() -> Non
     assert 'managedVerified ? "Active on this desktop" : "License activation required"' in html
     assert 'el("activationToken").dataset.prefix = ""' in html
     assert 'el("activationTokenField").style.display = "block"' in html
+
+
+@pytest.mark.parametrize("access_state", ["active", "grace", "cancelled_active"])
+def test_paid_through_subscription_states_keep_desktop_relay_access(
+    desktop_home: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, access_state: str
+) -> None:
+    from localflight.sources.web import relay_activation
+
+    storage_config.save_config(storage_config.AppConfig(data_route="relay"))
+    storage_install.set_activation_token("lfr_annual_device_credential")
+    relay_activation.reset_auto_repair_state()
+
+    class Response:
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {
+                "ok": True,
+                "active": True,
+                "access_state": access_state,
+                "effective_state": access_state,
+                "reason_code": f"license_{access_state}",
+                "license_ref": "lic_annual",
+                "key_ref": "LFRA-••••-ANNU-L",
+                "purchase_source": "stripe",
+                "entitlement_kind": "subscription",
+                "current_period_end": "2027-09-09T00:00:00+00:00",
+                "renewal_state": "renews" if access_state == "active" else "ends_at_period_end",
+                "founder": False,
+                "device_kind": "desktop",
+                "device_name": "Annual desktop",
+            }
+
+    monkeypatch.setattr(requests, "get", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(relay_activation.requests, "get", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(relay_activation.requests, "post", lambda *_args, **_kwargs: pytest.fail("must not repair LFRA"))
+
+    result = asyncio.run(
+        ui_server.setup_client_status(
+            ui_server.ClientStatusSetupIn(relay_url="https://relay.beacontools.cc")
+        )
+    )
+    assert result["ok"] is True
+    assert result["status"] == "active"
+    summary = storage_install.get_relay_access_summary()
+    assert summary["relay_state"] == "active"
+    assert summary["access_state"] == access_state
+    assert summary["entitlement_kind"] == "subscription"
+    assert summary["current_period_end"] == "2027-09-09T00:00:00+00:00"
+    assert storage_install.get_activation_token() == "lfr_annual_device_credential"
+
+    linked = relay_activation.ensure_relay_link(requested_mode="relay", force=True)
+    assert linked["linked"] is True
+    assert linked["effective_state"] == access_state
+    info = ui_server.setup_client_info(Request({"type": "http", "client": ("127.0.0.1", 1), "headers": []}))
+    assert info["access_state"] == access_state
+    assert info["renewal_state"] == ("renews" if access_state == "active" else "ends_at_period_end")
+
+
+@pytest.mark.parametrize("access_state", ["past_due", "expired"])
+def test_lapsed_subscription_states_block_desktop_relay_but_keep_settings(
+    desktop_home: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, access_state: str
+) -> None:
+    storage_config.save_config(storage_config.AppConfig(data_route="relay", airport_iata="ZRH"))
+    storage_install.set_activation_token("lfr_lapsed_device_credential")
+    storage_install.update_relay_access_summary(relay_state="active", access_state="active")
+
+    class Response:
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {
+                "ok": True,
+                "active": True,
+                "access_state": access_state,
+                "reason_code": f"license_{access_state}",
+                "entitlement_kind": "subscription",
+            }
+
+    monkeypatch.setattr(requests, "get", lambda *_args, **_kwargs: Response())
+    result = asyncio.run(
+        ui_server.setup_client_status(
+            ui_server.ClientStatusSetupIn(relay_url="https://relay.beacontools.cc")
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == access_state
+    assert "BYOK or VATSIM" in result["error"]
+    summary = storage_install.get_relay_access_summary()
+    assert summary["relay_state"] == "inactive"
+    assert summary["access_state"] == access_state
+    # Hosted access is suspended, but local settings and the stored credential
+    # remain so a later renewal restores service without a new activation.
+    assert storage_install.get_activation_token() == ""
+    assert storage_install.get_stored_activation_token() == "lfr_lapsed_device_credential"
+    assert storage_config.load_config().airport_iata == "ZRH"

@@ -7,6 +7,10 @@ hashes, and personal build identifiers belong outside Git.
 
 ## 0.7.0 annual Relay Access candidate
 
+- Desktop, Pi, and LAN clients now honor provider-confirmed `grace` and
+  `cancelled_active` subscription states, surface `past_due`/`expired` with
+  renew, restore, BYOK, or VATSIM actions, and cache period end, renewal
+  state, and founder status without discarding local settings.
 - Replaced the unreleased one-time commercial proposal with one portable annual
   Relay Access subscription for hosted real-flight schedules and encrypted
   Remote Companion. Kept shared real-aircraft radar disabled while preserving

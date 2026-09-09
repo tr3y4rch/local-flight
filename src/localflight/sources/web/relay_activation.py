@@ -16,6 +16,7 @@ from localflight.sources.web.relay_defaults import (
     validate_public_relay_url,
 )
 from localflight.storage.install import (
+    AUTHORIZED_ACCESS_STATES,
     get_install_fingerprint,
     get_install_id,
     get_stored_activation_token,
@@ -97,6 +98,8 @@ def _failure(code: str, *, response: Any = None, retry_after_s: int | None = Non
         "token_bound_elsewhere": "The stored relay link belongs to another Local Flight install. Request a repaired link for this install.",
         "token_invalid": "The saved relay link is no longer valid. Local Flight can request a repaired link for this install.",
         "license_inactive": "Relay Access is not active for this desktop.",
+        "past_due": "Relay Access has a billing problem. Update payment with your provider, or choose BYOK or VATSIM.",
+        "expired": "Relay Access has ended. Renew it with your provider, enter a new key, or choose BYOK or VATSIM.",
         "relay_unreachable": "Beacon Relay cannot be reached right now. Your local setup has not been changed.",
         "relay_link_required": "This Local Flight install still needs an active Beacon Relay credential.",
         "relay_error": "Beacon Relay could not verify this install.",
@@ -223,7 +226,11 @@ def _verify_token(relay_url: str, token: str, *, timeout_s: float) -> tuple[dict
     payload = _json(response)
     valid = payload.get("ok") is True
     if token.startswith("lfr_"):
-        valid = valid and payload.get("active") is True and payload.get("access_state") == "active"
+        valid = (
+            valid
+            and payload.get("active") is True
+            and str(payload.get("access_state") or "").strip().lower() in AUTHORIZED_ACCESS_STATES
+        )
     if response.status_code < 400 and valid:
         return _verified_payload(payload, token), response
     if response.status_code < 400:

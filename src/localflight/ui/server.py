@@ -717,6 +717,11 @@ def setup_client_info(request: Request = None) -> Dict[str, Any]:
         "purchase_source": access["purchase_source"],
         "current_main_device_description": access["current_main_device_description"],
         "last_successful_check_time": access["last_successful_check_time"],
+        "entitlement_kind": access.get("entitlement_kind", ""),
+        "current_period_end": access.get("current_period_end", ""),
+        "grace_expires_at": access.get("grace_expires_at", ""),
+        "renewal_state": access.get("renewal_state", ""),
+        "founder": bool(access.get("founder")),
         "master_key_allowed": _request_is_loopback(request),
         "provider_keys": {
             "aerodatabox_configured": bool(str(provider_values.get("AERODATABOX_API_KEY") or "").strip()),
@@ -837,6 +842,10 @@ def _friendly_relay_error(detail: str, code: str, fallback: str) -> str:
         return "This desktop's saved Relay Access credential is no longer recognized. Activate access again."
     if code == "license_inactive":
         return "Relay Access is not active. Open Relay Access details for the current status."
+    if code == "past_due":
+        return "Relay Access has a billing problem. Update payment with your provider, or choose BYOK or VATSIM."
+    if code == "expired":
+        return "Relay Access has ended. Renew it with your provider, enter a new key, or choose BYOK or VATSIM."
     if code == "stale_move_token":
         return "That move confirmation expired because the activation details changed. Start the move again."
     if code == "rate_limited":
@@ -903,8 +912,27 @@ def _relay_json_response(response: Any) -> Dict[str, Any]:
     return payload if isinstance(payload, dict) else {"detail": "Relay response was invalid"}
 
 
+def _access_status_outcome(payload: Dict[str, Any]) -> tuple[bool, str, str]:
+    """Classify a relay access status body into (active, status, error)."""
+    from localflight.storage.install import AUTHORIZED_ACCESS_STATES, INACTIVE_ACCESS_STATES
+
+    access_state = str(payload.get("access_state") or "").strip().lower()
+    active = bool(payload.get("ok") is True and payload.get("active") is True and access_state in AUTHORIZED_ACCESS_STATES)
+    if active:
+        return True, "active", ""
+    inactive_status = access_state if access_state in INACTIVE_ACCESS_STATES else "invalid_status_response"
+    error = {
+        "past_due": "Relay Access has a billing problem. Update payment with your provider, or choose BYOK or VATSIM.",
+        "expired": "Relay Access has ended. Renew it with your provider, enter a new key, or choose BYOK or VATSIM.",
+        "suspended": "Relay Access is suspended.",
+        "refunded": "Relay Access was refunded.",
+        "revoked": "Relay Access was revoked.",
+    }.get(inactive_status, "Beacon Relay returned an invalid access status.")
+    return False, inactive_status, error
+
+
 def _cache_access_payload(payload: Dict[str, Any], *, relay_state: str) -> None:
-    from localflight.storage.install import update_relay_access_summary
+    from localflight.storage.install import RELAY_ACCESS_DETAIL_KEYS, update_relay_access_summary
 
     license_summary = payload.get("license") if isinstance(payload.get("license"), dict) else payload
     receiver = payload.get("receiver") if isinstance(payload.get("receiver"), dict) else payload
@@ -920,6 +948,8 @@ def _cache_access_payload(payload: Dict[str, Any], *, relay_state: str) -> None:
         purchase_source=license_summary.get("purchase_source") or payload.get("purchase_source") or "",
         current_main_device_description=description,
         last_successful_check_time=datetime.now(timezone.utc).isoformat() if relay_state in {"active", "inactive"} else "",
+        founder=bool(license_summary.get("founder") or payload.get("founder")),
+        **{key: license_summary.get(key) or payload.get(key) or "" for key in RELAY_ACCESS_DETAIL_KEYS},
     )
 
 
@@ -936,8 +966,10 @@ def _mark_access_failure(payload: Dict[str, Any], *, http_status: int = 0) -> No
     reported_access_state = (detail.get("access_state") if isinstance(detail, dict) else "")
     # A failed or malformed status response must never leave a cached "active"
     # state authoritative. Terminal states are retained for actionable UI copy.
+    from localflight.storage.install import INACTIVE_ACCESS_STATES
+
     access_state = str(reported_access_state or "").strip().lower()
-    if access_state not in {"suspended", "refunded", "revoked"}:
+    if access_state not in INACTIVE_ACCESS_STATES:
         access_state = ""
     update_relay_access_summary(
         relay_state=state,
@@ -1444,7 +1476,9 @@ async def setup_activate(body: ActivationSetupIn, request: Request = None) -> Di
             and commit_payload.get("ok") is True
             and commit_payload.get("activated") is True
             and str(commit_payload.get("activation_state") or "") == "active"
-            and str((commit_payload.get("license") or {}).get("access_state") or "") == "active"
+            and _access_status_outcome(
+                {"ok": True, "active": True, **(commit_payload.get("license") or {})}
+            )[0]
         )
         if not committed:
             try:
@@ -1527,12 +1561,10 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
         if response.status_code >= 400:
             _mark_access_failure(payload, http_status=response.status_code)
             return _relay_failure_payload(payload, http_status=response.status_code, fallback="Relay status check failed.", response=response)
-        access_state = str(payload.get("access_state") or "").strip().lower()
-        active = payload.get("ok") is True and payload.get("active") is True and access_state == "active"
-        inactive_status = access_state if access_state in {"suspended", "refunded", "revoked"} else "invalid_status_response"
+        active, inactive_status, error = _access_status_outcome(payload)
         if active:
             _cache_access_payload(payload, relay_state="active")
-        elif inactive_status in {"suspended", "refunded", "revoked"}:
+        elif inactive_status != "invalid_status_response":
             _cache_access_payload(payload, relay_state="inactive")
             _mark_access_failure({**payload, "code": inactive_status})
         else:
@@ -1541,11 +1573,7 @@ async def setup_client_status(body: ClientStatusSetupIn) -> Dict[str, Any]:
             **payload,
             "ok": active,
             "status": "active" if active else inactive_status,
-            "error": "" if active else {
-                "suspended": "Relay Access is suspended.",
-                "refunded": "Relay Access was refunded.",
-                "revoked": "Relay Access was revoked.",
-            }.get(inactive_status, "Beacon Relay returned an invalid access status."),
+            "error": error,
             "activation_token_present": True,
             "activation_token_prefix": activation_token[:12],
         }
@@ -1637,12 +1665,10 @@ async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
         if response.status_code >= 400:
             _mark_access_failure(payload, http_status=response.status_code)
             return _relay_failure_payload(payload, http_status=response.status_code, fallback="Relay verification failed.", response=response)
-        access_state = str(payload.get("access_state") or "").strip().lower()
-        active = payload.get("ok") is True and payload.get("active") is True and access_state == "active"
-        inactive_status = access_state if access_state in {"suspended", "refunded", "revoked"} else "invalid_status_response"
+        active, inactive_status, error = _access_status_outcome(payload)
         if active:
             _cache_access_payload(payload, relay_state="active")
-        elif inactive_status in {"suspended", "refunded", "revoked"}:
+        elif inactive_status != "invalid_status_response":
             _cache_access_payload(payload, relay_state="inactive")
             _mark_access_failure({**payload, "code": inactive_status})
         else:
@@ -1651,11 +1677,7 @@ async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
             **payload,
             "ok": active,
             "status": "active" if active else inactive_status,
-            "error": "" if active else {
-                "suspended": "Relay Access is suspended.",
-                "refunded": "Relay Access was refunded.",
-                "revoked": "Relay Access was revoked.",
-            }.get(inactive_status, "Beacon Relay returned an invalid access status."),
+            "error": error,
             "activation_token_prefix": token[:12],
         }
     if not token.startswith("lfm_"):
