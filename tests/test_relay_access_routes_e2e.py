@@ -141,10 +141,10 @@ def _purchase(
 def test_access_route_manifest_host_split_cors_and_private_headers(access_stack) -> None:
     client, _service, _stripe, _mailer = access_stack
     registered = {
-        (method, route.path)
-        for route in relay_main.app.routes
-        if route.path.startswith("/v1/access")
-        for method in (route.methods or set())
+        (method.upper(), path)
+        for path, methods in relay_main.app.openapi()["paths"].items()
+        if path.startswith("/v1/access")
+        for method in methods
     }
     assert registered == {
         ("GET", "/v1/access/catalog"),
@@ -162,6 +162,9 @@ def test_access_route_manifest_host_split_cors_and_private_headers(access_stack)
         ("POST", "/v1/access/activation-grants"),
         ("POST", "/v1/access/licenses/action"),
         ("GET", "/v1/access/status"),
+        ("POST", "/v1/access/operator/inspect"),
+        ("POST", "/v1/access/operator/claim"),
+        ("POST", "/v1/access/operator/email-change/confirm"),
     }
 
     catalog = client.get("/v1/access/catalog", headers=PUBLIC_HOST)

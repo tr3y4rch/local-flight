@@ -831,16 +831,18 @@ def test_admin_key_rotation_api_delivers_by_email_without_returning_a_key(
     license_record, original_key, _ = service.fulfill_purchase(
         purchase("pi_admin_api_rotation", email="protected@example.test")
     )
+    service.exchange_magic_link(service.request_magic_link("protected@example.test").token)
 
     response = TestClient(relay_main.app).post(
         f"/admin/api/access/{license_record.license_id}/action",
         headers={"host": "network.beacontools.cc"},
         auth=("admin", "correct-horse"),
-        json={"action": "rotate_key"},
+        json={"action": "rotate_key", "reason":"Test protected rotation", "request_id":"fake-rotate-request-001", "confirmed":True},
     )
 
     assert response.status_code == 200
     payload_text = json.dumps(response.json())
+    relay_main._deliver_pending_license_emails(limit=10)
     assert response.json()["delivery"] == "queued"
     assert "license_key" not in payload_text
     assert original_key not in payload_text

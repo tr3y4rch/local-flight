@@ -305,6 +305,7 @@ function resetPaging(key) {
 async function loadView(key, force = false) {
   const view = views.find(item => item.id === key) || views[0];
   activeView = view.id;
+  workspace.classList.toggle("operator-workspace", view.id === "access");
   setActiveNavigation(view.id);
   el("viewKicker").textContent = view.group;
   el("viewTitle").textContent = view.title;
@@ -714,109 +715,19 @@ function accessNotificationTable(rows, licenses) {
 
 
 function renderAccess(payload) {
-  const licenses = payload.licenses || [];
-  const deliveries = payload.deliveries || [];
-  const notifications = payload.notifications || [];
-  const events = payload.purchase_events || [];
-  const reconciliation = payload.reconciliation_ready || {};
-  const health = payload.reconciliation_health || [];
-  const backup = payload.backup || {};
-  const failed = deliveries.filter(row => row.status === "failed").length;
-  const pending = deliveries.filter(row => ["pending", "sending"].includes(row.status)).length;
-  const issues = events.filter(row => !["processed", "completed", "success"].includes(row.status)).length;
-  const filters = filterBar("access", [
-    { name: "q", label: "Secure search", placeholder: "License, key reference, or exact email", wide: true },
-    { name: "source", label: "Purchase source", type: "select", options: ["stripe", "apple_app", "google_play_product"] },
-    { name: "state", label: "License state", type: "select", options: ["active", "suspended", "refunded", "revoked"] },
-  ]);
-  const cards = metricCards([
-    { label: "Licenses", value: number(payload.filtered_estimate), sub: "Matching licenses" },
-    { label: "Delivery queue", value: number(pending + failed), sub: pending + " pending / " + failed + " failed", tone: failed ? "bad" : "good" },
-    { label: "Event issues", value: number(issues), sub: events.length + " recent events", tone: issues ? "warn" : "good" },
-    { label: "Access mode", value: titleCase(payload.mode), sub: "Schema " + text(payload.schema_version) },
-    { label: "Configuration", value: payload.configuration_ready ? "Ready" : "Not ready", sub: "License service preflight", tone: payload.configuration_ready ? "good" : "bad" },
-    { label: "License delivery", value: payload.delivery_ready ? "Ready" : "Not ready", sub: "Email and recovery delivery", tone: payload.delivery_ready ? "good" : "warn" },
-    { label: "Sales", value: payload.sales_enabled ? "Enabled" : "Disabled", sub: "Commercial checkout gate" },
-    { label: "Mobile ownership", value: payload.mobile_ownership_enabled ? "Enabled" : "Disabled", sub: "Apple " + (reconciliation.apple ? "ready" : "not ready") + " / Google " + (reconciliation.google ? "ready" : "not ready") },
-  ]);
-  const healthTable = dataTable("access", health, [
-    { key: "provider", label: "Provider" },
-    { key: "status", label: "Status", render: row => badge(row.status) },
-    { key: "last_success_at", label: "Last success", render: row => dateTime(row.last_success_at) },
-    { key: "last_attempt_at", label: "Last attempt", render: row => dateTime(row.last_attempt_at) },
-    { key: "next_attempt_at", label: "Next attempt", render: row => dateTime(row.next_attempt_at) },
-    { key: "detail_code", label: "Detail" },
-  ], { sortable: false, empty: "No provider reconciliation checks recorded." });
-  const backupBody = '<div class="panel-body">' + detailSection("Backup status", [
-    ["Health", backup.healthy ? "Healthy" : "Attention"],
-    ["Latest verified backup", dateTime(backup.last_backup_at)],
-    ["Detail", backup.detail_code],
-  ]) + '<div class="action-buttons"><button class="button button-primary" type="button" data-access-backup="create_backup">Create verified backup</button><button class="button button-quiet" type="button" data-access-backup="verify_latest">Verify latest backup</button></div></div>';
-  workspace.innerHTML = workspaceHead("Relay Access", "Licenses, receivers, recovery delivery, and purchase reconciliation. Key references and ownership evidence remain masked.") +
-    '<div class="panel-stack">' + cards +
-    panel("Universal licenses", "One portable license and one active independent receiver. Exact email searches use a private request body.", filters + accessLicenseTable(licenses) + pager("access", payload)) +
-    panel("Delivery diagnostics", "License and delivery identifiers remain masked.", accessDeliveryTable(deliveries, licenses)) +
-    panel("Notification and provider queue", "Destinations and purchase handles stay hidden.", accessNotificationTable(notifications, licenses)) +
-    panel("Provider reconciliation health", "Current authority checks for production access.", healthTable) +
-    panel("Encrypted backups", "Create and verify recoverable encrypted database snapshots.", backupBody) +
-    panel("Purchase events", "Sanitized provider events and reconciliation outcomes.", accessEventTable(events)) + '</div>';
+  return renderOperatorWorkspace(payload);
 }
 
-async function fetchAccessDetail(licenseId) {
-  return api(`/admin/api/access/${encodeURIComponent(licenseId)}`);
-}
 
 async function openAccessDrawer(summary) {
-  if (!summary?.license_id) return;
-  const generation = ++accessDetailGeneration;
-  activeAccessLicenseId = summary.license_id;
-  activeAccessSummary = summary;
-  drawer.dataset.kind = "access_license";
-  delete drawer.dataset.row;
-  drawerTitle.textContent = "Relay Access · " + licenseKeyRef(summary);
-  drawerBody.innerHTML = '<p class="access-operator-note">Loading masked license diagnostics…</p>';
-  drawer.removeAttribute("inert");
-  drawer.classList.add("open");
-  drawer.setAttribute("aria-hidden", "false");
-  drawerScrim.classList.add("open");
-  el("drawerClose").focus();
-  try {
-    const detail = await fetchAccessDetail(summary.license_id);
-    if (generation !== accessDetailGeneration || activeAccessLicenseId !== summary.license_id) return;
-    activeAccessSummary = { ...summary, ...(detail.license || {}), license_id: summary.license_id };
-    renderAccessDrawer(activeAccessSummary, detail);
-  } catch (error) {
-    if (generation !== accessDetailGeneration) return;
-    drawerBody.innerHTML = '<p class="access-load-error">' + esc(error.message || "Unable to load license details.") + '</p>';
-  }
+  return openOperatorLicense(summary);
 }
 
+
 async function runAccessAction(action) {
-  const licenseId = activeAccessLicenseId;
-  if (!licenseId || !activeAccessSummary) return;
-  const ref = licenseKeyRef(activeAccessSummary);
-  const descriptions = {
-    revoke_license: "Disable the license and revoke its active receiver credential.",
-    suspend_license: "Suspend the license and revoke its active receiver credential.",
-    reactivate_license: "Restore license eligibility. The receiver must activate again.",
-    revoke_receiver: "Revoke the active receiver credential. The device must activate again.",
-    retry_deliveries: "Queue failed license email deliveries for retry.",
-    retry_notifications: "Retry failed recovery, protection, and provider notifications.",
-    retry_reconciliation: "Ask the purchase provider to reconcile this license now.",
-    rotate_key: "Revoke the old key and receiver credential. Send the replacement key only to the protected holder email.",
-  };
-  if (!descriptions[action]) return;
-  const destructive = ["revoke_license", "suspend_license", "revoke_receiver", "rotate_key"].includes(action);
-  const values = await ask({ title: titleCase(action) + " · " + ref, copy: descriptions[action],
-    confirmLabel: titleCase(action), tone: destructive ? "danger" : "", verify: destructive ? "CONFIRM" : "" });
-  if (!values) return;
-  await api(`/admin/api/access/${encodeURIComponent(licenseId)}/action`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }),
-  });
-  toast(action === "rotate_key" ? "Master key rotated. Protected email delivery was queued; no raw key was returned." : "Relay Access action completed.", "good");
-  closeDrawer();
-  await loadView("access", true);
+  return operatorLicenseAction(action);
 }
+
 
 function accessRecordBlock(title, rows, fields) {
   if (!rows.length) {
@@ -828,61 +739,6 @@ function accessRecordBlock(title, rows, fields) {
   </article>`).join("")}</section>`;
 }
 
-function accessDrawerActions(summary, detail) {
-  const status = String(detail.license?.status || summary.status || "").toLowerCase();
-  const activeReceiver = (detail.activations || []).some(row => String(row.status).toLowerCase() === "active");
-  const failedDelivery = (detail.deliveries || []).some(row => String(row.status).toLowerCase() === "failed");
-  const failedNotification = (detail.notifications || []).some(row => String(row.status).toLowerCase() === "failed");
-  const latestPurchase = (detail.purchases || [])[0] || {};
-  const purchaseState = String(latestPurchase.state || "").toLowerCase();
-  const authoritativePurchase = ["paid", "purchased"].includes(purchaseState);
-  const protectedHolder = Boolean(detail.license?.email_protected ?? summary.email_protected);
-  const actions = [];
-  if (status === "active") actions.push(`<button class="button button-quiet" type="button" data-access-action="suspend_license">Suspend license</button>`);
-  if (status !== "revoked") actions.push(`<button class="button button-danger" type="button" data-access-action="revoke_license">Revoke license</button>`);
-  if (["suspended", "revoked"].includes(status) && authoritativePurchase) actions.push(`<button class="button button-good" type="button" data-access-action="reactivate_license">Reactivate license</button>`);
-  actions.push(`<button class="button button-danger" type="button" data-access-action="revoke_receiver" ${activeReceiver ? "" : "disabled"}>Revoke receiver</button>`);
-  actions.push(`<button class="button button-quiet" type="button" data-access-action="retry_deliveries" ${failedDelivery ? "" : "disabled"}>Retry deliveries</button>`);
-  actions.push(`<button class="button button-quiet" type="button" data-access-action="retry_notifications" ${failedNotification ? "" : "disabled"}>Retry notifications</button>`);
-  if (["server_authoritative", "device_and_server"].includes(String(latestPurchase.reconciliation_mode || ""))) {
-    actions.push(`<button class="button button-quiet" type="button" data-access-action="retry_reconciliation">Retry provider check</button>`);
-  }
-  actions.push(`<button class="button button-danger" type="button" data-access-action="rotate_key" ${status === "active" && protectedHolder ? "" : "disabled"}>Rotate master key</button>`);
-  return actions.join("");
-}
-
-function renderAccessDrawer(summary, detail) {
-  const license = detail.license || {};
-  const displayRef = licenseKeyRef(license) !== "not issued" ? licenseKeyRef(license) : licenseKeyRef(summary);
-  drawerTitle.textContent = `Relay Access · ${displayRef}`;
-  drawerBody.innerHTML = `<div class="drawer-actions">${accessDrawerActions(summary, detail)}</div>
-    <p class="access-operator-note">Suspending, revoking, or rotating a license revokes its active receiver. Rotation sends the replacement key only to the protected holder email; it never appears in admin. Reactivation restores license eligibility, not the old receiver credential.</p>
-    ${detailSection("License", [["Key reference", displayRef], ["Product", license.product_code || summary.product_code], ["Purchase source", license.purchase_source || summary.purchase_source], ["Status", license.status || summary.status], ["Email protection", license.email_protected ? "protected" : "not protected"], ["Created", dateTime(license.created_at || summary.created_at)]])}
-    ${accessRecordBlock("Receiver history", detail.activations || [], {
-      heading: row => `${row.device_name || "Unnamed receiver"} · ${row.device_kind || "unknown"}`,
-      rows: row => [["Install reference", maskedRef(row.install_ref)], ["Credential prefix", row.credential_prefix ? `${row.credential_prefix}…` : "-"], ["Activated", dateTime(row.activated_at)], ["Last seen", dateTime(row.last_seen_at)], ["Revoked", dateTime(row.revoked_at)], ["Reason", row.revoke_reason || "-"]]
-    })}
-    ${accessRecordBlock("Purchase records", detail.purchases || [], {
-      heading: row => `${row.provider || "unknown"} · ${row.environment || "unknown"}`,
-      rows: row => [["Product", row.product_id], ["Evidence reference", maskedRef(row.evidence_ref)], ["Reconciliation", row.reconciliation_mode || "device only"], ["Last reconciled", dateTime(row.last_reconciled_at)], ["Next check", dateTime(row.next_reconcile_at)], ["Acknowledgement", row.acknowledgement_state || "-"], ["Reason", row.state_reason || "-"], ["Last verified", dateTime(row.last_verified_at)], ["State changed", dateTime(row.state_changed_at)], ["Updated", dateTime(row.updated_at)]]
-    })}
-    ${accessRecordBlock("Purchase transitions", detail.purchase_transitions || [], {
-      heading: row => `${row.from_state || "new"} → ${row.to_state || "unknown"}`,
-      rows: row => [["Source", row.source || "authority"], ["Reason", row.reason_code || "-"], ["Changed", dateTime(row.created_at)]]
-    })}
-    ${accessRecordBlock("Delivery history", detail.deliveries || [], {
-      heading: row => `${row.channel || "unknown"} · ${row.purpose || "delivery"}`,
-      rows: row => [["Key version", row.key_version], ["Attempts", row.attempt_count], ["Delivered", dateTime(row.delivered_at)], ["Updated", dateTime(row.updated_at)], ["Detail", row.detail_code || "-"]]
-    })}
-    ${accessRecordBlock("Provider event linkage", detail.events || [], {
-      heading: row => `${row.provider || "unknown"} · ${row.event_type || "event"}`,
-      rows: row => [["Status", row.status], ["Detail", row.detail_code || "-"], ["Created", dateTime(row.created_at)], ["Processed", dateTime(row.processed_at)]]
-    })}
-    ${accessRecordBlock("Notification history", detail.notifications || [], {
-      heading: row => `${row.channel || "unknown"} · ${row.purpose || "notification"}`,
-      rows: row => [["Status", row.status], ["Attempts", row.attempt_count], ["Next retry", dateTime(row.next_attempt_at)], ["Detail", row.detail_code || "-"]]
-    })}`;
-}
 
 
 function renderProviders(payload) {
@@ -998,6 +854,7 @@ function closeDrawer() {
 }
 
 function renderField(field) {
+  if (field.type === "textarea") return `<label class="field"><span>${esc(field.label)}</span><textarea name="${esc(field.name)}" rows="4" maxlength="2000" ${field.required ? "required" : ""}>${esc(field.value || "")}</textarea></label>`;
   if (field.type === "checkbox") return `<label class="checkbox-field"><input name="${esc(field.name)}" type="checkbox" ${field.checked ? "checked" : ""}><span>${esc(field.label)}</span></label>`;
   if (field.type === "select") return `<label class="field"><span>${esc(field.label)}</span><select name="${esc(field.name)}">${(field.options || []).map(option => { const pair = Array.isArray(option) ? option : [option, titleCase(option)]; return `<option value="${esc(pair[0])}" ${String(field.value || "") === String(pair[0]) ? "selected" : ""}>${esc(pair[1])}</option>`; }).join("")}</select>${field.hint ? `<small class="field-hint">${esc(field.hint)}</small>` : ""}</label>`;
   return `<label class="field"><span>${esc(field.label)}</span><input name="${esc(field.name)}" type="${esc(field.type || "text")}" value="${esc(field.value || "")}" placeholder="${esc(field.placeholder || "")}" ${field.required ? "required" : ""} ${field.min !== undefined ? `min="${esc(field.min)}"` : ""} ${field.max !== undefined ? `max="${esc(field.max)}"` : ""}>${field.hint ? `<small class="field-hint">${esc(field.hint)}</small>` : ""}</label>`;
@@ -1021,7 +878,7 @@ function ask(options) {
   const verifyInput = dialog.querySelector('[name="verification"]');
   if (verifyInput) verifyInput.addEventListener("input", () => { confirmButton.disabled = verifyInput.value !== dialogVerify; });
   dialog.showModal();
-  const firstInput = dialog.querySelector("input:not([type=checkbox]), select");
+  const firstInput = dialog.querySelector("input:not([type=checkbox]), textarea, select");
   if (firstInput) setTimeout(() => firstInput.focus(), 0);
   return new Promise(resolve => { dialogResolve = resolve; });
 }
@@ -1066,7 +923,10 @@ async function perform(task, button = null) {
   } catch (error) {
     toast(error.message || String(error), "bad", true);
   } finally {
-    if (button && document.contains(button)) button.disabled = false;
+    if (button && document.contains(button)) {
+      button.disabled = false;
+      button.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -1294,15 +1154,15 @@ document.addEventListener("click", event => {
   }
   if (button.dataset.accessAction) return perform(() => runAccessAction(button.dataset.accessAction), button);
   if (button.dataset.eventAction && button.dataset.eventRef) return perform(async () => {
-    const values = await ask({ title: "Resolve provider event", copy: "Mark this masked provider event as resolved after investigation.", confirmLabel: "Resolve event" });
+    const values = await ask({ title: "Resolve provider event", copy: "Mark this masked provider event as resolved after investigation.", confirmLabel: "Resolve event", fields:[opReason] });
     if (!values) return;
-    await mutate(`/admin/api/access/events/${encodeURIComponent(button.dataset.eventRef)}/action`, { action: button.dataset.eventAction });
+    await mutate(`/admin/api/access/events/${encodeURIComponent(button.dataset.eventRef)}/action`, { action: button.dataset.eventAction,reason:values.reason,request_id:crypto.randomUUID(),confirmed:true });
   }, button);
   if (button.dataset.accessBackup) return perform(async () => {
     const action = button.dataset.accessBackup;
-    const values = await ask({ title: action === "create_backup" ? "Create verified backup" : "Verify latest backup", copy: "Check the encrypted Relay Access backup and its recovery status.", confirmLabel: "Continue" });
+    const values = await ask({ title: action === "create_backup" ? "Create verified backup" : "Verify latest backup", copy: "Check the encrypted Relay Access backup and its recovery status.", confirmLabel: "Continue", fields:[opReason] });
     if (!values) return;
-    const result = await api("/admin/api/access-backups/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+    const result = await api("/admin/api/access-backups/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action,reason:values.reason,request_id:crypto.randomUUID() }) });
     toast(result.backup?.healthy === false ? "Backup needs attention. Review its status below." : "Backup operation completed.", result.backup?.healthy === false ? "warn" : "good");
     await loadView("access", true);
   }, button);

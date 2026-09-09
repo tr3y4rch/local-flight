@@ -35,12 +35,13 @@ from .models import (
     RelayLicense,
     VerifiedPurchase,
 )
+from .operator import OperatorSupportMixin
 
 
 ConnectionFactory = Callable[[], sqlite3.Connection]
 
 
-class LicenseService:
+class LicenseService(OperatorSupportMixin):
     """Account-light licensing and one-receiver activation service."""
 
     def __init__(
@@ -57,8 +58,10 @@ class LicenseService:
         historical_hash_secrets: dict[str, str] | None = None,
         historical_key_secrets: dict[str, str] | None = None,
         historical_encryption_secrets: dict[str, str] | None = None,
+        deployment_environment: str = "",
     ) -> None:
         self._connect = connect
+        self.deployment_environment = deployment_environment
         self.hash_secret_id = (hash_secret_id or "v1").strip()[:32]
         self.key_secret_id = (key_secret_id or "v1").strip()[:32]
         self.encryption_secret_id = (encryption_secret_id or "v1").strip()[:32]
@@ -101,6 +104,12 @@ class LicenseService:
         checks: tuple[tuple[str, str, str, dict[str, str]], ...] = (
             ("relay_licenses", "key_secret_id", "1=1", self._key_secrets),
             ("relay_licenses", "hash_secret_id", "1=1", self._hash_secrets),
+            ("operator_grants", "hash_key_id", "1=1", self._hash_secrets),
+            ("operator_grants", "encryption_key_id", "1=1", self._encryption_secrets),
+            ("operator_audit", "encryption_key_id", "1=1", self._encryption_secrets),
+            ("operator_notes", "encryption_key_id", "1=1", self._encryption_secrets),
+            ("email_change_requests", "hash_key_id", "1=1", self._hash_secrets),
+            ("email_change_requests", "encryption_key_id", "1=1", self._encryption_secrets),
             (
                 "license_holders",
                 "notification_email_key_id",
@@ -220,7 +229,7 @@ class LicenseService:
     @staticmethod
     def normalize_email(value: str) -> str:
         email = (value or "").strip().casefold()
-        if not email or len(email) > 240 or "@" not in email:
+        if not email or len(email) > 240 or email.count("@") != 1 or any(ord(c)<32 or ord(c)==127 for c in email):
             raise InvalidChallenge("A valid email address is required")
         local, _, domain = email.partition("@")
         if not local or "." not in domain or any(char.isspace() for char in email):
@@ -1049,6 +1058,7 @@ class LicenseService:
         claim = random_token("lfrclaim_", 32)
         conn = self._connect()
         try:
+            self._authority_conn(conn, license_id)
             row = conn.execute(
                 "SELECT status FROM relay_licenses WHERE license_id=?",
                 (license_id,),
@@ -1100,6 +1110,7 @@ class LicenseService:
         try:
             conn.execute("BEGIN IMMEDIATE")
             if licensed:
+                self._authority_conn(conn, license_id)
                 active = conn.execute(
                     """
                     SELECT 1 FROM relay_activations a
@@ -1163,7 +1174,7 @@ class LicenseService:
                 ).fetchone()
                 if not active:
                     raise LicenseInactive("Relay Access receiver is no longer active")
-                purchase_environment = str(active["environment"] or "production")
+                purchase_environment = self._authority_conn(conn, str(row["license_id"]))["environment"]
                 legacy = False
             elif not legacy or not row["subject_ref"]:
                 raise InvalidChallenge("Remote Companion ticket has no receiver identity")
@@ -1171,6 +1182,7 @@ class LicenseService:
                 "install_ref": str(payload.get("install_ref") or ""),
                 "legacy": legacy,
                 "legacy_activation_hash": str(row["subject_ref"] or "") if legacy else "",
+                "activation_id": str(row["subject_ref"] or "") if not legacy else "",
                 "license_id": str(row["license_id"] or ""),
                 "purchase_environment": purchase_environment,
             }
@@ -1320,6 +1332,7 @@ class LicenseService:
             row = conn.execute("SELECT * FROM relay_licenses WHERE license_id=?", (license_id,)).fetchone()
             if not row:
                 raise LicenseNotFound("Relay Access license was not found")
+            self._authority_conn(conn, license_id)
             if not row["holder_id"]:
                 raise InvalidChallenge("Relay Access license does not have a verified delivery address")
             version = int(row["key_version"] or 1)
@@ -1405,6 +1418,7 @@ class LicenseService:
                 raise LicenseNotFound("Relay Access license was not found")
             if str(row["status"] or "").strip().lower() != "active":
                 raise LicenseInactive("Only an active Relay Access license can be emailed")
+            self._authority_conn(conn, license_id)
 
             version = int(row["key_version"] or 1)
             latest = conn.execute(
@@ -1422,6 +1436,8 @@ class LicenseService:
             cooldown = max(60, min(int(cooldown_seconds), 3600))
             if latest is not None:
                 raw_status = str(latest["status"] or "").strip().lower()
+                if raw_status == "uncertain":
+                    raise InvalidChallenge("Email acceptance is uncertain. Contact support to review a retry that may duplicate delivery.")
                 created_at = self._parse_time(str(latest["created_at"] or latest["updated_at"]))
                 if raw_status in {"pending", "sending"} or (
                     raw_status == "failed" and latest["next_attempt_at"]
@@ -1471,6 +1487,7 @@ class LicenseService:
             conn.close()
 
     def claim_due_license_emails(self, *, limit: int = 10) -> list[dict[str, Any]]:
+        self.recover_interrupted_mail()
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -1497,6 +1514,15 @@ class LicenseService:
             claimed: list[dict[str, Any]] = []
             for row in rows:
                 delivery_id = str(row["delivery_id"])
+                try:
+                    self._authority_conn(conn, str(row["license_id"]))
+                    # The delivery holder must still own this exact key version.
+                    delivery = conn.execute("SELECT holder_id FROM license_deliveries WHERE delivery_id=?", (delivery_id,)).fetchone()
+                    if delivery["holder_id"] != self._license_row(conn, str(row["license_id"]))["holder_id"]:
+                        raise InvalidChallenge("Delivery holder changed")
+                except (LicenseInactive, InvalidChallenge):
+                    conn.execute("UPDATE license_deliveries SET status='cancelled',next_attempt_at=NULL,detail_code='entitlement_unavailable',updated_at=? WHERE delivery_id=?", (now,delivery_id))
+                    continue
                 conn.execute(
                     """
                     UPDATE license_deliveries
@@ -1642,6 +1668,7 @@ class LicenseService:
         ).fetchone()
         if not row:
             raise InvalidLicenseKey("Relay Access key is not valid")
+        self._authority_conn(conn, str(row["license_id"]))
         return row
 
     def activate(
@@ -1775,6 +1802,7 @@ class LicenseService:
     ) -> ActivationResult:
         if not license_row:
             raise LicenseNotFound("Relay Access license was not found")
+        self._authority_conn(conn, str(license_row["license_id"]))
         if str(license_row["status"]) != "active":
             raise self._inactive_error(
                 license_status=str(license_row["status"]),
@@ -1939,6 +1967,7 @@ class LicenseService:
             )
 
         license_id = str(row["license_id"])
+        self._authority_conn(conn, license_id)
         active = conn.execute(
             "SELECT * FROM relay_activations WHERE license_id=? AND status='active'",
             (license_id,),
@@ -2038,6 +2067,8 @@ class LicenseService:
                 )
             status = str(row["status"] or "unknown")
             license_status = str(row["license_status"] or "revoked")
+            if license_status == "active":
+                self._authority_conn(conn, str(row["license_id"]))
             if str(row["install_id"] or "") != install_id:
                 raise self._inactive_error(
                     license_status=license_status,
@@ -2268,12 +2299,13 @@ class LicenseService:
                     message="Relay Access license is not active",
                     current_receiver=current_receiver,
                 )
+            authority = self._authority_conn(conn, str(row["license_id"]))
             conn.execute(
                 "UPDATE relay_activations SET last_seen_at=? WHERE activation_id=?",
                 (self.now(), str(row["activation_id"])),
             )
             conn.commit()
-            return dict(row)
+            return dict(row) | {"purchase_environment": authority["environment"], "expires_at": authority["expires_at"]}
         finally:
             conn.close()
 
@@ -2299,6 +2331,7 @@ class LicenseService:
             "seat_state": "active_receiver",
             "delivery_available": True,
             "environment": str(row["purchase_environment"] or "production"),
+            "expires_at": row.get("expires_at"),
         }
 
     def deactivate(self, credential: str, *, install_id: str) -> dict[str, Any]:
@@ -2764,6 +2797,7 @@ class LicenseService:
         return queued
 
     def claim_due_notifications(self, *, limit: int = 10) -> list[dict[str, Any]]:
+        self.recover_interrupted_mail()
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -2783,6 +2817,11 @@ class LicenseService:
             ).fetchall()
             claimed: list[dict[str, Any]] = []
             for row in rows:
+                try:
+                    self._mail_eligible_conn(conn, "notification", row)
+                except (LicenseInactive, InvalidChallenge):
+                    conn.execute("UPDATE notification_outbox SET status='cancelled',next_attempt_at=NULL,detail_code='message_superseded',updated_at=? WHERE notification_id=?", (now,row["notification_id"]))
+                    continue
                 key_id = str(row["encryption_key_id"] or "v1")
                 destination = self._open(
                     key_id,
@@ -2821,7 +2860,7 @@ class LicenseService:
                             license_id=str(row["license_id"] or "") or None,
                             payload={
                                 "request_purpose": str(payload.get("request_purpose") or "recovery")[:32],
-                                "attach_license": bool(row["license_id"]),
+                                "attach_license": bool(row["license_id"]) and purpose != "magic_link:operator_recovery",
                             },
                             minutes=15,
                         )
@@ -2884,7 +2923,8 @@ class LicenseService:
                 conn.execute(
                     """
                     UPDATE notification_outbox
-                    SET status='sent', delivered_at=?, updated_at=?, next_attempt_at=NULL, detail_code=NULL
+                    SET status='sent', delivered_at=?, updated_at=?, next_attempt_at=NULL, detail_code=NULL,
+                        payload_ciphertext=CASE WHEN channel='email' THEN '' ELSE payload_ciphertext END
                     WHERE notification_id=?
                     """,
                     (now, now, notification_id),
@@ -2928,6 +2968,7 @@ class LicenseService:
                 license_id = str(claim["license_id"] or "")
                 if not license_id:
                     raise LicenseNotFound("Relay Access license was not found")
+                self._authority_conn(conn, license_id)
                 holder_id = self._holder_for_email(conn, normalized_email, create=True)
                 conn.execute(
                     "UPDATE access_challenges SET consumed_at=? WHERE challenge_id=?",
@@ -2947,6 +2988,7 @@ class LicenseService:
                 if not activation:
                     raise LicenseNotFound("Relay Access credential was not found")
                 license_id = str(activation["license_id"])
+                self._authority_conn(conn, license_id)
                 holder_id = self._holder_for_email(conn, normalized_email, create=True)
             else:
                 holder_id = self._holder_for_email(conn, normalized_email, create=False)
@@ -2986,6 +3028,9 @@ class LicenseService:
                 (now, now, holder_id),
             )
             if row["license_id"]:
+                self._authority_conn(conn, str(row["license_id"]))
+            attach_license = bool(row["license_id"]) and self._json_payload(row["payload_json"]).get("attach_license", True)
+            if attach_license:
                 updated = conn.execute(
                     """
                     UPDATE relay_licenses SET holder_id=?, updated_at=?
@@ -3011,7 +3056,7 @@ class LicenseService:
                 "SELECT * FROM relay_licenses WHERE holder_id=? ORDER BY created_at DESC",
                 (holder_id,),
             ).fetchall()
-            delivered_license_id = str(row["license_id"] or "")
+            delivered_license_id = str(row["license_id"] or "") if attach_license else ""
             delivered_key = ""
             if delivered_license_id:
                 delivered_row = next(
@@ -3083,6 +3128,7 @@ class LicenseService:
             ).fetchone()
             if not license_row:
                 raise LicenseNotFound("Relay Access license was not found")
+            self._authority_conn(conn, license_id)
             if str(license_row["status"]) != "active":
                 raise LicenseInactive("Relay Access license is not active")
             grant = random_token("lfrag_", 32)
@@ -3196,6 +3242,7 @@ class LicenseService:
             ).fetchone()
             if not row:
                 raise LicenseNotFound("Relay Access license was not found")
+            self._authority_conn(conn, license_id)
             version = int(row["key_version"] or 1) + 1
             key = derive_license_key(self._key_secret, license_id, version)
             normalized = normalize_license_key(key)
@@ -3333,6 +3380,7 @@ class LicenseService:
         query: str = "",
         source: str = "",
         state: str = "",
+        expiry: str = "",
     ) -> dict[str, Any]:
         page_size = max(1, min(int(limit), 200))
         clauses: list[str] = []
@@ -3343,8 +3391,22 @@ class LicenseService:
             clauses.append("l.purchase_source=?")
             params.append(clean_source)
         if clean_state:
-            clauses.append("l.status=?")
-            params.append(clean_state)
+            if clean_state == "expired":
+                clauses.append("EXISTS (SELECT 1 FROM operator_grants g WHERE g.license_id=l.license_id AND g.expires_at<=?)")
+                params.append(self.now())
+            else:
+                clauses.append("l.status=?")
+                params.append(clean_state)
+                if clean_state == "active":
+                    clauses.append("NOT EXISTS (SELECT 1 FROM operator_grants g WHERE g.license_id=l.license_id AND (g.status<>'issued' OR g.expires_at<=?))")
+                    params.append(self.now())
+        if expiry == "permanent":
+            clauses.append("NOT EXISTS (SELECT 1 FROM operator_grants g WHERE g.license_id=l.license_id AND g.expires_at IS NOT NULL)")
+        elif expiry in {"expiring", "expired"}:
+            clauses.append("EXISTS (SELECT 1 FROM operator_grants g WHERE g.license_id=l.license_id AND g.expires_at" + ("<=?" if expiry == "expired" else ">? AND g.expires_at<=?") + ")")
+            params.append(self.now())
+            if expiry == "expiring":
+                params.append((self._parse_time(self.now())+timedelta(days=7)).isoformat())
         clean_query = query.strip()
         if clean_query:
             if "@" in clean_query:
@@ -3646,6 +3708,10 @@ class LicenseService:
                 """,
                 (self.now(), self.now()),
             ).rowcount
+            for table, column in (("operator_notes", "created_at"), ("operator_audit", "created_at"), ("mail_attempts", "started_at")):
+                conn.execute(f"DELETE FROM {table} WHERE {column}<?", (audit_cutoff,))
+            conn.execute("UPDATE email_change_requests SET status='expired',updated_at=? WHERE status='pending' AND expires_at<=?", (self.now(), self.now()))
+            conn.execute("DELETE FROM email_change_requests WHERE expires_at<? AND status<>'pending'", (audit_cutoff,))
             challenges = conn.execute(
                 """
                 DELETE FROM access_challenges
@@ -3818,6 +3884,7 @@ class LicenseService:
             row = conn.execute("SELECT * FROM relay_licenses WHERE license_id=?", (license_id,)).fetchone()
             if not row:
                 raise LicenseNotFound("Relay Access license was not found")
+            self._authority_conn(conn, license_id)
             if str(row["status"] or "").strip().lower() != "active":
                 raise LicenseInactive("Only an active Relay Access license can rotate its key")
             if not row["holder_id"]:

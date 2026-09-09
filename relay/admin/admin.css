@@ -36,6 +36,73 @@
   --font-mono: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
 }
 
+/* Relay Access: a focused workbench inside the existing Network Operations shell. */
+.operator-tabs { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--line); margin:0 0 20px; padding:0 0 8px; }
+.operator-tab { border:0; border-radius:8px; background:transparent; color:var(--text-soft); padding:11px 15px; cursor:pointer; min-height:44px; font-size:1rem; }
+.operator-tab.selected { color:var(--accent-strong); background:var(--accent-soft); box-shadow:inset 0 -2px var(--accent); }
+.operator-tab:hover { background:var(--surface-raised); color:var(--text); }
+.operator-primary { display:flex; flex-wrap:wrap; gap:10px; margin:0 0 20px; }
+.operator-primary .button:first-child { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+.operator-primary .button:disabled { background:var(--surface-raised); color:var(--muted); border-color:var(--line); }
+.operator-attention { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+.operator-attention-card { text-align:left; display:grid; gap:8px; padding:20px; color:var(--text); background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-md); cursor:pointer; }
+.operator-attention-card:hover { border-color:var(--accent); background:var(--surface-raised); }
+.operator-attention-card strong { font:600 2.2rem var(--font-mono); color:var(--accent); }
+.operator-attention-card small { color:var(--text-soft); font-size:.875rem; }
+.operator-search { display:flex; flex-wrap:wrap; align-items:end; gap:12px; padding:18px; border-bottom:1px solid var(--line); }
+.operator-search .field:first-child { flex:1 1 240px; }
+.operator-search .field { flex:1 1 135px; }
+.operator-search .button { min-height:44px; }
+.operator-caution { border-left:3px solid var(--warn); background:var(--warn-soft); padding:14px 16px; margin:0 0 18px; color:var(--text); font-size:1rem; }
+.operator-messages { display:grid; gap:14px; }
+.operator-message { padding:18px; border:1px solid var(--line); border-radius:var(--radius-md); margin-bottom:12px; min-width:0; }
+.operator-message header { display:flex; justify-content:space-between; align-items:start; flex-wrap:wrap; gap:12px; }
+.operator-message header p { margin:5px 0; color:var(--text-soft); }
+.operator-message .action-buttons { margin-top:16px; }
+.operator-message .mono,.operator-message code { overflow-wrap:anywhere; }
+.operator-facts { display:grid; grid-template-columns:2fr 1.5fr .5fr; gap:16px; margin:18px 0; }
+.operator-facts dt { color:var(--text-soft); margin-bottom:6px; }
+.operator-facts dd { margin:0; overflow-wrap:anywhere; }
+.operator-message summary,.operator-timeline summary,.operator-danger summary { cursor:pointer; min-height:44px; padding:10px 0; color:var(--accent); }
+.operator-attempt { display:grid; gap:6px; margin:8px 0; padding:12px; background:var(--surface-soft); border-radius:8px; }
+.operator-attempt span { color:var(--text-soft); }
+.operator-pagination { display:flex; align-items:center; justify-content:flex-end; gap:15px; padding:16px; }
+.operator-detail { font-size:1rem; line-height:1.6; }
+.operator-detail .detail-section { margin-bottom:24px; }
+.operator-detail .detail-row { gap:20px; font-size:.875rem; min-height:36px; }
+.operator-detail .detail-section h3 { font-size:.875rem; }
+.operator-detail .detail-row strong { font-size:inherit; }
+.operator-detail .detail-row span { font-size:inherit; }
+#operatorContent .detail-row { font-size:.875rem; min-height:36px; }
+#operatorContent .detail-row strong,#operatorContent .detail-row span { font-size:inherit; }
+#operatorContent .detail-section h3 { font-size:.875rem; }
+.operator-workspace .button { font-size:.875rem; min-height:44px; }
+.operator-workspace .field > span,#actionDialog .field > span { font-size:.875rem; }
+.operator-workspace .data-table th,.operator-workspace .data-table td { font-size:.875rem; }
+#actionDialog .field-hint { font-size:.75rem; color:var(--text-soft); }
+.operator-detail .detail-row strong { overflow-wrap:anywhere; }
+.operator-danger { margin-top:24px; padding:10px 20px 20px; border:1px solid var(--bad-line); border-radius:var(--radius-md); background:var(--bad-soft); }
+.operator-danger summary { color:var(--bad); font-weight:700; }
+.operator-timeline { margin:0; padding:0 0 0 24px; border-left:1px solid var(--line); list-style:none; }
+.operator-timeline li { position:relative; padding:0 0 24px; }
+.operator-timeline li::before { content:""; position:absolute; left:-29px; top:7px; width:9px; height:9px; border-radius:50%; background:var(--accent); }
+.operator-timeline li > div { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+.operator-timeline p,.operator-note p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.operator-timeline small,.operator-note small { color:var(--text-soft); font-size:.875rem; }
+.operator-timeline pre { white-space:pre-wrap; overflow-wrap:anywhere; padding:12px; background:var(--surface-soft); font-size:.875rem; }
+.operator-note { margin-top:15px; padding:12px 16px; border-left:2px solid var(--line); }
+.field textarea { width:100%; color:var(--text); background:var(--surface-soft); border:1px solid var(--line); border-radius:8px; padding:12px; resize:vertical; }
+.operator-tabs button:focus-visible,.operator-attention-card:focus-visible,.operator-message summary:focus-visible,.operator-danger summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media(max-width:700px) {
+  .operator-facts { grid-template-columns:1fr; gap:12px; }
+  .operator-tabs { gap:2px; }
+  .operator-tab { padding:10px; font-size:.875rem; }
+  .operator-primary .button { flex:1 1 140px; }
+  .operator-message { padding:14px; }
+  .operator-detail .detail-row { flex-direction:column; align-items:start; gap:4px; }
+  .operator-detail .detail-row strong { text-align:left; max-width:100%; }
+}
+
 * { box-sizing: border-box; }
 html { min-width: 320px; scroll-behavior: smooth; }
 body {

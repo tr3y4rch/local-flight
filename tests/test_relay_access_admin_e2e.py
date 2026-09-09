@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from pathlib import Path
 
 import pytest
@@ -71,18 +72,19 @@ def _action(client: TestClient, license_id: str, action: str):
         f"/admin/api/access/{license_id}/action",
         headers=ADMIN_HOST,
         auth=ADMIN_AUTH,
-        json={"action": action},
+        json={"action": action,"reason":"Test operator request","request_id":uuid.uuid4().hex,"confirmed":True},
     )
 
 
 def test_operator_ui_hides_actions_the_backend_must_reject() -> None:
-    source = (Path(__file__).resolve().parents[1] / "relay" / "admin" / "admin.js").read_text(
+    source = (Path(__file__).resolve().parents[1] / "relay" / "admin" / "operator.js").read_text(
         encoding="utf-8"
     )
-    assert 'const authoritativePurchase = ["paid", "purchased"]' in source
-    assert '&& authoritativePurchase) actions.push' in source
-    assert 'status === "active" && protectedHolder ? "" : "disabled"' in source
-    assert '["Email protection", license.email_protected ? "protected" : "not protected"]' in source
+    assert '["paid","purchased","issued"].includes(d.authority.authority_state)' in source
+    assert '!d.actions[key].enabled' in source
+    assert 'd.actions[key].reason' in source
+    assert 'confirmed:true' in source
+    assert 'showSecret(' not in source
 
 
 def test_access_operator_routes_are_admin_host_only_authenticated_and_uncacheable(
@@ -217,6 +219,7 @@ def test_operator_license_lifecycle_actions_and_email_delivery_work_end_to_end(
     license_record, original_key, _created = service.fulfill_purchase(
         _purchase("pi_operator_lifecycle")
     )
+    service.exchange_magic_link(service.request_magic_link("operator-test@example.test").token)
     activation = service.activate(
         install_id="22222222-2222-4222-8222-222222222222",
         device_kind="desktop",
@@ -244,7 +247,7 @@ def test_operator_license_lifecycle_actions_and_email_delivery_work_end_to_end(
     assert second_activation.credential is not None
     receiver_revoke = _action(client, license_record.license_id, "revoke_receiver")
     assert receiver_revoke.status_code == 200
-    assert receiver_revoke.json() == {"ok": True, "revoked": True}
+    assert receiver_revoke.json()["ok"] is True
     with pytest.raises(LicenseInactive):
         service.resolve_credential(second_activation.credential.credential)
 
@@ -253,12 +256,13 @@ def test_operator_license_lifecycle_actions_and_email_delivery_work_end_to_end(
     assert claimed["delivery_id"] == delivery_id
     service.finish_license_email(delivery_id, sent=False, detail_code="smtp_timeout")
     retried = _action(client, license_record.license_id, "retry_deliveries")
-    assert retried.status_code == 200
-    assert retried.json() == {"ok": True, "retried": 1}
+    assert retried.status_code == 422  # Bulk mail retries cannot bypass per-job checks.
+    service.operator_mail_action(kind="license",message_ref=delivery_id,action="retry",reason="Test retry",request_id=uuid.uuid4().hex)
 
     rotated = _action(client, license_record.license_id, "rotate_key")
     assert rotated.status_code == 200
     assert rotated.json()["delivery"] == "queued"
+    relay_main._deliver_pending_license_emails(limit=10)
     rotated_payload = json.dumps(rotated.json())
     assert "license_key" not in rotated_payload
     assert original_key not in rotated_payload

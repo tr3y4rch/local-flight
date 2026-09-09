@@ -6,6 +6,7 @@ import html
 import json
 from dataclasses import dataclass
 from email.message import EmailMessage
+from email.utils import make_msgid
 from typing import Any, Protocol
 from urllib.parse import quote
 
@@ -330,6 +331,18 @@ class RecordingLicenseMailer:
     def send_receiver_moved(self, *, email: str, device_name: str) -> None:
         self.messages.append({"kind": "receiver_moved", "email": email, "device_name": device_name})
 
+    def send_operator_message(self, *, email: str, purpose: str, action_url: str = "", expires_at: str = "") -> None:
+        self.messages.append({"kind": purpose, "email": email, "url": action_url, "expires_at": expires_at})
+
+
+class MailTransportError(Exception):
+    """Sanitized evidence only; never include SMTP responses or recipient data."""
+
+    def __init__(self, *, stage: str, detail_code: str, uncertain: bool = False, smtp_code: int | None = None):
+        super().__init__(detail_code)
+        self.stage, self.detail_code = stage, detail_code
+        self.uncertain, self.smtp_code = uncertain, smtp_code
+
 
 class SmtpLicenseMailer:
     def __init__(
@@ -350,6 +363,7 @@ class SmtpLicenseMailer:
         self.password = password
         self.security = security.strip().lower()
         self.reply_to = reply_to.strip()
+        self.message_id = ""
 
     def configured(self) -> bool:
         return bool(
@@ -400,6 +414,7 @@ class SmtpLicenseMailer:
         message["From"] = self.sender
         message["To"] = email
         message["Subject"] = subject
+        message["Message-ID"] = self.message_id or make_msgid()
         if self.reply_to and "@" in self.reply_to and "\n" not in self.reply_to and "\r" not in self.reply_to:
             message["Reply-To"] = self.reply_to
         message.set_content(text)
@@ -407,12 +422,46 @@ class SmtpLicenseMailer:
             message.add_alternative(html_text, subtype="html")
         use_ssl = self.security in {"ssl", "smtps"} or self.port == 465
         smtp_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-        with smtp_cls(self.host, self.port, timeout=12) as smtp:
-            if self.security in {"starttls", "tls"} and not use_ssl:
-                smtp.starttls()
-            if self.username:
-                smtp.login(self.username, self.password)
-            smtp.send_message(message)
+        stage = "connect"
+        accepted = False
+        try:
+            with smtp_cls(self.host, self.port, timeout=12) as smtp:
+                if self.security in {"starttls", "tls"} and not use_ssl:
+                    stage = "tls"
+                    smtp.starttls()
+                if self.username:
+                    stage = "authenticate"
+                    smtp.login(self.username, self.password)
+                stage = "transmit"
+                refused = smtp.send_message(message)
+                if refused:
+                    raise MailTransportError(stage=stage, detail_code="recipient_rejected")
+                accepted = True
+        except MailTransportError:
+            raise
+        except (smtplib.SMTPException, OSError) as exc:
+            # A failure while closing an accepted SMTP transaction cannot undo it.
+            if accepted:
+                return
+            code = getattr(exc, "smtp_code", None)
+            known_rejection = isinstance(exc,(smtplib.SMTPAuthenticationError,smtplib.SMTPRecipientsRefused,smtplib.SMTPSenderRefused,smtplib.SMTPDataError))
+            category = "authentication_failed" if isinstance(exc,smtplib.SMTPAuthenticationError) else "recipient_rejected" if isinstance(exc,smtplib.SMTPRecipientsRefused) else "smtp_rejected" if known_rejection else "smtp_timeout" if isinstance(exc,TimeoutError) else "smtp_connection_failed"
+            raise MailTransportError(stage=stage,detail_code=category,uncertain=stage=="transmit" and not known_rejection,smtp_code=int(code) if isinstance(code,int) else None) from None
+
+    def send_operator_message(self, *, email: str, purpose: str, action_url: str = "", expires_at: str = "") -> None:
+        headings = {"operator:invitation":"Your Relay Access invitation", "operator:email_change":"Confirm your Relay Access email change",
+                    "operator:email_changed":"Your Relay Access email has changed", "operator:smtp_test":"Relay Access SMTP diagnostic"}
+        if purpose not in headings:
+            raise AccessConfigurationError("Operator email type is not supported")
+        description = {
+            "operator:invitation":"An operator has offered you Relay Access for one main device. Confirm your email to accept. This is not a purchase or payment receipt.",
+            "operator:email_change":"Confirm only if you requested this change. Both mailboxes must approve within 30 minutes. Completion replaces the license key and disconnects the current main device.",
+            "operator:email_changed":"Both addresses confirmed the change. The old key and receiver no longer work. A replacement key has been queued to the new verified address. Contact support if this was unexpected.",
+            "operator:smtp_test":"This is a non-secret operator mail test. It creates no license and contains no access credentials. SMTP acceptance does not prove inbox delivery.",
+        }[purpose]
+        duration = ("Access expires at " + expires_at + ".") if expires_at else ("Access has no scheduled expiry." if purpose=="operator:invitation" else "")
+        self._send(email=email,subject=headings[purpose],text="\n\n".join(filter(None,[description,duration,action_url,"Ignore this message if you did not request it."])),
+                   html_text=self._html_message(heading=headings[purpose],paragraphs=[html.escape(description),html.escape(duration)],action_url=action_url,action_label="Review and confirm"))
 
     def send_license(self, *, email: str, license_key: str, recovery_url: str) -> None:
         escaped_key = html.escape(license_key)
