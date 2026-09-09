@@ -41,7 +41,7 @@ jobs:
           -e ".[dev]"
           -r relay/requirements.txt
           "pip-audit==2.10.1"
-          "playwright==1.61.1"
+          "playwright==1.62.0"
 
       - name: Install operator-workspace browser
         run: python -m playwright install --with-deps chromium
