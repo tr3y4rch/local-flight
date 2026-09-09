@@ -6,7 +6,7 @@ import SystemMap from "../components/SystemMap.astro";
 import MediaStage from "../components/MediaStage.astro";
 import SectionHeading from "../components/SectionHeading.astro";
 import SafetyNotice from "../components/SafetyNotice.astro";
-import { currentRelease, makerNote, paidRelayExplanation } from "../data/site";
+import { availability, currentRelease, makerNote, paidRelayExplanation } from "../data/site";
 import fidsImage from "../assets/screens/shell/fids-0.5.1.png";
 import iosFids from "../assets/screens/mobile/ios/current/fids-dark.png";
 import androidRadar from "../assets/screens/mobile/android/current/radar-light.png";
@@ -106,7 +106,9 @@ import matrixImage from "../assets/screens/shell/matrix.png";
       </div>
       <div class="editorial-copy" data-reveal>
         <p>{paidRelayExplanation}</p>
-        <p class="prelaunch-inline"><strong>Prelaunch:</strong> Relay Access purchases are being prepared. No payment can be started yet.</p>
+        {availability.relayAccess === "live"
+          ? <p class="prelaunch-inline"><strong>Available:</strong> Relay Access is CHF 8 per year and renews automatically. Companion, Bring Your Own Keys, and VATSIM stay free.</p>
+          : <p class="prelaunch-inline"><strong>Prelaunch:</strong> Relay Access purchases are being prepared. No payment can be started yet.</p>}
         <a class="action-link" href="/local-flight/relay-access/">Understand Beacon Relay Access</a>
       </div>
     </div>

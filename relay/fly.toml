@@ -18,23 +18,26 @@ primary_region = 'fra'
   RELAY_OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
   RELAY_PUBLIC_HOST = 'relay.beacontools.cc'
   RELAY_ADMIN_HOST = 'network.beacontools.cc'
-  # Cut over to 'migration' only after founder snapshot, backups, and hosted
-  # schedule permissions are confirmed. Sales and capabilities open separately.
+  # Still 'legacy', so /v1/activate keeps issuing free anonymous lfm_ credentials
+  # alongside paid annual access. Cutting over to 'migration' closes that door,
+  # but it first requires an immutable founder cutoff and an executed founder
+  # snapshot; without the snapshot every existing legacy install loses hosted
+  # access on its next request.
   RELAY_ACCESS_MODE = 'legacy'
   RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT = 'production'
   RELAY_ACCESS_PRODUCT_CODE = 'beacon_relay_annual_v1'
   RELAY_ACCESS_HASH_SECRET_ID = 'v1'
   RELAY_ACCESS_KEY_SECRET_ID = 'v1'
   RELAY_ACCESS_ENCRYPTION_SECRET_ID = 'v1'
-  RELAY_ACCESS_SALES_ENABLED = '0'
-  RELAY_ACCESS_STRIPE_SALES_ENABLED = '0'
+  RELAY_ACCESS_SALES_ENABLED = '1'
+  RELAY_ACCESS_STRIPE_SALES_ENABLED = '1'
   RELAY_ACCESS_APPLE_SALES_ENABLED = '0'
   RELAY_ACCESS_GOOGLE_SALES_ENABLED = '0'
   RELAY_ACCESS_OPERATOR_ISSUANCE_ENABLED = '0'
   RELAY_ACCESS_MOBILE_OWNERSHIP_ENABLED = '0'
-  RELAY_ACCESS_SCHEDULE_ENABLED = '0'
+  RELAY_ACCESS_SCHEDULE_ENABLED = '1'
   RELAY_ACCESS_RADAR_ENABLED = '0'
-  RELAY_ACCESS_REMOTE_COMPANION_ENABLED = '0'
+  RELAY_ACCESS_REMOTE_COMPANION_ENABLED = '1'
   RELAY_ACCESS_ALLOW_TEST_LICENSES = '0'
   RELAY_ACCESS_SITE_URL = 'https://beacontools.cc'
   RELAY_ACCESS_IOS_STATE = 'unavailable'
@@ -42,7 +45,7 @@ primary_region = 'fra'
   GOOGLE_PLAY_PURCHASE_ENVIRONMENT = 'production'
   APPLE_RELAY_ACCESS_SUBSCRIPTION_ID = 'cc.beacontools.localflight.relay_access.annual'
   GOOGLE_RELAY_ACCESS_SUBSCRIPTION_ID = 'cc.beacontools.localflight.relay_access.annual'
-  RELAY_ACCESS_BACKUP_ENABLED = '0'
+  RELAY_ACCESS_BACKUP_ENABLED = '1'
   RELAY_ACCESS_BACKUP_DIRECTORY = '/data/relay-access-backups'
   RELAY_ACCESS_BACKUP_KEY_ID = 'v1'
 

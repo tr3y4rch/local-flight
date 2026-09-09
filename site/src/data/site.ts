@@ -39,10 +39,16 @@ export const releaseUrl = `${githubUrl}/releases/tag/v${currentRelease}`;
 export const relayOrigin = resolveDeployment().relayOrigin;
 
 export const availability = {
-  relayAccess: "prelaunch",
+  relayAccess: "live",
   ios: "testing",
   android: "testing",
-} as const satisfies Record<string, AvailabilityState>;
+  // Deliberately widened to AvailabilityState rather than the literal values:
+  // purchase copy branches on these flags, so narrowing would make flipping a
+  // single flag a type error instead of a one-line release decision.
+} satisfies Record<string, AvailabilityState> as Record<
+  "relayAccess" | "ios" | "android",
+  AvailabilityState
+>;
 
 export const publicFacts = {
   software: "Local Flight itself remains free and open source.",

@@ -110,7 +110,23 @@ assert.match(pageText["index.html"], /Local Flight grew from wanting airport-sty
 assert.match(pageText["index.html"], /I did not want advertising, tracking, or cookie strategies to become the business model/);
 assert.match(pageText["index.html"], /Why Beacon Relay is paid\./);
 assert.match(pageText["index.html"], /provider-authorized aviation data, servers, payment and license delivery, abuse protection, and ongoing maintenance/);
-assert.match(pageText["index.html"], /Relay Access purchases are being prepared\. No payment can be started yet\./);
+const relayAccessState = fs
+  .readFileSync(path.join(siteRoot, "src/data/site.ts"), "utf8")
+  .match(/relayAccess:\s*"([a-z]+)"/)?.[1];
+assert.ok(
+  relayAccessState === "prelaunch" || relayAccessState === "live",
+  "availability.relayAccess must be prelaunch or live",
+);
+const relayAccessLive = relayAccessState === "live";
+// Purchase copy must follow the single availability flag in both directions, so
+// a closed shop can never render a buy prompt and an open one can never keep
+// telling people that no payment can be started.
+assert.match(
+  pageText["index.html"],
+  relayAccessLive
+    ? /Relay Access is CHF 8 per year and renews automatically\./
+    : /Relay Access purchases are being prepared\. No payment can be started yet\./,
+);
 assert.match(pageText["index.html"], /No required Beacon profile/);
 assert.match(pageText["index.html"], /no advertising, behavioral analytics, cross-site tracking, or sale of usage data/i);
 assert.match(builtPages.get("index.html"), /fids-0\.5\.1/);
@@ -158,10 +174,18 @@ assert.equal(
   3,
 );
 assert.match(builtPages.get("local-flight/relay-access/index.html"), /\/v1\/access\/catalog/);
-assert.match(builtPages.get("local-flight/relay-access/index.html"), /data-public-state="prelaunch"/);
+assert.match(
+  builtPages.get("local-flight/relay-access/index.html"),
+  new RegExp(`data-public-state="${relayAccessState}"`),
+);
 assert.match(builtPages.get("local-flight/relay-access/index.html"), /id="relayCheckout" disabled/);
 assert.match(pageText["local-flight/relay-access/index.html"], /Beacon Relay is the optional hosted path for real-flight data\./);
-assert.match(pageText["local-flight/relay-access/index.html"], /Relay Access purchases are being prepared\. No payment can be started yet\./);
+assert.match(
+  pageText["local-flight/relay-access/index.html"],
+  relayAccessLive
+    ? /Relay Access is CHF 8 per year\. It renews automatically until you cancel/
+    : /Relay Access purchases are being prepared\. No payment can be started yet\./,
+);
 assert.match(pageText["local-flight/relay-access/index.html"], /The software is free\. Hosted service has ongoing costs\./);
 assert.match(pageText["local-flight/relay-access/index.html"], /iOS and Android downloads are free/);
 assert.match(pageText["local-flight/relay-access/index.html"], /CHF 8\/year/);
@@ -260,14 +284,16 @@ const siteDataSource = fs.readFileSync(path.join(siteRoot, "src/data/site.ts"), 
 assert.match(siteDataSource, /pyproject\.toml/);
 assert.match(siteDataSource, /candidateRelease = projectVersion/);
 assert.match(siteDataSource, /currentRelease = "0\.6\.0"/, "Downloads must remain at the published package version");
-assert.match(siteDataSource, /relayAccess:\s*"prelaunch"/);
+assert.match(siteDataSource, /relayAccess:\s*"(?:prelaunch|live)"/);
 
 const relayHtml = fs.readFileSync(path.join(siteRoot, "..", "relay", "public", "index.html"), "utf8");
 const relayText = visibleText(relayHtml);
 assert.match(relayText, /Beacon Relay is the hosted service behind selected Local Flight features\./);
 assert.match(relayText, /provider-authorized real-flight data/);
 assert.match(relayText, /This endpoint is not a live flight-tracking website\./);
-assert.match(relayText, /purchases in prelaunch/i);
+// The relay endpoint page is intentionally script-free, so its wording stays
+// neutral rather than going stale whenever sales open or close.
+assert.match(relayText, /see Relay Access for current availability/i);
 assert.match(relayText, /The application is free\. Hosting has continuing costs\./);
 assert.match(relayText, /Understand Relay Access/);
 assert.match(relayText, /Beacon Tools cannot read the request or response\./);

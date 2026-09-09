@@ -31,8 +31,15 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
   </header>
 
   <div class="terminal-frame prelaunch-notice" role="status" data-release-state={availability.relayAccess}>
-    <span>PRELAUNCH</span>
-    <p><strong>Relay Access purchases are being prepared.</strong> No payment can be started yet.</p>
+    {availability.relayAccess === "live"
+      ? <>
+          <span>AVAILABLE</span>
+          <p><strong>Relay Access is CHF 8 per year.</strong> It renews automatically until you cancel, and Stripe shows the final price and any tax before you pay.</p>
+        </>
+      : <>
+          <span>PRELAUNCH</span>
+          <p><strong>Relay Access purchases are being prepared.</strong> No payment can be started yet.</p>
+        </>}
   </div>
 
   <section class="section" id="why-paid">
@@ -77,8 +84,8 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
         </article>
       </div>
       <div class="purchase-prelaunch-action">
-        <button class="action-button action-button--primary" type="button" id="relayCheckout" disabled>Purchases are not open yet</button>
-        <p class="form-status" id="relayCheckoutStatus" role="status" aria-live="polite">No payment can be started in the prelaunch state.</p>
+        <button class="action-button action-button--primary" type="button" id="relayCheckout" disabled>{availability.relayAccess === "live" ? "Checking availability…" : "Purchases are not open yet"}</button>
+        <p class="form-status" id="relayCheckoutStatus" role="status" aria-live="polite">{availability.relayAccess === "live" ? "Confirming that Beacon Relay can complete a purchase right now." : "No payment can be started in the prelaunch state."}</p>
       </div>
       <p class="terms-note">The launch price is CHF 8/year. Stripe, the App Store, or Google Play shows the final localized currency and applicable tax before purchase. The <a href="/local-flight/relay-access/terms/">Relay Access terms</a> and <a href="/privacy/">privacy policy</a> remain available now.</p>
     </div>
