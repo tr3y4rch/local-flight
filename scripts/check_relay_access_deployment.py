@@ -15,7 +15,8 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PRODUCT_CODE = "beacon_relay_lifetime_v1"
+PRODUCT_CODE = "beacon_relay_annual_v1"
+CATALOG_CONTRACT_VERSION = 2
 
 
 def source_contract() -> tuple[str, int]:
@@ -85,7 +86,7 @@ def validate_payloads(
     providers = access.get("providers")
     if not isinstance(providers, dict) or any(
         not isinstance(providers.get(provider), bool)
-        for provider in ("stripe", "apple_app", "google_play")
+        for provider in ("stripe", "apple_subscription", "google_play")
     ):
         raise RuntimeError("Relay health is missing safe provider readiness fields")
     if access.get("sales_ready") is True and not all(
@@ -100,13 +101,32 @@ def validate_payloads(
         raise RuntimeError("Relay claims sales readiness without its required safety gates")
 
     product = catalog.get("product")
-    if catalog.get("ok") is not True or catalog.get("schema_version") != expected_schema:
+    if (
+        catalog.get("ok") is not True
+        or catalog.get("schema_version") != expected_schema
+        or catalog.get("catalog_contract_version") != CATALOG_CONTRACT_VERSION
+    ):
         raise RuntimeError("Relay Access catalog schema is missing or incompatible")
     if not isinstance(product, dict) or product.get("product_code") != PRODUCT_CODE:
         raise RuntimeError("Relay Access catalog does not expose the canonical product")
     sources = product.get("purchase_sources")
-    if not isinstance(sources, dict) or not {"stripe", "apple_app", "google_play"}.issubset(sources):
+    if not isinstance(sources, dict) or not {
+        "stripe",
+        "apple_subscription",
+        "google_play",
+    }.issubset(sources):
         raise RuntimeError("Relay Access catalog is missing a supported purchase path")
+    pricing = product.get("pricing")
+    if (
+        product.get("billing_period") != "P1Y"
+        or not isinstance(pricing, dict)
+        or pricing.get("kind") != "annual_auto_renewing"
+        or pricing.get("localized_price_owner") != "checkout_or_store"
+    ):
+        raise RuntimeError("Relay Access catalog does not expose the annual pricing contract")
+    capabilities = catalog.get("capabilities")
+    if not isinstance(capabilities, dict) or capabilities.get("radar") is not False:
+        raise RuntimeError("Relay Access catalog must explicitly disable shared real radar")
 
 
 def main() -> int:

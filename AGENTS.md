@@ -28,18 +28,18 @@ Public links:
 
 - `pyproject.toml` is the version source of truth. The active desktop,
   Linux server, Raspberry Pi, relay-compatibility, and mobile testing line is
-  `0.6.1` candidate. Public native downloads remain `0.6.0` until the full
+  `0.7.0` candidate. Public native downloads remain `0.6.0` until the full
   replacement matrix is published. Source, submitted builds, tester access,
   and public availability are distinct states; do not infer one from another.
 - Windows, separate Apple silicon/Intel macOS packages, x86-64/ARM64 Linux
   AppImages, Ubuntu/Debian desktop and headless packages, and Raspberry Pi are
   public package targets. Mobile is in TestFlight/Google Play testing and uses
   the permanent application identifier `cc.beacontools.localflight`.
-- `0.6.1` is the platform-wide Windows, macOS, Linux, Raspberry Pi, LAN, relay,
+- `0.7.0` is the platform-wide Windows, macOS, Linux, Raspberry Pi, LAN, relay,
   and mobile-testing release line. Native artifacts are built on matching
   architecture runners and uploaded with matching checksums. macOS artifacts
   additionally require Developer ID signing, notarization, and stapling.
-- Current public release copy lives in `docs/release-notes-0.6.1.md` and the
+- Current public release copy lives in `docs/release-notes-0.7.0.md` and the
   public `CHANGELOG.md`. Detailed implementation history belongs in
   `docs/engineering-changelog.md` and is not bundled as end-user help.
 - Public-safe build, validation, and publication gates live in
@@ -56,7 +56,7 @@ Public links:
   assets change.
 - Candidate work goes through a separate branch and clean-checkout CI. A main
   push deploys production; do not use it to validate staging. Mobile candidate
-  counters are iOS 14 and Android 17, subject to uploaded-counter verification.
+  counters are iOS 15 and Android 18, subject to uploaded-counter verification.
   Use explicit beta build and submission profiles with the same candidate SHA.
   Staging requires its own database, keyrings, DNS, email, and sandbox credentials.
   Missing readiness, store processing, or physical tests must remain pending.
@@ -107,8 +107,12 @@ Real schedule flow:
 6. Cache and provider caps fail safely so a known-good stale board can remain.
 
 Beacon Relay setup verifies an active Relay Access credential before completion.
-Licensed deployments fail closed for missing or inactive credentials, while BYOK
-and VATSIM remain separate free routes. First-board network failures use bounded
+New Relay Access is an annual, accountless entitlement for one independent main
+device and includes shared schedules plus Remote Companion. Prior verified
+lifetime/mobile purchases, complimentary grants, and eligible active legacy
+installs remain permanent. Migration mode provides a bounded `lfm_` bridge and
+an atomic founder claim. Shared real radar is disabled for hosted access; BYOK
+and VATSIM remain separate free routes with radar. First-board network failures use bounded
 retry timing instead of sleeping for the full schedule interval. The server owns upstream
 freshness, so page navigation reads cached state and never bypasses provider
 timers.

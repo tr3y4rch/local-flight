@@ -83,6 +83,15 @@ class VerifiedPurchase:
     reconciliation_mode: str = "device_only"
     reconciliation_handle: str = ""
     acknowledgement_state: str = ""
+    entitlement_kind: str = "permanent"
+    effective_state: str = "active"
+    current_period_start: str = ""
+    current_period_end: str = ""
+    grace_expires_at: str = ""
+    auto_renews: bool = False
+    provider_state: str = ""
+    license_product_code: str = ""
+    customer_reference: str = ""
 
 
 @dataclass(frozen=True)
@@ -96,6 +105,12 @@ class RelayLicense:
     key_prefix: str
     key_last_four: str
     created_at: str
+    entitlement_kind: str = "permanent"
+    effective_state: str = "active"
+    current_period_end: str = ""
+    grace_expires_at: str = ""
+    auto_renews: bool = False
+    founder: bool = False
 
 
 @dataclass(frozen=True)

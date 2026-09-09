@@ -128,8 +128,8 @@ assert.match(pageText["local-flight/index.html"], /Only Beacon Relay needs paid 
 assert.match(pageText["local-flight/index.html"], /appropriately licensed aviation-data provider account/);
 assert.match(pageText["local-flight/mobile/index.html"], /Take your flight board with you\./);
 assert.match(pageText["local-flight/mobile/index.html"], /Compare Companion and Standalone/);
-assert.match(pageText["local-flight/mobile/index.html"], /iOS Paid app Included in the app/);
-assert.match(pageText["local-flight/mobile/index.html"], /Android Free app Free to use Uses an optional one-time Relay purchase/);
+assert.match(pageText["local-flight/mobile/index.html"], /iOS Free app Free to use Annual App Store Relay Access subscription/);
+assert.match(pageText["local-flight/mobile/index.html"], /Android Free app Free to use Annual Google Play Relay Access subscription/);
 assert.match(pageText["local-flight/mobile/index.html"], /The mobile apps are currently in testing\./);
 assert.match(pageText["local-flight/mobile/index.html"], /Ask about mobile testing/);
 assert.match(builtPages.get("local-flight/mobile/index.html"), /\/v1\/access\/catalog/);
@@ -138,7 +138,8 @@ assert.match(builtPages.get("local-flight/mobile/index.html"), /data-mobile-stor
 assert.match(pageText["local-flight/mobile/index.html"], /About 1 h Real-world schedules/);
 assert.match(pageText["local-flight/mobile/index.html"], /Between checks Saved board view/);
 assert.doesNotMatch(pageText["local-flight/mobile/index.html"], /saved board is re-evaluated every five minutes/i);
-assert.match(pageText["local-flight/mobile/index.html"], /About 3 min Real-world radar/);
+assert.match(pageText["local-flight/mobile/index.html"], /BYOK or VATSIM Radar/);
+assert.match(pageText["local-flight/mobile/index.html"], /Shared real-aircraft radar is not included in Relay Access/);
 assert.match(pageText["local-flight/mobile/index.html"], /About 1 min VATSIM mode/);
 assert.doesNotMatch(pageText["local-flight/mobile/index.html"], /Three-hour boards and five-minute visible radar updates/);
 const mobileHtml = builtPages.get("local-flight/mobile/index.html");
@@ -148,7 +149,7 @@ for (const anchor of ["modes", "screens", "widgets", "store-model", "update-timi
 assert.ok(mobileHtml.indexOf('id="modes"') < mobileHtml.indexOf('id="screens"'));
 assert.ok(mobileHtml.indexOf('id="screens"') < mobileHtml.indexOf('id="widgets"'));
 assert.ok(mobileHtml.indexOf('id="widgets"') < mobileHtml.indexOf('id="store-model"'));
-assert.match(pageText["local-flight/relay-access/index.html"], /One license can be active on one desktop .* or one mobile .* at a time\./);
+assert.match(pageText["local-flight/relay-access/index.html"], /One annual entitlement can be active on one desktop .* or one mobile .* at a time\./);
 assert.match(pageText["local-flight/relay-access/index.html"], /Beacon Relay.*Bring Your Own Keys.*VATSIM/);
 assert.equal(
   (builtPages
@@ -162,7 +163,8 @@ assert.match(builtPages.get("local-flight/relay-access/index.html"), /id="relayC
 assert.match(pageText["local-flight/relay-access/index.html"], /Beacon Relay is the optional hosted path for real-flight data\./);
 assert.match(pageText["local-flight/relay-access/index.html"], /Relay Access purchases are being prepared\. No payment can be started yet\./);
 assert.match(pageText["local-flight/relay-access/index.html"], /The software is free\. Hosted service has ongoing costs\./);
-assert.match(pageText["local-flight/relay-access/index.html"], /A web or Android Relay purchase does not buy the paid iOS app/);
+assert.match(pageText["local-flight/relay-access/index.html"], /iOS and Android downloads are free/);
+assert.match(pageText["local-flight/relay-access/index.html"], /CHF 8\/year/);
 assert.match(pageText["local-flight/relay-access/success/index.html"], /Your Relay Access key/);
 assert.match(pageText["local-flight/relay-access/success/index.html"], /The key never goes into the app/);
 assert.match(builtPages.get("local-flight/relay-access/success/index.html"), /name="robots" content="noindex, nofollow"/);
@@ -181,8 +183,8 @@ assert.match(pageText[managementRoute], /Email the license key again/);
 assert.match(managementHtml, /localflight:\/\/relay-access#grant=/);
 assert.doesNotMatch(managementHtml, /localflight:\/\/relay-access\?(?:grant|activation_grant)=/);
 assert.match(pageText["local-flight/relay-access/terms/index.html"], /Beacon Relay Access terms\./);
-assert.match(pageText["local-flight/relay-access/terms/index.html"], /access has no scheduled expiry, but hosted service and provider availability are not guaranteed/i);
-assert.match(pageText["local-flight/relay-access/terms/index.html"], /Buying more than once creates additional separate licenses/);
+assert.match(pageText["local-flight/relay-access/terms/index.html"], /renews automatically each year until cancelled/i);
+assert.match(pageText["local-flight/relay-access/terms/index.html"], /Existing verified lifetime purchases, complimentary grants, and eligible founder installs retain permanent access/i);
 assert.match(pageText["local-flight/relay-access/terms/index.html"], /A purchase never overrides a provider contract/);
 assert.match(pageText["network/index.html"], /Most of Local Flight stays on your network\./);
 assert.match(pageText["network/index.html"], /home or local network \(LAN\)/);
@@ -198,7 +200,7 @@ assert.match(pageText["privacy/index.html"], /one active main device/);
 assert.match(pageText["privacy/index.html"], /keyed one-way email lookup plus encrypted material/);
 assert.doesNotMatch(allSiteText, /paid Android app|paid iOS or Android app/i);
 assert.match(pageText["privacy/index.html"], /notification outbox keeps masked references and delivery state/);
-assert.match(pageText["privacy/index.html"], /reconcile it against Apple’s signed server response/);
+assert.match(pageText["privacy/index.html"], /reconciles it through Apple’s server API and notifications/);
 assert.match(pageText["privacy/index.html"], /Paying for hosted access does not turn Local Flight into an account\./);
 assert.match(pageText["privacy/index.html"], /Support purchases are tips, not Relay Access\./);
 assert.match(pageText["privacy/index.html"], /Apple transaction ID or Google purchase token/);

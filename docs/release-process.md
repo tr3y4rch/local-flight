@@ -1,7 +1,7 @@
-# Local Flight 0.6.1 release process
+# Local Flight 0.7.0 release process
 
 This is the public-safe contributor guide for building and publishing the
-0.6.1 release. It records the release contract without credentials, private
+0.7.0 release. It records the release contract without credentials, private
 service topology, signing material, personal paths, or operator-only recovery
 details.
 
@@ -13,20 +13,20 @@ it. Public website and Worker versions remain at 0.6.0 until all replacement
 packages are published; a candidate bump is not a download promotion. Run the version consistency test
 before packaging.
 
-The planned 0.6.1 native release consists of ten packages and ten adjacent checksum files:
+The planned 0.7.0 native release consists of ten packages and ten adjacent checksum files:
 
 | Target | Package |
 |---|---|
-| Windows x64 | `LocalFlight-0.6.1-Setup.exe` |
-| macOS Apple silicon | `LocalFlight-0.6.1-macos-arm64.pkg` |
-| macOS Intel | `LocalFlight-0.6.1-macos-x86_64.pkg` |
-| Linux AppImage x86-64 | `LocalFlight-0.6.1-linux-x86_64.AppImage` |
-| Linux AppImage ARM64 | `LocalFlight-0.6.1-linux-aarch64.AppImage` |
-| Ubuntu/Debian desktop AMD64 | `localflight-desktop_0.6.1_amd64.deb` |
-| Ubuntu/Debian desktop ARM64 | `localflight-desktop_0.6.1_arm64.deb` |
-| Ubuntu/Debian server AMD64 | `localflight-server_0.6.1_amd64.deb` |
-| Ubuntu/Debian server ARM64 | `localflight-server_0.6.1_arm64.deb` |
-| Raspberry Pi source | `LocalFlight-pi-source-0.6.1.zip` |
+| Windows x64 | `LocalFlight-0.7.0-Setup.exe` |
+| macOS Apple silicon | `LocalFlight-0.7.0-macos-arm64.pkg` |
+| macOS Intel | `LocalFlight-0.7.0-macos-x86_64.pkg` |
+| Linux AppImage x86-64 | `LocalFlight-0.7.0-linux-x86_64.AppImage` |
+| Linux AppImage ARM64 | `LocalFlight-0.7.0-linux-aarch64.AppImage` |
+| Ubuntu/Debian desktop AMD64 | `localflight-desktop_0.7.0_amd64.deb` |
+| Ubuntu/Debian desktop ARM64 | `localflight-desktop_0.7.0_arm64.deb` |
+| Ubuntu/Debian server AMD64 | `localflight-server_0.7.0_amd64.deb` |
+| Ubuntu/Debian server ARM64 | `localflight-server_0.7.0_arm64.deb` |
+| Raspberry Pi source | `LocalFlight-pi-source-0.7.0.zip` |
 
 Do not substitute an artifact from another build. Every package must be built
 on its matching operating system and CPU and must retain the filename above.
@@ -50,7 +50,7 @@ on its matching operating system and CPU and must retain the filename above.
 macOS publication additionally requires Developer ID application and installer
 identities, hardened-runtime signing, notarization, stapling, and package/app
 verification. Both packages keep the same app and package identities so an
-architecture-specific upgrade preserves Local Flight data. Windows 0.6.1 is
+architecture-specific upgrade preserves Local Flight data. Windows 0.7.0 is
 intentionally unsigned and must keep its clear unknown-publisher notice.
 
 ## Local validation before the release commit
@@ -92,7 +92,7 @@ npm audit --omit=dev --audit-level=high
 ```
 
 Run a Cloudflare build preview from the repository root, but do not deploy the
-0.6.1 Worker minimum while the complete public release is still missing:
+0.7.0 Worker minimum while the complete public release is still missing:
 
 ```bash
 npm --prefix site run build
@@ -106,7 +106,7 @@ store build at this stage.
 
 ## Isolated mobile testing first
 
-0.6.1 is a candidate, not a public package or store release. Preserve any dirty
+0.7.0 is a candidate, not a public package or store release. Preserve any dirty
 checkout, integrate reviewed work on a dedicated branch, and validate a detached
 checkout of the candidate commit. Push that branch and open a pull request for
 CI; do not push main, which automatically deploys the production relay.
@@ -122,7 +122,7 @@ origin and relay target must match the staging recovery origin and CORS policy.
 The default build stays production. Never deploy a staging build over the public
 website, and never send a staging recovery link to the production site.
 
-Reserve iOS build 14 and Android versionCode 17, increasing either when an
+Reserve iOS build 15 and Android versionCode 18, increasing either when an
 uploaded counter requires it. Build both platforms from the same clean commit
 with Node 24 and the beta build profile. Submit each exact build ID with the
 beta submission profile. Never substitute the latest build from another branch.
@@ -142,7 +142,7 @@ stay outside the repository. Do not change prices or public store tracks.
    commit.
 4. Let the native matrix build and inspect all packages. Final assembly accepts
    only ten matching package/checksum pairs plus ten matching CI-only
-   attestations. It creates the `v0.6.1` tag server-side and a draft release,
+   attestations. It creates the `v0.7.0` tag server-side and a draft release,
    then rechecks the draft's exact 20-file public inventory.
 5. Smoke fresh installs, 0.5.1 upgrades, retained state, architecture, signing,
    LAN health, Linux desktop/server behavior, Raspberry Pi modes, and Matrix on
@@ -160,8 +160,8 @@ stay outside the repository. Do not change prices or public store tracks.
 
 If a published release needs package-only maintenance without changing the app
 version, do not move or overwrite its tag. Dispatch the same workflow with a
-validated suffix such as `r1`; it creates a separate `v0.6.1-r1` draft tied to
-the new source commit while retaining the `0.6.1` package filenames. Publish it
+validated suffix such as `r1`; it creates a separate `v0.7.0-r1` draft tied to
+the new source commit while retaining the `0.7.0` package filenames. Publish it
 as the latest release only after the normal package inspection and smoke gates.
 
 If a hosted gate fails, keep the release draft unpublished and fix the cause
@@ -192,12 +192,12 @@ and release inventory. It does not replace native and physical validation:
   integrity-bound activation-grant move that requires no additional purchase.
 
 Alpine/musl, 32-bit Linux, RPM, Snap, Flatpak, Windows ARM64, Universal 2, and
-macOS 11 remain outside the 0.6.1 release contract.
+macOS 11 remain outside the 0.7.0 release contract.
 
 ## Licensed-service cutover gate
 
 Do not enable Relay Access sales or switch production from `legacy` to
-`licensed` until all of these checks have passed together:
+`migration` until all of these checks have passed together:
 
 Use the complete provider, email, recovery, security, and restore matrix in
 [Relay Access release validation](relay-access-validation.md). The summary below
@@ -211,9 +211,10 @@ is a cutover gate, not a substitute for that matrix.
   Developer API verification/acknowledgement, RTDN, and voided-purchase
   reconciliation report healthy. Test/sandbox evidence is rejected by
   production and production evidence is rejected by staging.
-- Licensed mode issues no legacy Community credential. End-user schedule, radar,
-  and Remote Companion requests accept only an active Relay device credential;
-  Managed credentials remain restricted to operator diagnostics.
+- Migration mode issues no new anonymous Community credential. Licensed
+  schedules and Remote Companion accept an active annual, permanent, or founder
+  device credential. Shared real radar remains disabled; BYOK and VATSIM radar
+  remain available. Managed credentials stay restricted to operator diagnostics.
 - The operator surface can search and page through more than 600 licenses,
   inspect masked purchase/activation/delivery/reconciliation history, retry safe
   operations, and perform protected state changes without exposing raw email,
@@ -231,5 +232,7 @@ is a cutover gate, not a substitute for that matrix.
 - A transactional SMTP service passes TLS, SPF, DKIM, DMARC, sender/reply,
   Gmail, iCloud Mail, Outlook, retry, resend, and queue-monitoring checks.
 
-Production cuts over directly from `legacy` to `licensed`; there is no public
-shadow mode, grandfathered Community access, or grace period.
+Production first enters `migration` with all new sales closed. The reviewed
+founder snapshot preserves eligible installs, and their old credentials receive
+a 12-month upgrade bridge. After that bridge, old credentials can still claim
+the preserved founder entitlement but cannot fetch hosted data until upgraded.

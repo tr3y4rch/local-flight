@@ -77,6 +77,9 @@ class OperatorSupportMixin:
         grant = conn.execute(
             "SELECT * FROM operator_grants WHERE license_id=?", (license_id,)
         ).fetchone()
+        founder = conn.execute(
+            "SELECT * FROM founder_entitlements WHERE license_id=?", (license_id,)
+        ).fetchone()
         if grant is not None:
             environment = str(grant["environment"])
             expected = (
@@ -95,6 +98,15 @@ class OperatorSupportMixin:
             valid = state == "issued"
             source = "operator_" + str(grant["kind"])
             expires_at = grant["expires_at"]
+        elif founder is not None:
+            state = str(founder["status"] or "").strip().lower()
+            valid = state in {"eligible", "claimed"}
+            source = "founder_legacy"
+            environment = "production"
+            expires_at = None
+            entitlement_kind = "permanent"
+            grace_expires_at = None
+            auto_renews = False
         else:
             purchase = conn.execute(
                 "SELECT * FROM purchase_records WHERE license_id=?", (license_id,)
@@ -107,30 +119,67 @@ class OperatorSupportMixin:
                 )
             environment = str(purchase["environment"])
             state = str(purchase["state"])
-            valid = state in {"paid", "purchased"}
-            source, expires_at = str(purchase["provider"]), None
+            term = conn.execute(
+                "SELECT * FROM subscription_terms WHERE license_id=?", (license_id,)
+            ).fetchone()
+            if term is None:
+                valid = state in {"paid", "purchased"}
+                source, expires_at = str(purchase["provider"]), None
+                entitlement_kind = "permanent"
+                grace_expires_at = None
+                auto_renews = False
+            else:
+                state = str(term["effective_state"] or state).strip().lower()
+                expires_at = str(term["current_period_end"] or "") or None
+                grace_expires_at = str(term["grace_expires_at"] or "") or None
+                now = self._parse_time(self.now())
+                period_valid = bool(expires_at and self._parse_time(expires_at) > now)
+                grace_valid = bool(grace_expires_at and self._parse_time(grace_expires_at) > now)
+                if state in {"active", "cancelled_active"} and not period_valid:
+                    state = "expired"
+                elif state == "grace" and not grace_valid:
+                    state = "past_due"
+                valid = state in {"active", "cancelled_active", "grace"}
+                source = str(term["provider"] or purchase["provider"])
+                entitlement_kind = "subscription"
+                auto_renews = bool(term["auto_renews"])
+        if grant is not None:
+            entitlement_kind = "permanent"
+            grace_expires_at = None
+            auto_renews = False
         if active and (not valid or row["status"] != "active"):
+            reason_code = {
+                "past_due": "license_past_due",
+                "expired": "license_expired",
+                "suspended": "purchase_suspended",
+                "refunded": "purchase_refunded",
+                "revoked": "purchase_revoked",
+            }.get(state, "license_inactive")
             raise LicenseInactive(
                 (
                     "Operator access has expired. Contact the issuer."
                     if state == "expired"
                     else "Relay Access license is not active"
                 ),
-                access_state=(
-                    "revoked"
-                    if state == "expired"
-                    else self._safe_access_state(str(row["status"]))
+                access_state=self._safe_access_state(
+                    state if entitlement_kind == "subscription" or state == "expired" else str(row["status"])
                 ),
-                reason_code=(
-                    "license_expired" if state == "expired" else "license_inactive"
-                ),
+                reason_code=reason_code,
             )
         return {
             "source": source,
             "environment": environment,
             "expires_at": expires_at,
             "authority_state": state,
-            "effective_state": "expired" if state == "expired" else str(row["status"]),
+            "effective_state": (
+                state
+                if entitlement_kind == "subscription" or state == "expired"
+                else str(row["status"])
+            ),
+            "entitlement_kind": entitlement_kind,
+            "current_period_end": expires_at if entitlement_kind == "subscription" else None,
+            "grace_expires_at": grace_expires_at,
+            "auto_renews": auto_renews,
             "grant_id": str(grant["grant_id"]) if grant else "",
         }
 

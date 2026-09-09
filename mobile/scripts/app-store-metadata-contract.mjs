@@ -39,19 +39,19 @@ assert.match(metadata.description, /pinned-flight Live Activity/);
 assert.match(metadata.description, /Board \/ Radar \/ History \/ More/);
 assert.match(metadata.description, /VATSIM-focused virtual view/);
 assert.match(metadata.description, /No Local Flight account required/);
-assert.match(metadata.description, /paid App Store download includes Beacon Relay Access/i);
-assert.match(metadata.description, /There is no subscription or extra purchase/);
+assert.match(metadata.description, /The app is free/);
+assert.match(metadata.description, /optional annual Relay Access subscription/);
 assert.match(metadata.description, /one phone using real-flight Standalone or one Local Flight desktop/);
-assert.match(metadata.description, /explicit real-flight setup or restore action/);
-assert.match(metadata.description, /VATSIM virtual traffic does not use Relay Access/);
+assert.match(metadata.description, /Restore checks existing annual or eligible founder access before offering a purchase/);
+assert.match(metadata.description, /VATSIM virtual traffic is free/);
 assert.match(metadata.description, /never asks for or displays an LFRA key/);
-assert.match(metadata.description, /leaves the included Relay Access available for another main device/);
 assert.match(metadata.description, /Remote Companion.*requires.*Relay Access on that host/is);
 assert.match(metadata.description, /named confirmation/);
 assert.match(metadata.description, /previous main device stays active until the receiving device stores and commits its new credential/);
 assert.match(metadata.description, /No advertising SDKs or cross-app tracking/);
 assert.match(metadata.description, /Three one-time App Store support choices/);
-assert.match(metadata.description, /They unlock nothing, add no subscription/);
+assert.match(metadata.description, /They unlock nothing, do not extend Relay Access/);
+assert.match(metadata.description, /Shared real-aircraft radar is not included in Relay Access/);
 assert.match(metadata.description, /Do not use Local Flight for navigation, dispatch, operational control/);
 
 for (const [label, value] of Object.entries(metadata)) {
@@ -71,7 +71,7 @@ assert.doesNotMatch(appleCopy, /\bAndroid\b|Google Play|TestFlight|\bbeta\b/i, "
 assert.doesNotMatch(appleCopy, /provider secret|activation token|operator|admin endpoint|Linear team/i, "Internal implementation language must not leak into store copy.");
 assert.doesNotMatch(appleCopy, /\bthis phone\b|phone-only|fastest and safest/i, "Public copy must use device-neutral, substantiated language.");
 assert.doesNotMatch(appleCopy, /\breceiver(?:s)?\b|\bseat(?:s)?\b|\bentitlement(?:s)?\b|provider evidence/i, "Public licensing copy must use main-device language.");
-assert.doesNotMatch(appleCopy, /Stripe|checkout|purchase link/i, "The paid mobile app must not advertise web checkout.");
+assert.doesNotMatch(appleCopy, /Stripe|checkout|purchase link/i, "The mobile app must not advertise web checkout.");
 
 console.log(
   `Apple App Store metadata checks passed: subtitle ${metadata.subtitle.length}/30, ` +

@@ -43,9 +43,17 @@ assert.doesNotMatch(access, /requestGooglePlayLicense|proof\.response_data|proof
 for (const code of ["store_cancelled", "store_unavailable", "ownership_unverified", "device_verification_missing", "store_timeout", "unsupported_build"]) {
   assert.match(access, new RegExp(`"${code}"`));
 }
-for (const state of ["verification_needed", "checking", "available", "active_here", "active_elsewhere", "suspended", "refunded", "revoked", "retryable_unavailable", "release_pending"]) {
+for (const state of ["verification_needed", "checking", "available", "active_here", "active_elsewhere", "grace", "cancelled_active", "past_due", "expired", "suspended", "refunded", "revoked", "retryable_unavailable", "release_pending"]) {
   assert.match(access, new RegExp(`"${state}"`));
 }
+assert.match(access, /cc\.beacontools\.localflight\.relay_access\.annual/);
+assert.match(access, /fetchProducts\(\{ skus: \[RELAY_ACCESS_ANNUAL_PRODUCT_ID\], type: "subs" \}\)/);
+assert.match(access, /requestPurchase\(\{[\s\S]*?type: "subs"/);
+assert.match(access, /finishTransaction\(\{ purchase: annualPurchase, isConsumable: false \}\)/);
+assert.match(access, /license\?\.effective_state \|\| data\.access_state/);
+assert.match(access, /current_period_end/);
+assert.match(access, /grace_expires_at/);
+assert.match(access, /renewal_state/);
 assert.match(access, /access_state/);
 assert.match(access, /reason_code/);
 assert.match(access, /delivery_claim/);
@@ -76,12 +84,14 @@ assert.doesNotMatch(shell, /searchParams\.get\("(?:grant|activation_grant)"\)/);
 assert.match(shell, /relayReleasePending/);
 assert.match(shell, /setRelayReleaseRetryNonce/);
 assert.match(shell, /deactivateRelayReceiver/);
-assert.match(shell, /intent: "companion"/);
-assert.match(shell, /platformUsesIncludedPaidAppAccess/);
-assert.match(shell, /Platform\.OS === "ios"/);
-assert.match(shell, /allowPurchase: Platform\.OS === "android" && isStandalone && standaloneSource === "real"/, "Android purchase UI stays in real-flight Standalone while existing ownership can be inspected elsewhere.");
+assert.doesNotMatch(shell, /platformUsesIncludedPaidAppAccess/);
+const companionPairing = shell.slice(
+  shell.indexOf("const completeCompanionSetup"),
+  shell.indexOf("const rerunCompanionSetup")
+);
+assert.doesNotMatch(companionPairing, /inspectPaidMobileOwnership/, "Companion pairing must not trigger App Store or Google Play ownership verification.");
+assert.match(access, /intent: "standalone", allowPurchase: true/, "Only explicit real-flight Standalone activation may open the annual store purchase flow.");
 assert.match(shell, /relayAccess\.deliveryClaim\.startsWith\("lfrclaim_"\)/, "A freshly verified mobile owner can protect the portable license without occupying the main-device place.");
-assert.match(shell, /mobileRelayAccessFailureSnapshot\(verificationError, relayAccess\)/);
 assert.match(shell, /saveMobileRelayAccessSummary/);
 assert.match(shell, /setupDraftOpen/);
 assert.match(shell, /initialStandaloneMove=\{setupDraftSeed\?\.move \|\| null\}/);
@@ -93,16 +103,17 @@ assert.doesNotMatch(rerunSetup, /saveMobileSetupState|clearStandaloneHistory|sav
 assert.match(screens, /initialRelayActivationGrant\.startsWith\("lfrag_"\)/);
 assert.match(screens, /if \(accessAction === "none"\)/);
 assert.ok(screens.indexOf('if (accessAction === "none")') < screens.indexOf("const activation = await activateStandalone"), "Free VATSIM must finish before any access activation.");
-assert.match(content, /Beacon Relay Access included/);
-assert.match(content, /There is no subscription or extra purchase/);
-assert.match(content, /This paid app includes Beacon Relay Access\. Companion uses your desktop host/);
-assert.match(content, /Verify \$\{storeName\} purchase & open Board/);
+assert.match(content, /Annual Relay Access can be active on one Standalone phone or one Local Flight desktop or Pi/);
+assert.match(content, /Eligible founders keep permanent access/);
+assert.match(content, /Companion is free and follows your Local Flight host/);
+assert.match(content, /Get or restore via \$\{storeName\}/);
 assert.match(screens, /Move Relay Access here/);
 assert.match(screens, /Use Companion instead/);
 assert.match(screens, /Relay Access is currently used by \{standaloneMove\.mainDeviceName\}\. Moving it here will stop direct Relay use there\./);
 assert.match(more, /Verify Relay Access/);
 assert.match(more, /Restore Relay Access/);
-assert.match(more, /Check purchased access/);
+assert.match(more, /Current access through/);
+assert.match(more, /Billing grace through/);
 assert.match(more, /Source: \{relayAccess\.sourceLabel\}/);
 assert.match(more, /Main device: \{relayAccess\.currentMainDeviceDescription\}/);
 assert.doesNotMatch(more, /relay-access\/manage/);
@@ -131,7 +142,7 @@ assert.doesNotMatch(mobileSources, /enter (?:a )?license key|paste (?:a |your )?
 
 const ordinaryUi = [screens, more, content].join("\n");
 assert.doesNotMatch(ordinaryUi, /receiver seat|independent receiver|license entitlement/i);
-assert.doesNotMatch(ordinaryUi, /Stripe checkout|Get Relay Access/i);
+assert.doesNotMatch(ordinaryUi, /Stripe checkout|external payment link/i);
 assert.match(read("src/iap/SupportPurchaseContent.tsx"), /Tips unlock nothing and do not include Relay Access/);
 
 const summaryWriter = settings.slice(

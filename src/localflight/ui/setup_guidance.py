@@ -46,7 +46,7 @@ SOURCE_OPTIONS: tuple[dict[str, str], ...] = (
         "title": "Beacon Relay",
         "short_title": "Relay",
         "icon": "\U0001F4E1",  # 📡
-        "body": "Hosted real-flight data from Beacon Tools. Relay Access is a one-time purchase with no subscription. It can be active on one desktop or one phone in Standalone mode.",
+        "body": "Hosted real-flight schedules and Remote Companion from Beacon Tools. Annual Relay Access can be active on one desktop or one phone in real-flight Standalone mode. Shared real-aircraft radar is not included.",
         "note": "Beacon Relay is selected. Get Relay Access or enter an existing key or one-time activation code.",
         "finish_label": "Beacon Relay",
     },

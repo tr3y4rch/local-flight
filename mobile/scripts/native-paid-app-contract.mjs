@@ -96,7 +96,7 @@ for (const code of proofErrorCodes) {
 
 assert.match(bridge, /GOOGLE_PLAY_RELAY_ACCESS_PRODUCT_ID/);
 assert.match(bridge, /queryGooglePlayRelayAccessPurchase/);
-assert.match(bridge, /purchaseGooglePlayRelayAccess/);
+assert.doesNotMatch(bridge, /purchaseGooglePlayRelayAccess/, "The legacy non-consumable bridge is restore-only in 0.7.0.");
 assert.match(bridge, /requestGooglePlayIntegrityToken/);
 assert.match(bridge, /state: GooglePlayRelayAccessPurchaseState/);
 assert.match(bridge, /purchaseToken: string/);
@@ -132,8 +132,7 @@ for (const legacyAidl of ["ILicenseResultListener.aidl", "ILicensingService.aidl
 assert.match(android, /BillingClient\.newBuilder/);
 assert.match(android, /enableOneTimeProducts\(\)/);
 assert.match(android, /queryPurchasesAsync/);
-assert.match(android, /queryProductDetailsAsync/);
-assert.match(android, /launchBillingFlow/);
+assert.doesNotMatch(android, /queryProductDetailsAsync|launchBillingFlow|purchaseGooglePlayRelayAccess/, "Legacy Google Play Relay Access must not remain purchasable.");
 assert.match(android, /Purchase\.PurchaseState\.PURCHASED/);
 assert.match(android, /Purchase\.PurchaseState\.PENDING/);
 assert.match(android, /IntegrityManagerFactory\.createStandard/);
@@ -150,7 +149,7 @@ assert.doesNotMatch(android, /public.?key|BASE64_PUBLIC|Signature\.getInstance/i
 assert.match(generatedAndroidManifest, /com\.android\.vending\.BILLING/);
 assert.doesNotMatch(generatedAndroidManifest, /com\.android\.vending\.CHECK_LICENSE/);
 assert.match(generatedAndroidManifest, /cc\.beacontools\.localflight\.RELAY_ACCESS_PRODUCT_ID/);
-assert.match(generatedAndroidManifest, /cc\.beacontools\.localflight\.PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER/);
+assert.doesNotMatch(generatedAndroidManifest, /project:0|PROJECT_NUMBER_PLACEHOLDER/, "Tracked native sources must not contain a fake Play Integrity project number.");
 
 assert.match(privacyPlugin, /NSPrivacyCollectedDataTypePurchaseHistory/);
 assert.match(privacyPlugin, /NSPrivacyCollectedDataTypeDeviceID/);
@@ -164,14 +163,14 @@ const mainResources = xcodeProject.match(
 assert.ok(mainResources, "main iOS application Resources phase is missing");
 assert.match(mainResources[1], /PrivacyInfo\.xcprivacy in Resources/);
 
-assert.match(readme, /iOS `0\.6\.1 \(14\)` and Android `0\.6\.1 \(17\)`/);
-assert.match(appStoreReviewNotes, /Build number: `14`/);
-assert.match(appStoreReviewNotes, /Verify App Store purchase & open Board/);
-assert.match(appStoreReviewNotes, /AppTransaction\.refresh\(\)/);
-assert.match(playStoreReviewNotes, /Version code: `17`/);
+assert.match(readme, /iOS `0\.7\.0 \(15\)` and Android `0\.7\.0 \(18\)`/);
+assert.match(appStoreReviewNotes, /Build: `15`/);
+assert.match(appStoreReviewNotes, /auto-renewable annual subscription/);
+assert.match(appStoreReviewNotes, /signed AppTransaction verification/);
+assert.match(playStoreReviewNotes, /Version code: `18`/);
 assert.match(playStoreReviewNotes, /Google Play Billing/);
 assert.match(playStoreReviewNotes, /Play Integrity/);
-assert.match(playStoreReviewNotes, /android-manifest:contract/);
+assert.match(playStoreReviewNotes, /annual auto-renewing subscription/);
 assert.doesNotMatch(
   [appStoreReviewNotes, playStoreReviewNotes].join("\n"),
   /universal, permanent|unconditional lifetime/i

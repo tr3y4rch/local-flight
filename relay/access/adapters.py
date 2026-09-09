@@ -35,10 +35,18 @@ class StripeCheckout:
 class StripeAdapter:
     """Small Stripe SDK boundary; no Stripe objects escape this adapter."""
 
-    def __init__(self, *, api_key: str, webhook_secret: str, price_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        webhook_secret: str,
+        price_id: str,
+        subscription_mode: bool = False,
+    ) -> None:
         self.api_key = api_key.strip()
         self.webhook_secret = webhook_secret.strip()
         self.price_id = price_id.strip()
+        self.subscription_mode = bool(subscription_mode)
 
     @staticmethod
     def _stripe() -> Any:
@@ -73,21 +81,41 @@ class StripeAdapter:
             raise AccessConfigurationError("Stripe Checkout is not configured")
         stripe = self._stripe()
         stripe.api_key = self.api_key
-        session = stripe.checkout.Session.create(
-            mode="payment",
-            customer_creation="always",
-            line_items=[{"price": self.price_id, "quantity": 1}],
-            metadata={"checkout_ref": checkout_ref},
-            payment_intent_data={"metadata": {"checkout_ref": checkout_ref}},
-            success_url=success_url,
-            cancel_url=cancel_url,
-            idempotency_key=f"relay-checkout:{checkout_ref}",
-        )
+        request: dict[str, Any] = {
+            "mode": "subscription" if self.subscription_mode else "payment",
+            "line_items": [{"price": self.price_id, "quantity": 1}],
+            "metadata": {"checkout_ref": checkout_ref},
+            "automatic_tax": {"enabled": True},
+            "success_url": success_url,
+            "cancel_url": cancel_url,
+            "idempotency_key": f"relay-checkout:{checkout_ref}",
+        }
+        if self.subscription_mode:
+            request["subscription_data"] = {"metadata": {"checkout_ref": checkout_ref}}
+        else:
+            request["customer_creation"] = "always"
+            request["payment_intent_data"] = {"metadata": {"checkout_ref": checkout_ref}}
+        session = stripe.checkout.Session.create(**request)
         session_id = str(getattr(session, "id", "") or session.get("id", ""))
         url = str(getattr(session, "url", "") or session.get("url", ""))
         if not session_id or not url:
             raise AccessConfigurationError("Stripe did not create a usable Checkout Session")
         return StripeCheckout(checkout_ref=checkout_ref, session_id=session_id, url=url)
+
+    def create_billing_portal(self, *, customer_reference: str, return_url: str) -> str:
+        if not self.api_key or not customer_reference.strip() or not return_url.startswith("https://"):
+            raise AccessConfigurationError("Stripe billing management is not configured")
+        stripe = self._stripe()
+        stripe.api_key = self.api_key
+        session = stripe.billing_portal.Session.create(
+            customer=customer_reference.strip(),
+            return_url=return_url,
+            idempotency_key=f"relay-portal:{customer_reference.strip()}",
+        )
+        url = str(getattr(session, "url", "") or session.get("url", ""))
+        if not url.startswith("https://"):
+            raise AccessConfigurationError("Stripe did not create a usable billing session")
+        return url
 
     def parse_webhook(self, payload: bytes, signature: str) -> dict[str, Any]:
         if not self.webhook_secret:
@@ -104,9 +132,30 @@ class StripeAdapter:
         session = stripe.checkout.Session.retrieve(session_id)
         return self._plain_dict(session)
 
+    def retrieve_subscription(self, subscription_id: str) -> dict[str, Any]:
+        if not self.api_key or not subscription_id.strip():
+            raise AccessConfigurationError("Stripe subscription lookup is not configured")
+        stripe = self._stripe()
+        stripe.api_key = self.api_key
+        return self._plain_dict(stripe.Subscription.retrieve(subscription_id.strip()))
+
+    def retrieve_invoice(self, invoice_id: str) -> dict[str, Any]:
+        if not self.api_key or not invoice_id.strip():
+            raise AccessConfigurationError("Stripe invoice lookup is not configured")
+        stripe = self._stripe()
+        stripe.api_key = self.api_key
+        return self._plain_dict(stripe.Invoice.retrieve(invoice_id.strip()))
+
+    def retrieve_charge(self, charge_id: str) -> dict[str, Any]:
+        if not self.api_key or not charge_id.strip():
+            raise AccessConfigurationError("Stripe charge lookup is not configured")
+        stripe = self._stripe()
+        stripe.api_key = self.api_key
+        return self._plain_dict(stripe.Charge.retrieve(charge_id.strip()))
+
 
 class GooglePlayDeveloperAdapter:
-    """Authenticated Android Publisher API boundary for one-time products."""
+    """Authenticated Android Publisher API boundary for products and subscriptions."""
 
     _SCOPE = "https://www.googleapis.com/auth/androidpublisher"
     _BASE = "https://androidpublisher.googleapis.com/androidpublisher/v3"
@@ -179,6 +228,33 @@ class GooglePlayDeveloperAdapter:
         )
         if int(getattr(response, "status_code", 0) or 0) not in range(200, 300):
             raise AccessConfigurationError("Google Play purchase acknowledgement is temporarily unavailable")
+
+    def lookup_subscription_purchase(self, package_name: str, purchase_token: str) -> dict[str, Any]:
+        package = quote(package_name.strip(), safe="")
+        token = quote(purchase_token.strip(), safe="")
+        response = self._session().get(
+            f"{self._BASE}/applications/{package}/purchases/subscriptionsv2/tokens/{token}",
+            timeout=15,
+        )
+        return self._response_json(response, "subscription lookup")
+
+    def acknowledge_subscription_purchase(
+        self,
+        *,
+        package_name: str,
+        subscription_id: str,
+        purchase_token: str,
+    ) -> None:
+        package = quote(package_name.strip(), safe="")
+        subscription = quote(subscription_id.strip(), safe="")
+        token = quote(purchase_token.strip(), safe="")
+        response = self._session().post(
+            f"{self._BASE}/applications/{package}/purchases/subscriptions/{subscription}/tokens/{token}:acknowledge",
+            json={},
+            timeout=15,
+        )
+        if int(getattr(response, "status_code", 0) or 0) not in range(200, 300):
+            raise AccessConfigurationError("Google Play subscription acknowledgement is temporarily unavailable")
 
     def list_voided_purchases(
         self,
@@ -301,6 +377,50 @@ class AppleAppTransactionAdapter:
             raise
         except Exception as exc:
             raise AccessConfigurationError("App Store ownership lookup is temporarily unavailable") from exc
+
+    def get_subscription_status(
+        self,
+        original_transaction_id: str,
+        environment: str,
+    ) -> tuple[str, str, int]:
+        """Return only Apple's signed current transaction and renewal facts."""
+        if not self.configured():
+            raise AccessConfigurationError("App Store Server API is not configured")
+        try:
+            from appstoreserverlibrary.api_client import AppStoreServerAPIClient
+            from appstoreserverlibrary.models.Environment import Environment
+
+            selected = (
+                Environment.PRODUCTION
+                if environment.strip().lower() == "production"
+                else Environment.SANDBOX
+            )
+            client = AppStoreServerAPIClient(
+                base64.b64decode(self.private_key_base64, validate=True),
+                self.key_id,
+                self.issuer_id,
+                self.bundle_id,
+                selected,
+            )
+            response = client.get_all_subscription_statuses(original_transaction_id.strip())
+            for group in list(getattr(response, "data", None) or []):
+                for item in list(getattr(group, "lastTransactions", None) or []):
+                    if str(getattr(item, "originalTransactionId", "") or "") != original_transaction_id:
+                        continue
+                    transaction = str(getattr(item, "signedTransactionInfo", "") or "").strip()
+                    renewal = str(getattr(item, "signedRenewalInfo", "") or "").strip()
+                    if transaction:
+                        status_value = getattr(item, "status", None)
+                        try:
+                            status = int(getattr(status_value, "value", status_value) or 0)
+                        except (TypeError, ValueError):
+                            status = int(getattr(item, "rawStatus", 0) or 0)
+                        return transaction, renewal, status
+            raise AccessConfigurationError("App Store subscription lookup returned no current transaction")
+        except AccessConfigurationError:
+            raise
+        except Exception as exc:
+            raise AccessConfigurationError("App Store subscription lookup is temporarily unavailable") from exc
 
 
 class FakePurchaseVerifier:

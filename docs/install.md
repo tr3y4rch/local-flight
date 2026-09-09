@@ -18,8 +18,8 @@ The website [Downloads section](https://beacontools.cc/local-flight#downloads) r
 - The official hosted relay is `https://relay.beacontools.cc`.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
 - Public desktop, Linux server, and Raspberry Pi packages are `0.6.0`.
-  Source and mobile-testing candidate `0.6.1` is described in the
-  [candidate notes](release-notes-0.6.1.md); it is not yet a public package update.
+  Source and mobile-testing candidate `0.7.0` is described in the
+  [candidate notes](release-notes-0.7.0.md); it is not yet a public package update.
 
 ---
 
@@ -228,11 +228,11 @@ lf update
 
 ## Mobile App
 
-The next mobile testing target is `0.6.1`, iOS build 14 and Android versionCode 17.
-Submission and tester availability must be confirmed separately. The planned
-purchase routes are a paid iOS app with included Relay Access, and a free Android
-app with optional one-time Relay Access for real-flight Standalone. Companion and
-VATSIM on Android do not require that purchase. These terms do not announce new
+The next mobile testing target is `0.7.0`, iOS build 15 and Android versionCode 18.
+Submission and tester availability must be confirmed separately. Both mobile
+apps are free downloads. Real-flight Standalone uses the platform's annual Relay
+Access subscription, while Companion and VATSIM remain free. Eligible early users
+can restore permanent founder access instead. These terms do not announce new
 public sales. Availability is published at
 [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile).
 The commands below are for source development.
@@ -287,18 +287,18 @@ After pairing, the mobile connection panel shows whether Remote backup is verifi
 
 ### Standalone
 
-Choose **Standalone** if the phone should work without your own Local Flight host. Select VATSIM for free virtual traffic, or real airline data through Beacon Relay. The paid iOS app includes Relay Access; Android offers it as a one-time, non-consumable purchase. An existing universal license can also move to the official Android app through a verified activation grant without another Google purchase.
+Choose **Standalone** if the phone should work without your own Local Flight host. Select VATSIM for free virtual traffic, or real airline data through Beacon Relay. Real-flight Standalone uses the annual App Store or Google Play Relay Access subscription. An existing portable license can move to the official mobile app, and eligible early owners can restore permanent founder access without subscribing.
 
 Standalone is intentionally simpler and rate-limited:
 
 - Airline schedules usually refresh about once an hour.
-- Nearby traffic can refresh about every 3 minutes while Radar is open.
+- Shared real-aircraft radar is not included in Relay Access. VATSIM radar remains available, and Companion follows the host's BYOK or VATSIM radar configuration.
 - Board shows up to 50 current departures and 50 arrivals when supplied. Shared information may still be cached or delayed.
 - Radar range choices are `1`, `3`, `5`, and `10` NM.
 - No Matrix, Admin, scheduler restart, LAN server controls, or WebSocket connection.
 - History is stored locally on the phone for 30 days or 1,000 deduped movements.
 
-VATSIM needs no Relay credential. For real airline data, the app creates a mobile relay install ID and verifies the App Store entitlement or Google Play Relay product. The service prepares a short-lived per-device credential, the app stores it in SecureStore, and activation is committed only after that write succeeds. Mobile never accepts, displays, or stores the portable `LFRA-…` master key. The selected airport and recent movement history stay on the device.
+VATSIM needs no Relay credential. For real airline data, the app creates a mobile relay install ID and verifies the annual App Store or Google Play subscription, a permanent founder entitlement, or an existing activation grant. The service prepares a short-lived per-device credential, the app stores it in SecureStore, and activation is committed only after that write succeeds. Mobile never accepts, displays, or stores the portable `LFRA-…` master key. The selected airport and recent movement history stay on the device.
 
 ---
 
@@ -315,7 +315,7 @@ Setup asks for:
 
 ### Data Access Choices
 
-- **Beacon Relay**: optional hosted path requiring active Relay Access. Uses `https://relay.beacontools.cc` and shared schedule snapshots. Paste a purchased `LFRA-…` key or a one-time activation code on the computer running Local Flight; the app exchanges it for a device credential and then discards the key. Which real-data capabilities can be sold remains controlled separately by provider permission.
+- **Beacon Relay**: optional annual hosted path requiring active Relay Access or preserved founder access. Uses `https://relay.beacontools.cc` for shared schedule snapshots and encrypted Remote Companion routing. Paste a delivered `LFRA-…` key or a one-time activation code on the computer running Local Flight; the app exchanges it for a device credential and then discards the key. Shared real-aircraft radar is not included. Which real-data capabilities can be sold remains controlled separately by provider permission.
 - **Bring Your Own Keys**: use your own AeroDataBox schedule key (API.Market by default, RapidAPI if selected by env), AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
 - **VATSIM**: no real-world schedule key. Uses virtual network data.
 
@@ -369,9 +369,9 @@ documented separately in [release-process.md](release-process.md).
 
 - If Companion cannot connect on LAN, confirm the phone and server are on the same WiFi and use the server LAN IP shown in Settings. Use `http://localflight.local:8000` only when you have one Local Flight server on that LAN.
 - If Remote Companion shows offline away from LAN, run **Test Remote** from the mobile connection panel. If it reports host offline, open Local Flight on the host. If it reports grant revoked or key mismatch, pair the phone again from that host. If it reports rate limited, wait before trying again.
-- If Standalone mobile cannot load, check internet access first. It does not need your own Local Flight host to be online. Android Companion and VATSIM remain usable without a Relay purchase; only real-flight Standalone needs active access.
+- If Standalone mobile cannot load, check internet access first. It does not need your own Local Flight host to be online. Companion and VATSIM remain usable without a Relay purchase; only real-flight Standalone needs active annual or founder access.
 - If Standalone FIDS looks stale, remember that new shared airline-schedule data is deliberately limited to an hourly-or-slower cadence. Pull to refresh only when you intentionally need a fresh check.
-- If Standalone Radar refuses a range, use `1`, `3`, `5`, or `10` NM.
+- If real-flight Standalone Radar is unavailable, that is expected: shared real-aircraft radar is not part of Relay Access. Use VATSIM or a Companion host configured with an appropriately licensed BYOK radar source.
 - If `localflight.local` resolves to the wrong server, use the LAN IP address or re-scan the fingerprint-bound QR from the server you want.
 - If a Pi display stays blank, confirm whether you installed `--native-kiosk`, `--kiosk`, or `--headless`.
 - If a Linux AppImage reports a FUSE error, try `--appimage-extract-and-run`.

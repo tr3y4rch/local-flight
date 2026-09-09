@@ -387,6 +387,10 @@ const MOBILE_RELAY_ACCESS_STATES = new Set<MobileRelayAccessState>([
   "available",
   "active_here",
   "active_elsewhere",
+  "grace",
+  "cancelled_active",
+  "past_due",
+  "expired",
   "suspended",
   "refunded",
   "revoked",
@@ -413,7 +417,13 @@ function normalizeMobileRelayAccessSummary(value: unknown): MobileRelayAccessSum
     state,
     protectionEnabled: Boolean(raw.protectionEnabled),
     currentMainDeviceDescription: String(raw.currentMainDeviceDescription || "").trim().slice(0, 80),
-    lastSuccessfulCheckAt: String(raw.lastSuccessfulCheckAt || "").trim().slice(0, 40)
+    lastSuccessfulCheckAt: String(raw.lastSuccessfulCheckAt || "").trim().slice(0, 40),
+    entitlementKind: String(raw.entitlementKind || "").trim().slice(0, 24),
+    currentPeriodEnd: String(raw.currentPeriodEnd || "").trim().slice(0, 40),
+    graceExpiresAt: String(raw.graceExpiresAt || "").trim().slice(0, 40),
+    renewalState: String(raw.renewalState || "").trim().slice(0, 32),
+    autoRenews: Boolean(raw.autoRenews),
+    founder: Boolean(raw.founder)
   };
 }
 

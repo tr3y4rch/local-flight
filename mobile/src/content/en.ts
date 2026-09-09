@@ -119,23 +119,23 @@ export const englishCopy = {
     title: "Set up Local Flight",
     companion: {
       label: "Connect to a Local Flight host",
-      description: "Connect to your Local Flight host. This phone follows that host and does not use the Relay Access included with the app.",
+      description: "Connect to your Local Flight host. Companion is free and follows the host's data access.",
       androidDescription: "Connect to your Local Flight host. Companion is free and does not require Relay Access."
     },
     standalone: {
       label: "Use without a Local Flight host",
-      description: (storeName) => `Use this phone on its own. We’ll check your ${storeName} purchase and use the included Relay Access here.`
+      description: (storeName) => `Use this phone on its own. VATSIM is free; annual Relay Access for airline schedules is purchased or restored through ${storeName}.`
     },
     relayAccess: {
-      includedHeading: "Beacon Relay Access included",
-      includedBody: "There is no subscription or extra purchase. Relay Access can be active on one phone in Standalone mode or one Local Flight desktop.",
-      companionReview: "This paid app includes Beacon Relay Access. Companion uses your desktop host, so the included access remains available for another main device.",
+      includedHeading: "Beacon Relay Access",
+      includedBody: "Annual Relay Access can be active on one Standalone phone or one Local Flight desktop or Pi. Eligible founders keep permanent access.",
+      companionReview: "Companion is free and follows your Local Flight host, so it does not occupy another main-device place.",
       androidCompanionReview: "Companion is free and follows your desktop host. It does not require or purchase Relay Access.",
-      standaloneReview: (storeName) => `We’ll verify your ${storeName} purchase and activate the included Relay Access on this phone.`,
-      androidStandaloneReview: "Real-flight Standalone uses the one-time Relay Access product from Google Play. There is no subscription.",
+      standaloneReview: (storeName) => `We’ll purchase or restore annual Relay Access through ${storeName}, then activate it on this phone.`,
+      androidStandaloneReview: "Real-flight Standalone uses the annual Relay Access subscription from Google Play.",
       vatsimReview: "VATSIM Standalone is free. It does not buy, verify, activate, or occupy Relay Access.",
-      verifyAndOpenBoard: (storeName) => `Verify ${storeName} purchase & open Board`,
-      getOrRestoreAndOpenBoard: "Get or restore Relay Access & open Board"
+      verifyAndOpenBoard: (storeName) => `Get or restore via ${storeName}`,
+      getOrRestoreAndOpenBoard: "Get or restore Relay Access"
     },
     privacy: "Your setup choice is stored on this device. You can change it later in More."
   },

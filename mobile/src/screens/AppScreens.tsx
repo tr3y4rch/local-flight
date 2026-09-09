@@ -5598,9 +5598,7 @@ export function CompanionSetupScreen({
         : setupAccessAction === "android_purchase"
           ? englishCopy.setup.relayAccess.getOrRestoreAndOpenBoard
         : verifyAndOpenBoardLabel;
-  const standaloneModeDescription = Platform.OS === "android"
-    ? "Use this phone on its own. VATSIM is free; real-flight Standalone uses the one-time Relay Access product from Google Play."
-    : englishCopy.setup.standalone.description(paidStoreName);
+  const standaloneModeDescription = englishCopy.setup.standalone.description(paidStoreName);
 
   return (
     <KeyboardAvoidingView
@@ -5698,9 +5696,7 @@ export function CompanionSetupScreen({
               <SetupChecklistItem
                 icon={SETUP_ICONS.server}
                 title="One connected ecosystem"
-                body={Platform.OS === "android"
-                  ? "Use a Local Flight host or free VATSIM mode. Real-flight Standalone uses the one-time Google Play Relay Access product."
-                  : "Use a Local Flight host, or use the portable Relay Access included with this paid app."}
+                body="Use a Local Flight host, free VATSIM mode, or annual Relay Access for real-flight Standalone."
               />
               <SetupChecklistItem icon={SETUP_ICONS.lan} title="Change it later" body="You can run setup again from More on this device." />
               <SetupChecklistItem icon={SETUP_ICONS.privacy} title="Privacy is your choice" body="Automatic crash reports are optional." />
@@ -6177,9 +6173,7 @@ export function CompanionSetupScreen({
                     ? `Used by ${standaloneMove.mainDeviceName}`
                     : pendingStandaloneResult
                       ? "Activation safely staged"
-                      : Platform.OS === "android"
-                        ? "Purchase or transfer verification required"
-                        : "Purchase check required"
+                    : "Purchase, restore, or transfer verification required"
                 : (serverSummary?.state.ok === false ? "Host needs attention" : Platform.OS === "android" ? "Ready to pair" : "Ready to pair and verify access")} />
               <InfoLine label="Reports" value={diagnosticsMode === "manual" ? "Ask me first" : diagnosticsMode === "auto" ? "Crash reports" : "Crash reports + context"} />
             </View>
@@ -6188,20 +6182,13 @@ export function CompanionSetupScreen({
                 <LocalFlightIcon name="key-variant" size={18} color={palette.green} />
                 <Text style={styles.companionSetupAccessTitle}>{standaloneSource === "virtual" && setupMode === "standalone"
                   ? "No Relay Access needed"
-                  : Platform.OS === "android"
-                    ? "Beacon Relay Access"
-                    : englishCopy.setup.relayAccess.includedHeading}</Text>
+                  : englishCopy.setup.relayAccess.includedHeading}</Text>
               </View>
               <Text style={styles.companionSetupAccessBody}>{setupMode === "standalone" && standaloneSource === "virtual"
                 ? englishCopy.setup.relayAccess.vatsimReview
-                : Platform.OS === "android"
-                  ? setupMode === "lan_companion"
-                    ? englishCopy.setup.relayAccess.androidCompanionReview
-                    : englishCopy.setup.relayAccess.androidStandaloneReview
+                : setupMode === "lan_companion"
+                  ? englishCopy.setup.relayAccess.companionReview
                   : englishCopy.setup.relayAccess.includedBody}</Text>
-              {setupMode === "lan_companion" && Platform.OS !== "android" ? (
-                <Text style={styles.companionSetupAccessBody}>{englishCopy.setup.relayAccess.companionReview}</Text>
-              ) : null}
             </View>
             {relayReleasePending && setupMode === "standalone" && standaloneSource === "real" ? (
               <View style={styles.companionSetupWarningCard}>

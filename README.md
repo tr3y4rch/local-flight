@@ -16,16 +16,16 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 
 ## Status
 
-`0.6.1` is the current source and mobile-testing candidate. Public desktop,
+`0.7.0` is the current source and mobile-testing candidate. Public desktop,
 Linux server, and Raspberry Pi downloads remain at `0.6.0` until replacement
-packages pass validation. Read the [candidate release notes](docs/release-notes-0.6.1.md).
+packages pass validation. Read the [candidate release notes](docs/release-notes-0.7.0.md).
 The platform family includes:
 
 - Native desktop app for Windows, Apple silicon and Intel Macs, and 64-bit Linux, with four switchable FIDS board styles (Classic / PAX / VATSIM / Nerd)
 - Portable Linux AppImages plus integrated Ubuntu/Debian desktop and headless-server packages for x86-64 and ARM64
 - LAN browser UI that mirrors the native Qt shell — same nav, same tokens, same components — with an automatic mobile view for phones and a compact layout for 7" Raspberry Pi screens
 - Raspberry Pi headless server, native Qt HDMI kiosk, or Chromium HDMI kiosk
-- Mobile app with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. The `0.6.1` candidate reserves iOS build 14 and Android versionCode 17; build processing and tester availability are separate steps.
+- Free iOS and Android apps with Companion, encrypted Remote Companion fallback for paired relay-linked hosts, and Standalone setup modes. The `0.7.0` candidate reserves iOS build 15 and Android versionCode 18; build processing and tester availability are separate steps.
 - Interstate 75 W / HUB75 Matrix client and preview tools
 - Beacon Tools public site and privacy page for release/App Store/TestFlight metadata
 
@@ -52,7 +52,8 @@ Read the detailed guides:
 - [Install Guide](docs/install.md)
 - [Display Modes](docs/display-modes.md)
 - [Privacy & Diagnostics](PRIVACY.md)
-- [0.6.0 Ecosystem Release Guide](docs/release-notes-0.6.0.md)
+- [0.7.0 Candidate Release Notes](docs/release-notes-0.7.0.md)
+- [0.6.0 Published Release Guide](docs/release-notes-0.6.0.md)
 - [Full Changelog](CHANGELOG.md)
 
 Historical release notes remain under [`docs/`](docs/), including the archived `0.2.x` development lines.
@@ -67,11 +68,11 @@ Historical release notes remain under [`docs/`](docs/), including the archived `
 - VATSIM mode uses a pilot/ATC display contract instead of passenger/codeshare fields: callsign-first rows, filed route/flight rules, aircraft, altitude/speed, XPDR, VATSIM freshness, and strict suppression of pilot/controller personal identifiers
 - Four switchable FIDS board styles in the native shell — **Classic**, **PAX**, **VATSIM**, **Nerd** — each with its own chrome, palette, column set, status styling, and viewport-aware scaling
 - Native Qt dark/reduced-glare and light/high-visibility themes cover pages, dialogs, menus, controls, and all board skins with contrast-checked text and status colors. Windows and macOS also provide a small Local Flight status menu for opening core views, the LAN browser, and app controls.
-- Radar with real/VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, a synchronized 15-second sweep-and-fade presentation, and dismissible aircraft details that do not trigger extra provider calls
+- Radar with BYOK real traffic or VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, a synchronized 15-second sweep-and-fade presentation, and dismissible aircraft details that do not trigger extra provider calls. Shared hosted real-aircraft radar is not included in Relay Access.
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - Settings page built from clear disclosure cards instead of opaque checkbox-titled groups; the LAN browser Settings page now follows the same folder rhythm and includes Pair Mobile QR/manual pairing controls.
 - LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens and browser-side access to the same Companion pairing tools as the Qt shell
-- Mobile apps with a first-run choice between **Companion** and **Standalone**. The paid iOS download includes one portable Beacon Relay Access license. Android is free to download: Companion and VATSIM work without a Relay purchase, while real-flight Standalone uses an optional one-time, non-consumable Relay Access purchase. Companion focuses on Board, Radar, History, and Control for an existing Local Flight host, uses LAN first, and can use encrypted Remote Companion fallback without using another license.
+- Free mobile apps with a first-run choice between **Companion** and **Standalone**. Companion and VATSIM work without Relay Access. Real-flight Standalone uses the annual native-store Relay Access subscription. Companion focuses on Board, Radar, History, and Control for an existing Local Flight host, uses LAN first, and can use encrypted Remote Companion fallback without occupying another main-device place.
 - QR pairing in native and LAN Settings now prefers the actual LAN IP and carries the server fingerprint, so an iPhone or Android phone will not silently connect to a different Local Flight host if `localflight.local` resolves to another Pi/desktop on the same network.
 - History dashboard with filters, delay buckets, airline delay quotas, route/aircraft stats, sortable recent movements, and detail panels. Repeated snapshots and known codeshares are deduped so the count means actual movements, not raw board rows.
 - Matrix tooling for Interstate 75 W / HUB75 boards, including panel presets, board-mirror preview, optional real-world gate/stand display, compact weather headers, runtime settings, split-flap/typewriter/cascade motion, generated MicroPython `main.py`, and renderer-revision warnings when a board needs a refreshed file.
@@ -145,7 +146,7 @@ The Pi installer asks how the Pi should run and defaults to headless.
 
 ### Mobile App
 
-Version `0.6.1` (iOS build 14 and Android versionCode 17) is the next testing target,
+Version `0.7.0` (iOS build 15 and Android versionCode 18) is the next testing target,
 not a claim that the build is already available. Tester access is listed at
 [beacontools.cc/local-flight/mobile](https://beacontools.cc/local-flight/mobile).
 The commands below are for source development, not ordinary installation.
@@ -183,9 +184,22 @@ Setup guides you through:
 5. Diagnostics choice
 6. Review and open
 
-Beacon Relay is the optional hosted real-flight path. Each supported purchase—a Stripe web purchase, a verified paid-iOS entitlement, or the Android non-consumable—creates a separate `beacon_relay_lifetime_v1` license that can be active on one main device: desktop Beacon Relay or mobile real-flight Standalone. It has no scheduled expiry or recurring fee, subject to refunds, abuse controls, provider permission, and service availability. A web or Android Relay purchase does not include the paid iOS download; the Android app itself is free.
+Beacon Relay is the optional hosted real-flight path. New Relay Access is an
+automatically renewing annual entitlement with a CHF 8/year launch price. It
+can be active on one main device: a desktop/Pi host using Beacon Relay or one
+phone using real-flight Standalone. It includes shared real-flight schedules
+and encrypted Remote Companion. It does not include shared real-aircraft radar.
 
-Desktop exchanges the portable `LFRA-…` master key for a revocable `lfr_…` device credential and does not retain the master key. Mobile never accepts or displays a raw key. iOS verifies the paid App Store entitlement; Android verifies its Relay product purchase, or uses fresh Play Integrity proof when an activation grant moves an existing universal license to the official Android app without another Google purchase. Optional verified email protection can deliver a desktop-usable key. LAN and encrypted Remote Companion screens use their licensed desktop host without another license. Beacon Relay uses cached shared schedule snapshots so many installs can watch the same airport without each one calling a paid provider. Its schedule refresh choices are 30 minutes or slower in the client UI. Bring Your Own Keys and VATSIM remain free and bypass Relay Access; Android Companion and VATSIM therefore work before any Relay purchase. BYOK is for users who already have provider keys such as AeroDataBox through API.Market or RapidAPI, AviationStack, RapidAPI ADS-B Exchange, or OpenSky.
+Desktop exchanges the portable `LFRA-…` key for a revocable `lfr_…` device
+credential and does not retain the master key. Mobile verifies its native-store
+subscription and stores only the device credential. Website purchases require
+email for delivery and recovery; mobile email is optional until the owner wants
+to export, recover, or move the portable key. Cancellation keeps access through
+the provider-confirmed paid period. Existing verified lifetime purchases,
+complimentary grants, earlier paid mobile ownership, and eligible founder
+installs remain permanent. LAN Companion, BYOK, and VATSIM remain free. BYOK is
+for users who already have compatible provider keys such as AeroDataBox,
+AviationStack, ADS-B Exchange, or OpenSky.
 
 ---
 

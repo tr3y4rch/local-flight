@@ -1,106 +1,62 @@
-# Local Flight Mobile App Store / TestFlight Review Notes
+# App Store Review Notes
 
-This file is the working checklist for the `0.6.1` TestFlight/review build. It is not legal advice; keep the final App Store Connect answers aligned with the exact submitted build.
+This is the working checklist for the Local Flight `0.7.0` TestFlight/review candidate. It must stay aligned with the exact submitted archive and App Store Connect configuration.
 
-Customer-facing English (U.S.) listing copy is maintained in
-[`store/ios/en-US/`](store/ios/en-US/). The checked metadata pack contains the
-name, subtitle, promotional text, keywords, full description, and public URLs.
-Run `npm run appstore:contract` before copying it into App Store Connect.
+## Build
 
-## Reviewer Test Path
+- Bundle ID: `cc.beacontools.localflight`
+- Version: `0.7.0`
+- Build: `15`
+- Minimum iOS/iPadOS: 16
+- Distribution: free download
+- Relay Access product: auto-renewable annual subscription `cc.beacontools.localflight.relay_access.annual`
+- Optional support products: three separate consumables that unlock nothing
 
-- App name: **Local Flight**
-- Bundle identifier: `cc.beacontools.localflight`
-- Version: `0.6.1`
-- Build number: `14` (reserved; verify uploaded counters before submission)
-- Minimum iOS version: `16.0` (`AppTransaction` ownership proof is required for the included Relay license)
-- Marketing URL: `https://beacontools.cc/local-flight/mobile`
-- Support URL: `https://beacontools.cc/support`
-- Privacy Policy URL: `https://beacontools.cc/privacy`
-- Recommended review path: choose **Use without a Local Flight host** on first launch so the app can be tested without a desktop, Linux server, or Raspberry Pi host. The app explains that this is Standalone mode after the choice.
-- The app is a paid download and includes Beacon Relay Access with no subscription or extra purchase. First run keeps the existing four stages: Welcome, connection choice, pair or choose airport, then privacy and review. For real airline data, the final Standalone action is **Verify App Store purchase & open Board**; only that explicit action calls `AppTransaction.refresh()` and prepares activation on this phone. VATSIM works without Relay activation and does not refresh AppTransaction.
-- Standalone daily surfaces are **Board**, **Radar**, **History**, and **More**.
-- Companion is also included. It pairs with a Local Flight desktop, Linux server, or Pi host over the same local network by QR code or manual URL.
-- Remote Companion is part of Companion mode. After explicit host-side grant pairing, Companion uses the nearby host first and can fall back to encrypted relay routing when this device is away from the same Wi-Fi and the host is online.
-- Companion’s final explicit action pairs the host first and then makes one paid-app verification attempt. A successful check creates or finds the included license and leaves it available for another main device. Cancellation or a store/relay outage never blocks LAN or Remote Companion; More shows an explicit retry. Remote Companion still requires Relay Access on its desktop host. The iOS app never accepts or displays an LFRA key, and moving access always requires fresh AppTransaction verification plus a named confirmation.
-- The candidate TestFlight profile targets `https://relay-staging.beacontools.cc`; its iOS verifier requires `sandbox` evidence. The staging deployment accepts only the cross-platform `sandbox,test` set. The production profile uses `https://relay.beacontools.cc` and accepts only `production` evidence; the two deployments must not share a database.
-- Companion daily surfaces are **Board**, **Radar**, **History**, and **More**. Host/display controls and diagnostics are progressively disclosed inside More.
+## What Reviewers Can Use For Free
 
-## Permission Rationale
+- **Companion** connects to a Local Flight desktop, Linux server, or Raspberry Pi host. LAN is preferred. Explicitly paired Remote Companion uses end-to-end encrypted relay routing while that host remains online.
+- **VATSIM Standalone** uses sanitized virtual-flight data without a Relay Access subscription.
+- Companion and VATSIM do not start a subscription check or purchase.
+- Shared real-aircraft radar is not included in Relay Access. Companion can follow its host's appropriately licensed BYOK or VATSIM radar; Standalone VATSIM Radar remains available.
 
-- Camera: used only to scan Local Flight pairing QR codes. Manual URL entry remains available if camera access is denied.
-- Local Network: used only by Companion to connect to the user's own Local Flight host on the same Wi-Fi and to complete trusted pairing before optional Remote Companion.
-- App Transport Security: the app enables cleartext transport because a user-owned Local Flight host can be reached by a private IPv4 address or mDNS name that cannot be enumerated in an ATS domain list. This is used for user-entered/self-scanned LAN Companion URLs. Remote Companion, Standalone, support, and Beacon Tools relay traffic use HTTPS.
+## Annual Relay Access
 
-## Privacy Summary
+- Real-flight Standalone schedules require active annual Relay Access, an existing portable license moved to the phone, or preserved founder/legacy access.
+- The app first restores an existing annual or eligible founder entitlement. It opens StoreKit purchase only after the user explicitly chooses to get Relay Access.
+- The relay verifies StoreKit 2 signed transactions server-side against the expected app, product, environment, original transaction identity, period, grace, renewal, and revocation state.
+- App Store Server Notifications V2 and server reconciliation update renewal, cancellation, billing retry/grace, expiry, refund, and revocation.
+- A pending, cancelled-before-purchase, unverified, expired, refunded, or revoked transaction does not create active access.
+- Cancellation keeps access through Apple's confirmed paid period. Authoritative grace is honored only until Apple's reported boundary.
+- The phone stores only its revocable device credential and safe license summary. It does not expose a raw `LFRA-...` key in the app.
+- One entitlement operates one main device: either real-flight Standalone on one phone or one desktop/Pi host. Companion phones do not consume another place. A move names the active device, prepares the new credential, stores it in SecureStore, and revokes the old credential only after commit.
+- Earlier verified paid-iOS ownership can restore permanent founder access after signed AppTransaction verification. It is not converted into a subscription.
+- Email is optional until a mobile holder chooses portable-key export, recovery, or transfer. Email protection uses a confirmation link and no Beacon account/password.
+- The app contains no Stripe checkout, external payment link, or hardcoded App Store subscription price. StoreKit owns localized price display and purchase confirmation.
 
-App Store Connect privacy answers should be conservative:
+## Optional Support
 
-- Privacy Policy URL: `https://beacontools.cc/privacy`.
-- Marketing/support URL: `https://beacontools.cc/local-flight/mobile`.
-- Data collected: yes.
-- Data linked to the user: yes, conservatively, because install-scoped IDs are sent with app-functionality requests.
-- Tracking: no advertising, no data brokers, and no cross-app/site tracking.
-- Identifiers: install-scoped mobile ID, companion ID, Remote Companion grant/install refs when enabled, and standalone relay install ID for pairing, rate limits, reports, and troubleshooting.
-- Remote Companion privacy: encrypted request/response envelopes are routed through the build-profile relay only after explicit pairing (`https://relay-staging.beacontools.cc` for this TestFlight build). The relay cannot read board data or commands and does not receive the AES grant secret.
-- Diagnostics: crash reports and diagnostic context only when the user chooses automatic diagnostics or submits a manual report.
-- Usage data: coarse relay quota/policy metadata, selected airport, app version, source mode, and refresh status used for app functionality and support.
-- User content: manual report title/description if the user sends a report.
-- Purchase history: a freshly refreshed, signed AppTransaction proof and StoreKit device-verification value for paid-app ownership, plus optional support product evidence. The device-verification ID is checked transiently and not retained. Beacon Relay retains one-way purchase/evidence references and license state, linked conservatively to an install-scoped identifier, for app functionality, duplicate prevention, recovery, refunds, and store/security compliance; not for tracking. This matches the bundled `NSPrivacyCollectedDataTypePurchaseHistory` declaration.
-- Not collected by Local Flight: device location, contacts, photos/videos, payment-card information, advertising ID, or financial account details. Apple processes payment details. Local Flight receives only signed paid-app ownership evidence and the transaction/product evidence needed to verify an optional support purchase.
+- `cc.beacontools.localflight.support.small`, `.medium`, and `.large` are consumable tips.
+- They unlock no feature and never create, extend, or restore Relay Access.
+- Purchase buttons remain unavailable until all products and server verification are ready. Store-approved but unfinished transactions are recovered on launch and finished only after verification.
 
-The bundled iOS privacy manifest declares required-reason APIs and conservative app-functionality data categories. Keep it aligned with the submitted App Store Connect privacy answers.
+## Privacy And Permissions
 
-## Paid App And Relay Access
+- Camera access is optional and used only for QR pairing. Manual LAN entry remains available.
+- Local-network access is used only for Companion connections to a user-owned Local Flight host.
+- No advertising identifier, advertising SDK, cross-app tracking, contacts, microphone, photo library, or payment-card details are used.
+- Standalone movement history remains on-device. Widgets and Live Activity read only the bounded snapshot written by the app and make no network requests themselves.
+- Raw signed store evidence is processed transiently. The relay retains keyed references and encrypted reconciliation material only where required; it does not log raw transactions, card data, Apple Account identity, or plaintext email.
 
-- The submitted app is paid. In response to an explicit setup, restore, protection, or transfer action, StoreKit refreshes `AppTransaction`; its signed proof and transient device-verification ID are sent to Beacon Relay. The relay checks signature, app identity, environment, signing freshness, and StoreKit's device-verification hash.
-- One unique paid-app entitlement maps idempotently to one portable `beacon_relay_lifetime_v1` license for one main device: a Local Flight desktop using Beacon Relay or a phone using real-flight Standalone. A distinct verified Family Sharing identity receives its own license. An authoritative refund and later repurchase for the same Apple Account restores the existing license because Apple keeps its app-transaction identity stable; a signed `revocationDate` maps to revoked access rather than being guessed to mean a refund.
-- Real-flight Standalone activates the phone only after the final explicit verification action. If access is already active elsewhere, the app names that main device and waits for **Move Relay Access here**. The relay prepares a short-lived credential while the old main device stays active; the app stores it in SecureStore and commits the move only after storage succeeds.
-- Email is not collected during ordinary mobile use. It is requested only in post-setup protection, key delivery, recovery, or transfer. After the address is confirmed, Beacon Tools displays and emails the portable desktop-compatible key once. There is no password, Beacon profile, or general-purpose account.
-- Switching from Standalone to Companion pairs the host first and then releases the phone. If the relay is temporarily unreachable, the encrypted device credential is retained only to retry that release; LAN Companion can continue and shows `release_pending` without allowing direct Relay runtime use.
-- The app contains no Stripe checkout, price, web-purchase prompt, or direct link to the Relay Access sales page.
-- The existing three consumable support products remain unrelated to Relay Access and unlock nothing.
+## Review Walkthrough
 
-## Optional In-App Support
+1. Complete Companion or VATSIM setup and confirm no purchase sheet appears.
+2. Choose real-flight Standalone, use **Get or restore Relay Access**, and verify the annual StoreKit product and localized price appear.
+3. Test purchase, restore after reinstall, cancellation through period end, grace/billing retry, expiry, refund/revocation, and repeated verification.
+4. Restore an eligible paid-app founder owner and confirm no annual subscription is created.
+5. Confirm real-flight Standalone shows schedule boards but hides shared real-aircraft Radar; VATSIM Radar remains usable.
+6. Move the main device and confirm the former credential stays active until the new credential is securely stored and committed.
+7. Test an email outage: verified access must remain durable while delivery reports `pending` or `needs_attention` and offers resend/recovery.
+8. Test all three support consumables independently and confirm they change no entitlement or feature.
+9. Test iPhone and iPad layouts, VoiceOver, larger text, reduced motion, widgets, and the pinned-flight Live Activity.
 
-- New support purchases are currently held behind the relay's explicit legal/licensing switch. The submitted build must show **Purchases on hold**, offer no purchase button, and make no App Store verification request while the switch is off.
-- More includes three optional consumable support products: `cc.beacontools.localflight.support.small`, `.medium`, and `.large`.
-- Every product unlocks nothing and creates no entitlement. The sheet states this before purchase and displays only App Store-owned localized prices.
-- Local Flight sends the transaction ID to the Beacon Tools relay, which verifies it through Apple's App Store Server API. The app finishes the consumable only after verification.
-- The purchase buttons remain disabled until all three localized products and the Apple verifier report ready. This readiness check exposes no credential values.
-- The relay stores a keyed transaction hash, short reference, product ID, store environment, status, and timestamps. It does not retain the signed transaction, payment-card data, or Apple account identity.
-- No external Buy Me a Coffee or other external purchase call-to-action appears in App Store builds.
-- External project website, source, and release-note links are informational/support links only, not purchase links. The app should route users to `https://beacontools.cc/local-flight/mobile` first; GitHub remains available from that public project page for source/issues.
-
-## Widgets And Live Activity
-
-- Candidate build `14` includes small and medium iOS home-screen widgets and a capability-gated pinned-flight Live Activity through bundle ID `cc.beacontools.localflight.widget` and App Group `group.cc.beacontools.localflight`.
-- The app writes a bounded local board snapshot into the shared App Group. The widget does not make LAN, relay, provider, analytics, or advertising requests.
-- The small widget shows the pinned flight or a clear open-app prompt. The medium widget shows a bounded airport-board glance with stale labeling.
-- On supported iPhones, **Pin & show on Lock Screen** explicitly starts a best-effort local Live Activity for the selected flight. It reads the same snapshot, adds no push notification infrastructure, keeps missing data stale instead of switching flights, and ends on unpin, dismissal, or two hours after a terminal state. Unsupported devices retain ordinary pinning and widgets.
-
-## Safety Copy
-
-Local Flight flight, weather, radar, and surface data are informational display aids only. They are not for navigation, dispatch, operational control, or safety decisions. Keep this message visible in onboarding/help and App Store metadata.
-
-## Manual Review Checklist
-
-- Fresh install: Standalone setup completes without LAN server hardware.
-- Fresh install: Companion setup still works by manual URL if camera access is denied.
-- Remote Companion: pair on the same Wi-Fi, block the nearby route, confirm **Connected remotely** loads Board/Radar/History/More, then revoke and confirm remote access stops.
-- Denied local network: app explains LAN pairing cannot reach the server and Standalone remains usable.
-- Bad QR/fingerprint mismatch: app rejects the wrong LAN server.
-- Offline relay: Standalone shows a useful retry/error state.
-- Relay Access: finish Standalone once, open **More → Relay Access**, and confirm cached purchase source, masked key reference, protection state, and this phone as the current main device are shown without refreshing StoreKit or revealing a raw key.
-- License delivery: from Companion, request optional email protection, confirm the link, and verify the same `LFRA-…` key is delivered for desktop activation while the iOS app never displays or accepts it.
-- Main-device move: start from a holder-issued `localflight://relay-access#grant=…` link, confirm paid-app ownership is rechecked, and verify the old credential stays active until the new credential is securely stored and committed after **Move Relay Access here**.
-- Store outcomes: cancel the system prompt, test offline StoreKit, provide an unverified JWS, exercise a distinct Family Sharing identity and signed `revocationDate`, then reconcile a refund and repurchase for the same app-transaction identity. Real-flight Standalone must remain on Review with an inline retry for non-terminal failures, while Companion must finish pairing and record `verification_needed`.
-- VATSIM: open Standalone with VATSIM selected and confirm no AppTransaction refresh, Relay credential, or access API call is required.
-- Mode switch: change Standalone to Companion online and offline; verify the online release is immediate and the offline release remains visibly pending while LAN Companion stays usable.
-- Environment isolation: on physical devices, confirm TestFlight sends sandbox proof only to the staging relay and that the production relay/database rejects it.
-- Archive inspection: confirm `PrivacyInfo.xcprivacy` belongs to the actual Local Flight application target, appears in Copy Bundle Resources, and is present inside the archived IPA alongside the StoreKit proof module.
-- Purchase surface: open **More**, choose **Support Local Flight**, confirm all three localized products load, complete one sandbox purchase, and confirm the thank-you state. Interrupt relay access after store approval to verify the unfinished transaction is retained and safely retried before consumption.
-- Widget: add small and medium Local Flight widgets, confirm empty/stale states, pin a flight in the app, and confirm the widget updates without requesting new permissions.
-- Live Activity: on a supported iPhone, choose **Pin & show on Lock Screen**, confirm the selected flight appears and becomes stale rather than switching; verify ordinary pinning on an unsupported device.
-- Navigation: both modes show Board/Radar/History/More. Compact widths use bottom tabs; iPad and compatible Apple-silicon Mac windows use the adaptive rail. Display is entered explicitly and always has an exit control.
-- Accessibility labels: only claim App Store Accessibility Nutrition Labels after real common-task testing.
+Local Flight is an informational display aid. It is not for navigation, dispatch, operational control, flight planning, professional aviation work, or safety decisions.

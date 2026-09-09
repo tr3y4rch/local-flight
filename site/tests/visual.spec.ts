@@ -24,16 +24,18 @@ for (const theme of ["dark", "light"] as const) {
           contentType: "application/json",
           body: JSON.stringify({
             ok: true,
+            catalog_contract_version: 2,
             product: {
-              product_code: "beacon_relay_lifetime_v1",
+              product_code: "beacon_relay_annual_v1",
+              billing_period: "P1Y",
               independent_receivers: 1,
               purchase_sources: {
                 stripe: { available: true },
-                apple_app: { available: false, testing_available: true, state: "testing", verification_ready: true, included_with_paid_app: true },
-                google_play: { available: false, testing_available: true, state: "testing", verification_ready: true, included_with_paid_app: false, acquisition_model: "free_download_in_app_purchase", free_modes: ["companion", "vatsim"] },
+                apple_subscription: { available: false, testing_available: true, state: "testing", verification_ready: true },
+                google_play: { available: false, testing_available: true, state: "testing", verification_ready: true, acquisition_model: "free_download_annual_subscription", free_modes: ["companion", "vatsim"] },
               },
             },
-            capabilities: { sales: true, schedule: true, radar: true, remote_companion: true },
+            capabilities: { sales: true, schedule: true, radar: false, remote_companion: true },
           }),
         });
       });
@@ -110,13 +112,15 @@ for (const theme of ["dark", "light"] as const) {
         contentType: "application/json",
         body: JSON.stringify({
           ok: true,
+          catalog_contract_version: 2,
           product: {
-            product_code: "beacon_relay_lifetime_v1",
+            product_code: "beacon_relay_annual_v1",
+            billing_period: "P1Y",
             independent_receivers: 1,
             purchase_sources: {
               stripe: { available: false },
-              apple_app: { available: false, included_with_paid_app: true },
-              google_play: { available: false, included_with_paid_app: false, acquisition_model: "free_download_in_app_purchase", free_modes: ["companion", "vatsim"] },
+              apple_subscription: { available: false },
+              google_play: { available: false, acquisition_model: "free_download_annual_subscription", free_modes: ["companion", "vatsim"] },
             },
           },
           capabilities: { sales: false, schedule: false, radar: false, remote_companion: false },

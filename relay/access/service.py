@@ -164,6 +164,18 @@ class LicenseService(OperatorSupportMixin):
                 "cursor_ciphertext IS NOT NULL",
                 self._encryption_secrets,
             ),
+            (
+                "subscription_terms",
+                "customer_ref_key_id",
+                "customer_ref_ciphertext IS NOT NULL",
+                self._encryption_secrets,
+            ),
+            (
+                "founder_entitlements",
+                "hash_secret_id",
+                "install_ref_hash IS NOT NULL",
+                self._hash_secrets,
+            ),
         )
         referenced: dict[str, set[str]] = {"hash": set(), "license": set(), "encryption": set()}
         missing: set[str] = set()
@@ -262,7 +274,16 @@ class LicenseService(OperatorSupportMixin):
     @staticmethod
     def _safe_access_state(value: str) -> str:
         normalized = (value or "").strip().lower()
-        return normalized if normalized in {"active", "suspended", "refunded", "revoked"} else "revoked"
+        return normalized if normalized in {
+            "active",
+            "grace",
+            "cancelled_active",
+            "past_due",
+            "expired",
+            "suspended",
+            "refunded",
+            "revoked",
+        } else "revoked"
 
     def _inactive_error(
         self,
@@ -287,6 +308,8 @@ class LicenseService(OperatorSupportMixin):
                 "deactivated": "receiver_released",
                 "revoked": "credential_revoked",
             }.get(credential_state) or {
+                "past_due": "license_past_due",
+                "expired": "license_expired",
                 "suspended": "purchase_suspended",
                 "refunded": "purchase_refunded",
                 "revoked": "purchase_revoked",
@@ -301,6 +324,9 @@ class LicenseService(OperatorSupportMixin):
         )
 
     def _license_from_row(self, row: sqlite3.Row) -> RelayLicense:
+        keys = set(row.keys())
+        entitlement_key = "resolved_entitlement_kind" if "resolved_entitlement_kind" in keys else "entitlement_kind"
+        effective_key = "resolved_effective_state" if "resolved_effective_state" in keys else "effective_state"
         return RelayLicense(
             license_id=str(row["license_id"]),
             license_ref=str(row["license_id"]),
@@ -311,7 +337,168 @@ class LicenseService(OperatorSupportMixin):
             key_prefix=str(row["key_prefix"]),
             key_last_four=str(row["key_last_four"]),
             created_at=str(row["created_at"]),
+            entitlement_kind=str(row[entitlement_key] or "permanent") if entitlement_key in keys else "permanent",
+            effective_state=str(row[effective_key] or row["status"]) if effective_key in keys else str(row["status"]),
+            current_period_end=str(row["current_period_end"] or "") if "current_period_end" in keys else "",
+            grace_expires_at=str(row["grace_expires_at"] or "") if "grace_expires_at" in keys else "",
+            auto_renews=bool(row["auto_renews"]) if "auto_renews" in keys else False,
+            founder=bool(row["founder"]) if "founder" in keys else False,
         )
+
+    @staticmethod
+    def _license_entitlement_row(conn: sqlite3.Connection, license_id: str) -> sqlite3.Row:
+        row = conn.execute(
+            """
+            SELECT l.*,
+                   COALESCE(st.entitlement_kind, 'permanent') AS resolved_entitlement_kind,
+                   COALESCE(st.effective_state, l.status) AS resolved_effective_state,
+                   COALESCE(st.current_period_end, '') AS current_period_end,
+                   COALESCE(st.grace_expires_at, '') AS grace_expires_at,
+                   COALESCE(st.auto_renews, 0) AS auto_renews,
+                   CASE WHEN fe.founder_id IS NULL THEN 0 ELSE 1 END AS founder
+            FROM relay_licenses l
+            LEFT JOIN subscription_terms st ON st.license_id=l.license_id
+            LEFT JOIN founder_entitlements fe
+              ON fe.license_id=l.license_id AND fe.status IN ('eligible', 'claimed')
+            WHERE l.license_id=?
+            """,
+            (license_id,),
+        ).fetchone()
+        if row is None:
+            raise LicenseNotFound("Relay Access license was not found")
+        return row
+
+    @staticmethod
+    def _subscription_license_status(effective_state: str) -> str:
+        return {
+            "active": "active",
+            "grace": "active",
+            "cancelled_active": "active",
+            "past_due": "suspended",
+            "expired": "suspended",
+            "suspended": "suspended",
+            "refunded": "refunded",
+            "revoked": "revoked",
+        }.get((effective_state or "").strip().lower(), "suspended")
+
+    @staticmethod
+    def _subscription_state_authorizes(effective_state: str) -> bool:
+        return (effective_state or "").strip().lower() in {
+            "active",
+            "grace",
+            "cancelled_active",
+        }
+
+    def _normalized_subscription_state(self, purchase: VerifiedPurchase) -> tuple[str, str, str]:
+        effective = (purchase.effective_state or purchase.state or "").strip().lower()
+        if effective not in {
+            "active", "grace", "cancelled_active", "past_due", "expired",
+            "suspended", "refunded", "revoked",
+        }:
+            raise InvalidChallenge("Subscription state is not supported")
+        period_end = purchase.current_period_end.strip()
+        grace_end = purchase.grace_expires_at.strip()
+        now = datetime.now(timezone.utc)
+        if purchase.entitlement_kind == "subscription":
+            if not period_end:
+                raise InvalidChallenge("Subscription period end is required")
+            try:
+                period_expiry = self._parse_time(period_end)
+                grace_expiry = self._parse_time(grace_end) if grace_end else None
+            except (TypeError, ValueError) as exc:
+                raise InvalidChallenge("Subscription period is invalid") from exc
+            if effective == "active" and period_expiry <= now:
+                effective = "expired"
+            if effective == "cancelled_active" and period_expiry <= now:
+                effective = "expired"
+            if effective == "grace" and (grace_expiry is None or grace_expiry <= now):
+                effective = "past_due"
+        return effective, period_end, grace_end
+
+    def _upsert_subscription_terms_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        license_id: str,
+        purchase_id: str,
+        purchase: VerifiedPurchase,
+    ) -> str:
+        if (purchase.entitlement_kind or "permanent").strip().lower() != "subscription":
+            return "active"
+        effective, period_end, grace_end = self._normalized_subscription_state(purchase)
+        now = self.now()
+        conn.execute(
+            """
+            INSERT INTO subscription_terms (
+                license_id, purchase_id, provider, entitlement_kind,
+                effective_state, provider_state, current_period_start,
+                current_period_end, grace_expires_at, auto_renews,
+                provider_verified_at_ms, customer_ref_ciphertext,
+                customer_ref_key_id, last_verified_at, updated_at
+            ) VALUES (?, ?, ?, 'subscription', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(license_id) DO UPDATE SET
+                purchase_id=excluded.purchase_id,
+                provider=excluded.provider,
+                entitlement_kind='subscription',
+                effective_state=excluded.effective_state,
+                provider_state=excluded.provider_state,
+                current_period_start=COALESCE(NULLIF(excluded.current_period_start, ''), subscription_terms.current_period_start),
+                current_period_end=excluded.current_period_end,
+                grace_expires_at=NULLIF(excluded.grace_expires_at, ''),
+                auto_renews=excluded.auto_renews,
+                provider_verified_at_ms=MAX(
+                    subscription_terms.provider_verified_at_ms,
+                    excluded.provider_verified_at_ms
+                ),
+                customer_ref_ciphertext=COALESCE(
+                    excluded.customer_ref_ciphertext,
+                    subscription_terms.customer_ref_ciphertext
+                ),
+                customer_ref_key_id=COALESCE(
+                    excluded.customer_ref_key_id,
+                    subscription_terms.customer_ref_key_id
+                ),
+                last_verified_at=excluded.last_verified_at,
+                updated_at=excluded.updated_at
+            """,
+            (
+                license_id,
+                purchase_id,
+                purchase.provider.strip().lower(),
+                effective,
+                (purchase.provider_state or purchase.state or effective)[:40],
+                purchase.current_period_start,
+                period_end,
+                grace_end,
+                1 if purchase.auto_renews else 0,
+                max(0, int(purchase.verified_at_ms or 0)),
+                self._seal(
+                    f"subscription-customer:{purchase.provider.strip().lower()}",
+                    purchase.customer_reference,
+                ) if purchase.customer_reference else None,
+                self.encryption_secret_id if purchase.customer_reference else None,
+                now,
+                now,
+            ),
+        )
+        license_status = self._subscription_license_status(effective)
+        conn.execute(
+            """
+            UPDATE relay_licenses
+            SET status=?, updated_at=?, revoked_at=?
+            WHERE license_id=?
+            """,
+            (
+                license_status,
+                now,
+                now if license_status in {"refunded", "revoked"} else None,
+                license_id,
+            ),
+        )
+        # Keep the main-device credential stable while hosted access is
+        # suspended. A later authoritative renewal can then restore service
+        # without creating a second seat or forcing the user to pair again.
+        return effective
 
     def _license_key_for_row(self, row: sqlite3.Row) -> str:
         row_keys = set(row.keys())
@@ -405,6 +592,11 @@ class LicenseService(OperatorSupportMixin):
         key = derive_license_key(self._key_secret, license_id, key_version)
         normalized_key = normalize_license_key(key)
         purchase_id = f"pur_{uuid.uuid4().hex}"
+        purchase_state = (
+            purchase.effective_state.strip().lower()
+            if purchase.entitlement_kind.strip().lower() == "subscription"
+            else "paid"
+        )
         conn.execute(
             """
             INSERT INTO relay_licenses (
@@ -416,7 +608,7 @@ class LicenseService(OperatorSupportMixin):
             (
                 license_id,
                 holder_id,
-                self.product_code,
+                purchase.license_product_code.strip() or self.product_code,
                 purchase.provider.strip().lower(),
                 key_version,
                 self.key_secret_id,
@@ -437,7 +629,7 @@ class LicenseService(OperatorSupportMixin):
                 identity_hash_key_id, reconciliation_mode,
                 reconciliation_handle_ciphertext, reconciliation_key_id,
                 acknowledgement_state
-            ) VALUES (?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 purchase_id,
@@ -446,6 +638,7 @@ class LicenseService(OperatorSupportMixin):
                 license_id,
                 purchase.product_id,
                 purchase.environment,
+                purchase_state,
                 purchase.evidence_hash,
                 now,
                 now,
@@ -468,11 +661,17 @@ class LicenseService(OperatorSupportMixin):
             purchase_id=purchase_id,
             license_id=license_id,
             from_state=None,
-            to_state="paid",
+            to_state=purchase_state,
             reason_code=state_reason or "purchase_verified",
             source=purchase.provider,
         )
-        row = conn.execute("SELECT * FROM relay_licenses WHERE license_id=?", (license_id,)).fetchone()
+        self._upsert_subscription_terms_conn(
+            conn,
+            license_id=license_id,
+            purchase_id=purchase_id,
+            purchase=purchase,
+        )
+        row = self._license_entitlement_row(conn, license_id)
         return self._license_from_row(row), key
 
     def _replace_terminal_purchase_conn(
@@ -506,8 +705,8 @@ class LicenseService(OperatorSupportMixin):
             state_reason="authoritative_repurchase",
         )
 
-    def _google_proof_postdates_terminal_state(self, purchase: VerifiedPurchase, existing: sqlite3.Row) -> bool:
-        if purchase.provider.strip().lower() != "google_app" or int(purchase.verified_at_ms or 0) <= 0:
+    def _proof_postdates_terminal_state(self, purchase: VerifiedPurchase, existing: sqlite3.Row) -> bool:
+        if int(purchase.verified_at_ms or 0) <= 0:
             return False
         changed_at = str(existing["purchase_state_changed_at"] or "")
         if not changed_at:
@@ -518,8 +717,14 @@ class LicenseService(OperatorSupportMixin):
         except (OverflowError, OSError, TypeError, ValueError):
             return False
 
+    def _google_proof_postdates_terminal_state(self, purchase: VerifiedPurchase, existing: sqlite3.Row) -> bool:
+        return (
+            purchase.provider.strip().lower() == "google_app"
+            and self._proof_postdates_terminal_state(purchase, existing)
+        )
+
     def fulfill_purchase(self, purchase: VerifiedPurchase) -> tuple[RelayLicense, str, bool]:
-        if purchase.state not in {"paid", "purchased"}:
+        if purchase.effective_state not in {"active", "grace", "cancelled_active"}:
             raise self._inactive_error(
                 license_status="revoked" if purchase.state == "revoked" else "suspended",
                 reason="store_entitlement_inactive",
@@ -535,9 +740,11 @@ class LicenseService(OperatorSupportMixin):
             existing = conn.execute(
                 f"""
                 SELECT l.*, p.state AS purchase_state, p.purchase_id AS linked_purchase_id,
-                       p.state_changed_at AS purchase_state_changed_at
+                       p.state_changed_at AS purchase_state_changed_at,
+                       COALESCE(st.provider_verified_at_ms, 0) AS provider_verified_at_ms
                 FROM purchase_records p
                 JOIN relay_licenses l ON l.license_id=p.license_id
+                LEFT JOIN subscription_terms st ON st.purchase_id=p.purchase_id
                 WHERE p.provider=? AND p.external_purchase_hash IN ({placeholders})
                 """,
                 (provider, *(value for _secret_id, value in external_candidates)),
@@ -545,8 +752,47 @@ class LicenseService(OperatorSupportMixin):
             if existing:
                 now = self.now()
                 current_purchase_state = str(existing["purchase_state"] or "").strip().lower()
+                incoming_ms = max(0, int(purchase.verified_at_ms or 0))
+                stored_ms = max(0, int(existing["provider_verified_at_ms"] or 0))
+                if (
+                    purchase.entitlement_kind == "subscription"
+                    and incoming_ms
+                    and stored_ms
+                    and incoming_ms < stored_ms
+                ):
+                    current = self._license_entitlement_row(conn, str(existing["license_id"]))
+                    conn.commit()
+                    return self._license_from_row(current), self._license_key_for_row(current), False
                 if current_purchase_state in {"refunded", "revoked"}:
-                    if provider == "apple_app":
+                    if purchase.entitlement_kind == "subscription" and self._proof_postdates_terminal_state(purchase, existing):
+                        conn.execute(
+                            """
+                            UPDATE purchase_records
+                            SET state=?, state_reason='authoritative_subscription_restore',
+                                state_changed_at=?, last_verified_at=?, updated_at=?,
+                                evidence_hash=COALESCE(NULLIF(?, ''), evidence_hash)
+                            WHERE purchase_id=?
+                            """,
+                            (
+                                purchase.effective_state,
+                                now,
+                                now,
+                                now,
+                                purchase.evidence_hash,
+                                str(existing["linked_purchase_id"]),
+                            ),
+                        )
+                        self._record_purchase_transition_conn(
+                            conn,
+                            purchase_id=str(existing["linked_purchase_id"]),
+                            license_id=str(existing["license_id"]),
+                            from_state=current_purchase_state,
+                            to_state=purchase.effective_state,
+                            reason_code="authoritative_subscription_restore",
+                            source=provider,
+                        )
+                        current_purchase_state = purchase.effective_state
+                    elif provider == "apple_app":
                         # Apple documents appTransactionID as stable across a
                         # refund and repurchase. A fresh, signed AppTransaction
                         # therefore restores the original portable license.
@@ -577,6 +823,7 @@ class LicenseService(OperatorSupportMixin):
                             reason_code="authoritative_apple_restore",
                             source="apple_server",
                         )
+                        current_purchase_state = "paid"
                     elif self._google_proof_postdates_terminal_state(purchase, existing):
                         replacement, replacement_key = self._replace_terminal_purchase_conn(
                             conn,
@@ -595,10 +842,18 @@ class LicenseService(OperatorSupportMixin):
                             reason="terminal_purchase_requires_repurchase",
                             message="This purchase was permanently revoked",
                         )
+                next_purchase_state = (
+                    purchase.effective_state
+                    if purchase.entitlement_kind == "subscription"
+                    else ("paid" if current_purchase_state in {"suspended", "disputed"} else current_purchase_state)
+                )
                 conn.execute(
                     """
                     UPDATE purchase_records
-                    SET external_purchase_hash=?, identity_hash_key_id=?, last_verified_at=?,
+                    SET external_purchase_hash=?, identity_hash_key_id=?, state=?,
+                        state_changed_at=CASE WHEN state<>? THEN ? ELSE state_changed_at END,
+                        state_reason=CASE WHEN state<>? THEN ? ELSE state_reason END,
+                        last_verified_at=?,
                         evidence_hash=COALESCE(NULLIF(?, ''), evidence_hash), updated_at=?,
                         identity_kind=COALESCE(NULLIF(?, ''), identity_kind),
                         reconciliation_mode=COALESCE(NULLIF(?, ''), reconciliation_mode),
@@ -610,6 +865,11 @@ class LicenseService(OperatorSupportMixin):
                     (
                         external_hash,
                         self.hash_secret_id,
+                        next_purchase_state,
+                        next_purchase_state,
+                        now,
+                        next_purchase_state,
+                        "subscription_state_verified" if purchase.entitlement_kind == "subscription" else "authoritative_reverification",
                         now,
                         purchase.evidence_hash,
                         now,
@@ -625,7 +885,27 @@ class LicenseService(OperatorSupportMixin):
                         str(existing["linked_purchase_id"]),
                     ),
                 )
-                if current_purchase_state in {"suspended", "disputed"}:
+                self._upsert_subscription_terms_conn(
+                    conn,
+                    license_id=str(existing["license_id"]),
+                    purchase_id=str(existing["linked_purchase_id"]),
+                    purchase=purchase,
+                )
+                if next_purchase_state != current_purchase_state:
+                    self._record_purchase_transition_conn(
+                        conn,
+                        purchase_id=str(existing["linked_purchase_id"]),
+                        license_id=str(existing["license_id"]),
+                        from_state=current_purchase_state,
+                        to_state=next_purchase_state,
+                        reason_code=(
+                            "subscription_state_verified"
+                            if purchase.entitlement_kind == "subscription"
+                            else "authoritative_reverification"
+                        ),
+                        source=provider,
+                    )
+                if purchase.entitlement_kind != "subscription" and current_purchase_state in {"suspended", "disputed"}:
                     conn.execute(
                         """
                         UPDATE purchase_records
@@ -658,10 +938,7 @@ class LicenseService(OperatorSupportMixin):
                         "UPDATE relay_licenses SET holder_id=?, updated_at=? WHERE license_id=? AND holder_id IS NULL",
                         (holder_id, now, str(existing["license_id"])),
                     )
-                existing = conn.execute(
-                    "SELECT * FROM relay_licenses WHERE license_id=?",
-                    (str(existing["license_id"]),),
-                ).fetchone()
+                existing = self._license_entitlement_row(conn, str(existing["license_id"]))
                 conn.commit()
                 return self._license_from_row(existing), self._license_key_for_row(existing), False
 
@@ -774,6 +1051,92 @@ class LicenseService(OperatorSupportMixin):
                 (str(row["license_id"]),),
             ).fetchone()
             return self._license_from_row(license_row)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def reconcile_subscription(self, purchase: VerifiedPurchase) -> RelayLicense:
+        """Apply an authoritative renewable-entitlement state without issuing a new key."""
+        if purchase.entitlement_kind.strip().lower() != "subscription":
+            raise InvalidChallenge("A subscription entitlement is required")
+        effective, _period_end, _grace_end = self._normalized_subscription_state(purchase)
+        provider = purchase.provider.strip().lower()
+        candidates = self._external_purchase_hash_candidates(provider, purchase.external_id)
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            placeholders = ",".join("?" for _ in candidates)
+            row = conn.execute(
+                f"""
+                SELECT p.*, st.provider_verified_at_ms
+                FROM purchase_records p
+                LEFT JOIN subscription_terms st ON st.purchase_id=p.purchase_id
+                WHERE p.provider=? AND p.external_purchase_hash IN ({placeholders})
+                """,
+                (provider, *(value for _secret_id, value in candidates)),
+            ).fetchone()
+            if row is None:
+                if effective in {"active", "grace", "cancelled_active"}:
+                    conn.rollback()
+                    license_record, _key, _created = self.fulfill_purchase(purchase)
+                    return license_record
+                raise LicenseNotFound("Subscription purchase was not found")
+            incoming_ms = max(0, int(purchase.verified_at_ms or 0))
+            stored_ms = max(0, int(row["provider_verified_at_ms"] or 0))
+            if incoming_ms and stored_ms and incoming_ms < stored_ms:
+                result = self._license_entitlement_row(conn, str(row["license_id"]))
+                conn.commit()
+                return self._license_from_row(result)
+            previous = str(row["state"] or "").strip().lower()
+            provider_reason = (purchase.provider_state or "").strip().lower()
+            if (
+                provider in {"stripe", "stripe_subscription"}
+                and previous in {"refunded", "revoked"}
+                and effective in {"active", "grace", "cancelled_active"}
+                and provider_reason not in {"checkout_paid", "invoice_paid", "dispute_won"}
+            ):
+                result = self._license_entitlement_row(conn, str(row["license_id"]))
+                conn.commit()
+                return self._license_from_row(result)
+            now = self.now()
+            conn.execute(
+                """
+                UPDATE purchase_records
+                SET state=?, state_reason=?, state_changed_at=CASE WHEN state<>? THEN ? ELSE state_changed_at END,
+                    last_verified_at=?, evidence_hash=COALESCE(NULLIF(?, ''), evidence_hash), updated_at=?
+                WHERE purchase_id=?
+                """,
+                (
+                    effective,
+                    (purchase.provider_state or f"subscription_{effective}")[:80],
+                    effective,
+                    now,
+                    now,
+                    purchase.evidence_hash,
+                    now,
+                    str(row["purchase_id"]),
+                ),
+            )
+            self._upsert_subscription_terms_conn(
+                conn,
+                license_id=str(row["license_id"]),
+                purchase_id=str(row["purchase_id"]),
+                purchase=VerifiedPurchase(**{**purchase.__dict__, "effective_state": effective}),
+            )
+            self._record_purchase_transition_conn(
+                conn,
+                purchase_id=str(row["purchase_id"]),
+                license_id=str(row["license_id"]),
+                from_state=previous,
+                to_state=effective,
+                reason_code=purchase.provider_state or f"subscription_{effective}",
+                source=provider,
+            )
+            result = self._license_entitlement_row(conn, str(row["license_id"]))
+            conn.commit()
+            return self._license_from_row(result)
         except Exception:
             conn.rollback()
             raise
@@ -1085,6 +1448,181 @@ class LicenseService(OperatorSupportMixin):
             )
             conn.commit()
             return claim
+        finally:
+            conn.close()
+
+    def founder_snapshot(self, *, cutoff_at: str, execute: bool = False) -> dict[str, Any]:
+        """Snapshot eligible legacy installs without exposing per-install identities."""
+        try:
+            cutoff = self._parse_time(cutoff_at)
+        except (TypeError, ValueError) as exc:
+            raise InvalidChallenge("Founder cutoff timestamp is invalid") from exc
+        eligibility_start = cutoff - timedelta(days=90)
+        bridge_expires = cutoff + timedelta(days=365)
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            stored = conn.execute(
+                "SELECT value_text FROM access_migration_state WHERE migration_key='founder_cutoff_at'"
+            ).fetchone()
+            if stored and self._parse_time(str(stored["value_text"])) != cutoff:
+                raise InvalidChallenge("Founder cutoff timestamp is immutable")
+            rows = conn.execute(
+                """
+                SELECT a.token_hash, a.bound_install_id, a.created_at,
+                       CASE WHEN a.last_seen BETWEEN ? AND ? THEN a.last_seen ELSE '' END
+                           AS activation_activity,
+                       COALESCE(MAX(CASE WHEN u.last_seen BETWEEN ? AND ? THEN u.last_seen END), '')
+                           AS usage_activity,
+                       COALESCE(MAX(CASE
+                           WHEN r.ts BETWEEN ? AND ? AND r.status BETWEEN 200 AND 399 THEN r.ts
+                       END), '') AS request_activity
+                FROM activation_tokens a
+                LEFT JOIN usage u ON u.install_id=a.bound_install_id
+                LEFT JOIN request_log r ON r.install_id=a.bound_install_id
+                WHERE a.revoked_at IS NULL AND COALESCE(a.bound_install_id, '')<>''
+                GROUP BY a.token_hash, a.bound_install_id, a.created_at
+                """,
+                (
+                    eligibility_start.isoformat(), cutoff.isoformat(),
+                    eligibility_start.isoformat(), cutoff.isoformat(),
+                    eligibility_start.isoformat(), cutoff.isoformat(),
+                ),
+            ).fetchall()
+            eligible: list[sqlite3.Row] = []
+            for row in rows:
+                try:
+                    created = self._parse_time(str(row["created_at"]))
+                    activity_values = [
+                        self._parse_time(str(row[key]))
+                        for key in ("activation_activity", "usage_activity", "request_activity")
+                        if str(row[key] or "")
+                    ]
+                except (TypeError, ValueError):
+                    continue
+                if created <= cutoff and activity_values:
+                    eligible.append(row)
+            existing_count = 0
+            created_count = 0
+            if execute:
+                now = self.now()
+                conn.execute(
+                    """
+                    INSERT INTO access_migration_state (migration_key, value_text, created_at, updated_at)
+                    VALUES ('founder_cutoff_at', ?, ?, ?)
+                    ON CONFLICT(migration_key) DO UPDATE SET updated_at=excluded.updated_at
+                    """,
+                    (cutoff.isoformat(), now, now),
+                )
+                for candidate in eligible:
+                    install_id = str(candidate["bound_install_id"])
+                    install_hash = keyed_hash(self._hash_secret, "founder-install", install_id)
+                    found = conn.execute(
+                        "SELECT founder_id FROM founder_entitlements WHERE install_ref_hash=?",
+                        (install_hash,),
+                    ).fetchone()
+                    if found:
+                        existing_count += 1
+                        continue
+                    license_id = f"lic_{uuid.uuid4().hex}"
+                    key = derive_license_key(self._key_secret, license_id, 1)
+                    normalized = normalize_license_key(key)
+                    conn.execute(
+                        """
+                        INSERT INTO relay_licenses (
+                            license_id, holder_id, product_code, purchase_source, status,
+                            key_version, key_secret_id, hash_secret_id, license_key_hmac,
+                            key_prefix, key_last_four, created_at, updated_at
+                        ) VALUES (?, NULL, 'beacon_relay_lifetime_v1', 'founder_legacy',
+                                  'active', 1, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            license_id,
+                            self.key_secret_id,
+                            self.hash_secret_id,
+                            generated_license_key_hash(self._hash_secret, normalized),
+                            key[:14],
+                            normalized[-4:],
+                            now,
+                            now,
+                        ),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO founder_entitlements (
+                            founder_id, license_id, install_ref_hash, legacy_token_hash,
+                            hash_secret_id, status, cutoff_at, eligibility_start_at,
+                            bridge_expires_at, claimed_at, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, 'eligible', ?, ?, ?, NULL, ?, ?)
+                        """,
+                        (
+                            f"founder_{uuid.uuid4().hex}",
+                            license_id,
+                            install_hash,
+                            str(candidate["token_hash"]),
+                            self.hash_secret_id,
+                            cutoff.isoformat(),
+                            eligibility_start.isoformat(),
+                            bridge_expires.isoformat(),
+                            now,
+                            now,
+                        ),
+                    )
+                    created_count += 1
+            conn.commit()
+            return {
+                "cutoff_at": cutoff.isoformat(),
+                "eligibility_start_at": eligibility_start.isoformat(),
+                "bridge_expires_at": bridge_expires.isoformat(),
+                "eligible_count": len(eligible),
+                "existing_count": existing_count,
+                "created_count": created_count,
+                "executed": bool(execute),
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def founder_bridge_status(self, *, install_id: str, legacy_token_hash: str) -> dict[str, Any]:
+        candidates = [value for _secret_id, value in self._hash_candidates("founder-install", install_id)]
+        placeholders = ",".join("?" for _ in candidates)
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                f"""
+                SELECT * FROM founder_entitlements
+                WHERE install_ref_hash IN ({placeholders}) AND legacy_token_hash=?
+                """,
+                (*candidates, legacy_token_hash),
+            ).fetchone()
+            if not row or str(row["status"]) not in {"eligible", "claimed"}:
+                raise LicenseNotFound("This legacy install is not eligible for founder access")
+            bridge_active = self._parse_time(str(row["bridge_expires_at"])) > datetime.now(timezone.utc)
+            return {
+                "license_id": str(row["license_id"]),
+                "founder": True,
+                "founder_status": str(row["status"]),
+                "bridge_active": bridge_active,
+                "bridge_expires_at": str(row["bridge_expires_at"]),
+            }
+        finally:
+            conn.close()
+
+    def mark_founder_claimed(self, license_id: str) -> None:
+        conn = self._connect()
+        try:
+            now = self.now()
+            conn.execute(
+                """
+                UPDATE founder_entitlements
+                SET status='claimed', claimed_at=COALESCE(claimed_at, ?), updated_at=?
+                WHERE license_id=? AND status IN ('eligible', 'claimed')
+                """,
+                (now, now, license_id),
+            )
+            conn.commit()
         finally:
             conn.close()
 
@@ -2275,9 +2813,13 @@ class LicenseService(OperatorSupportMixin):
                 "device_name": str(current["device_name"]),
                 "activated_at": str(current["activated_at"]),
             } if current else None
+            authority = self._authority_conn(conn, str(row["license_id"]), active=False)
+            entitlement_state = self._safe_access_state(
+                str(authority.get("effective_state") or license_status)
+            )
             if credential_status != "active":
                 raise self._inactive_error(
-                    license_status=license_status,
+                    license_status=entitlement_state,
                     credential_status=credential_status,
                     reason=str(row["revoke_reason"] or ""),
                     message="Relay Access credential is no longer active",
@@ -2285,36 +2827,48 @@ class LicenseService(OperatorSupportMixin):
                 )
             if install_id and str(row["install_id"]) != install_id:
                 raise self._inactive_error(
-                    license_status=license_status,
+                    license_status=entitlement_state,
                     credential_status="active",
                     reason="credential_install_mismatch",
                     message="Relay Access credential belongs to another installation",
                     current_receiver=current_receiver,
                 )
-            if license_status != "active":
+            if not self._subscription_state_authorizes(entitlement_state):
                 raise self._inactive_error(
-                    license_status=license_status,
-                    credential_status="revoked",
-                    reason=str(row["purchase_state_reason"] or ""),
+                    license_status=entitlement_state,
+                    credential_status=credential_status,
                     message="Relay Access license is not active",
                     current_receiver=current_receiver,
                 )
-            authority = self._authority_conn(conn, str(row["license_id"]))
             conn.execute(
                 "UPDATE relay_activations SET last_seen_at=? WHERE activation_id=?",
                 (self.now(), str(row["activation_id"])),
             )
             conn.commit()
-            return dict(row) | {"purchase_environment": authority["environment"], "expires_at": authority["expires_at"]}
+            return dict(row) | {
+                "purchase_environment": authority["environment"],
+                "expires_at": authority["expires_at"],
+                "entitlement_kind": authority["entitlement_kind"],
+                "effective_state": authority["effective_state"],
+                "current_period_end": authority["current_period_end"],
+                "grace_expires_at": authority["grace_expires_at"],
+                "auto_renews": authority["auto_renews"],
+            }
         finally:
             conn.close()
 
     def status(self, credential: str, *, install_id: str = "") -> dict[str, Any]:
         row = self.resolve_credential(credential, install_id=install_id)
+        effective_state = str(row.get("effective_state") or "active")
+        reason_code = {
+            "active": "license_active",
+            "grace": "license_grace",
+            "cancelled_active": "license_cancelled_active",
+        }.get(effective_state, "license_active")
         return {
             "active": True,
-            "access_state": "active",
-            "reason_code": "license_active",
+            "access_state": effective_state,
+            "reason_code": reason_code,
             "license_ref": str(row["license_id"]),
             "product_code": str(row["product_code"]),
             "purchase_source": str(row["purchase_source"]),
@@ -2332,7 +2886,94 @@ class LicenseService(OperatorSupportMixin):
             "delivery_available": True,
             "environment": str(row["purchase_environment"] or "production"),
             "expires_at": row.get("expires_at"),
+            "entitlement_kind": row.get("entitlement_kind", "permanent"),
+            "effective_state": row.get("effective_state", "active"),
+            "current_period_end": row.get("current_period_end"),
+            "grace_expires_at": row.get("grace_expires_at"),
+            "auto_renews": bool(row.get("auto_renews", False)),
+            "founder": str(row.get("purchase_source") or "") == "founder_legacy",
+            "renewal_state": (
+                "renews"
+                if row.get("entitlement_kind") == "subscription" and row.get("auto_renews")
+                else "ends_at_period_end"
+                if row.get("entitlement_kind") == "subscription"
+                else "permanent"
+            ),
         }
+
+    def subscription_customer_reference(self, credential: str, *, install_id: str = "") -> str:
+        clean = credential.strip()
+        if not clean.startswith("lfr_"):
+            raise LicenseNotFound(
+                "Relay Access credential was not found",
+                credential_state="unknown",
+                reason_code="credential_unknown",
+            )
+        hashes = self._token_hash_candidates("device-credential", clean)
+        placeholders = ",".join("?" for _ in hashes)
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                f"""
+                SELECT a.activation_id, a.install_id, a.license_id,
+                       a.status AS credential_status, a.revoke_reason,
+                       l.status AS license_status
+                FROM relay_activations a
+                JOIN relay_licenses l ON l.license_id=a.license_id
+                WHERE a.credential_hash IN ({placeholders})
+                """,
+                tuple(value for _secret_id, value in hashes),
+            ).fetchone()
+            if not row:
+                raise LicenseNotFound(
+                    "Relay Access credential was not found",
+                    credential_state="unknown",
+                    reason_code="credential_unknown",
+                )
+            authority = self._authority_conn(conn, str(row["license_id"]), active=False)
+            effective_state = self._safe_access_state(
+                str(authority.get("effective_state") or row["license_status"])
+            )
+            credential_status = str(row["credential_status"] or "unknown")
+            if credential_status != "active":
+                raise self._inactive_error(
+                    license_status=effective_state,
+                    credential_status=credential_status,
+                    reason=str(row["revoke_reason"] or ""),
+                    message="Relay Access credential is no longer active",
+                )
+            if install_id and str(row["install_id"]) != install_id:
+                raise self._inactive_error(
+                    license_status=effective_state,
+                    credential_status=credential_status,
+                    reason="credential_install_mismatch",
+                    message="Relay Access credential belongs to another installation",
+                )
+            if effective_state in {"refunded", "revoked"}:
+                raise self._inactive_error(
+                    license_status=effective_state,
+                    credential_status=credential_status,
+                    message="Billing management is not available for this entitlement",
+                )
+            term = conn.execute(
+                """
+                SELECT provider, customer_ref_ciphertext, customer_ref_key_id
+                FROM subscription_terms WHERE license_id=?
+                """,
+                (str(row["license_id"]),),
+            ).fetchone()
+            if not term or not term["customer_ref_ciphertext"]:
+                raise InvalidChallenge("Billing management is not available for this entitlement")
+            provider = str(term["provider"] or "").strip().lower()
+            if provider not in {"stripe", "stripe_subscription"}:
+                raise InvalidChallenge("Billing is managed by the mobile store for this entitlement")
+            return self._open(
+                str(term["customer_ref_key_id"] or "v1"),
+                f"subscription-customer:{provider}",
+                str(term["customer_ref_ciphertext"]),
+            )
+        finally:
+            conn.close()
 
     def deactivate(self, credential: str, *, install_id: str) -> dict[str, Any]:
         clean = credential.strip()
@@ -2539,7 +3180,7 @@ class LicenseService(OperatorSupportMixin):
         """
 
         clean_operation = operation.strip().lower()
-        if clean_operation not in {"acknowledge", "reconcile"}:
+        if clean_operation not in {"acknowledge", "acknowledge_subscription", "reconcile"}:
             raise InvalidChallenge("Provider operation is not supported")
         conn = self._connect()
         try:
@@ -2567,7 +3208,7 @@ class LicenseService(OperatorSupportMixin):
             purchase_id = str(row["purchase_id"])
             notification_id = f"notice_{uuid.uuid4().hex}"
             suffix = dedupe_suffix.strip() or (
-                "once" if clean_operation == "acknowledge"
+                "once" if clean_operation in {"acknowledge", "acknowledge_subscription"}
                 else datetime.now(timezone.utc).strftime("%Y-%m-%d")
             )
             dedupe_key = f"provider:{clean_operation}:{purchase_id}:{suffix}"[:180]

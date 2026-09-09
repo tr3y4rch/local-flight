@@ -115,7 +115,7 @@ def _failure(code: str, *, response: Any = None, retry_after_s: int | None = Non
 
 def _verified_payload(payload: dict[str, Any], token: str) -> dict[str, Any]:
     prefix = str(payload.get("token_prefix") or payload.get("activation_token_prefix") or token[:10])
-    return {
+    result = {
         "ok": True,
         "linked": True,
         "status": "ok",
@@ -124,6 +124,82 @@ def _verified_payload(payload: dict[str, Any], token: str) -> dict[str, Any]:
         "token_prefix": prefix,
         "activation_token_prefix": prefix,
         "activation_token_present": True,
+    }
+    for key in (
+        "founder",
+        "founder_claim_available",
+        "founder_bridge_expires_at",
+        "entitlement_kind",
+        "effective_state",
+        "current_period_end",
+        "grace_expires_at",
+        "auto_renews",
+    ):
+        if key in payload:
+            result[key] = payload[key]
+    return result
+
+
+def _claim_founder_access(
+    relay_url: str,
+    legacy_token: str,
+    *,
+    display_name: str,
+    timeout_s: float,
+) -> dict[str, Any]:
+    """Atomically exchange one eligible legacy credential for its founder receiver."""
+    install_id = get_install_id()
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {legacy_token}"}
+    claim = requests.post(
+        relay_endpoint_url(relay_url, "/v1/access/founder/claim"),
+        json={"install_id": install_id, "device_name": display_name[:80]},
+        headers=headers,
+        timeout=timeout_s,
+    )
+    claim_payload = _json(claim)
+    if claim.status_code >= 400:
+        return _failure(_status_code(claim, claim_payload), response=claim)
+    credential = str(claim_payload.get("credential") or "").strip()
+    if (
+        not credential.startswith("lfr_")
+        or claim_payload.get("ok") is not True
+        or str(claim_payload.get("activation_state") or "") != "pending_commit"
+    ):
+        return _failure("relay_error")
+
+    try:
+        set_activation_token(credential)
+        if get_stored_activation_token() != credential:
+            raise OSError("credential verification failed")
+        commit = requests.post(
+            relay_endpoint_url(relay_url, "/v1/access/activate/commit"),
+            json={"install_id": install_id},
+            headers={"Accept": "application/json", "Authorization": f"Bearer {credential}"},
+            timeout=timeout_s,
+        )
+        commit_payload = _json(commit)
+        if (
+            commit.status_code >= 400
+            or commit_payload.get("ok") is not True
+            or commit_payload.get("activated") is not True
+            or str(commit_payload.get("activation_state") or "") != "active"
+        ):
+            raise RuntimeError(_status_code(commit, commit_payload))
+    except Exception as exc:
+        # The old credential remains authoritative during the migration bridge.
+        # Restoring it prevents a failed network commit from stranding the host.
+        set_activation_token(legacy_token)
+        code = str(exc) if str(exc) in {
+            "rate_limited", "relay_unreachable", "license_inactive", "token_invalid"
+        } else "relay_unreachable"
+        return _failure(code)
+
+    set_relay_access_mode("managed")
+    return {
+        **_verified_payload(commit_payload, credential),
+        "founder": True,
+        "founder_migrated": True,
+        "founder_claim_available": False,
     }
 
 
@@ -201,6 +277,24 @@ def ensure_relay_link(
             except requests.RequestException:
                 verified = _failure("relay_unreachable")
             if verified.get("linked"):
+                if token.startswith("lfm_") and verified.get("founder_claim_available"):
+                    try:
+                        migrated = _claim_founder_access(
+                            relay_root,
+                            token,
+                            display_name=str(display_name or "Local Flight device"),
+                            timeout_s=timeout_s,
+                        )
+                    except requests.RequestException:
+                        migrated = _failure("relay_unreachable")
+                    if migrated.get("linked"):
+                        _last_auto_result = migrated
+                        return dict(migrated)
+                    # Do not cut off an eligible bridge because its one-time
+                    # credential upgrade could not finish during this check.
+                    verified["founder_migration_status"] = str(
+                        migrated.get("status") or "relay_unreachable"
+                    )
                 if token != stored_token:
                     set_activation_token(token)
                 set_relay_access_mode(requested_mode)

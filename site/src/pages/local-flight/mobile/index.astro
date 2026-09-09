@@ -4,7 +4,7 @@ import SiteLayout from "../../../layouts/SiteLayout.astro";
 import SectionHeading from "../../../components/SectionHeading.astro";
 import MobileModeSwitcher from "../../../components/MobileModeSwitcher.astro";
 import SafetyNotice from "../../../components/SafetyNotice.astro";
-import { availability, currentRelease, relayOrigin } from "../../../data/site";
+import { availability, candidateRelease, relayOrigin } from "../../../data/site";
 import iosFids from "../../../assets/screens/mobile/ios/current/fids-dark.png";
 import iosHistory from "../../../assets/screens/mobile/ios/current/history-dark.png";
 import androidFids from "../../../assets/screens/mobile/android/current/fids-light.png";
@@ -49,7 +49,7 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
 
   <section class="section section--raised section--ruled" id="screens">
     <div class="terminal-frame">
-      <SectionHeading index="02 / REAL APP SCREENS" title="The same useful views, designed for a phone." description={`These ${currentRelease} testing-build captures show the real iOS app in dark appearance and Android app in light appearance.`} />
+      <SectionHeading index="02 / REAL APP SCREENS" title="The same useful views, designed for a phone." description={`These ${candidateRelease} testing-build captures show the real iOS app in dark appearance and Android app in light appearance.`} />
       <div class="preview-strip" data-reveal>
         <figure class="preview-phone"><Picture src={iosFids} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight flight board on iOS in dark appearance" /><figcaption>iOS / BOARD · DARK APPEARANCE</figcaption></figure>
         <figure class="preview-phone"><Picture src={androidRadar} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight nearby-aircraft radar on Android in light appearance" /><figcaption>ANDROID / RADAR · LIGHT APPEARANCE</figcaption></figure>
@@ -83,13 +83,13 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
 
   <section class="section section--quiet section--ruled" id="store-model">
     <div class="terminal-frame">
-      <SectionHeading index="04 / IOS + ANDROID" title="The app stores package Relay Access differently." description="The core choice is the same on both platforms: use Companion or VATSIM without a separate Relay license, or use one Relay license for real-flight Standalone." />
+      <SectionHeading index="04 / IOS + ANDROID" title="The same free app and annual plan on both stores." description="Use Companion or VATSIM without Relay Access, or subscribe annually for real-flight Standalone. Eligible earlier users restore permanent access instead." />
       <div class="platform-comparison" data-reveal>
         <div class="platform-row platform-row--head" aria-hidden="true"><span>Platform</span><span>App download</span><span>Companion + VATSIM</span><span>Real-flight Standalone</span></div>
-        <article class="platform-row"><strong>iOS</strong><p>Paid app</p><p>Included in the app</p><p>One Beacon Relay license is included after App Store ownership is verified.</p></article>
-        <article class="platform-row"><strong>Android</strong><p>Free app</p><p>Free to use</p><p>Uses an optional one-time Relay purchase or an existing Relay license moved to the phone.</p></article>
+        <article class="platform-row"><strong>iOS</strong><p>Free app</p><p>Free to use</p><p>Annual App Store Relay Access subscription, existing license, or eligible founder restore.</p></article>
+        <article class="platform-row"><strong>Android</strong><p>Free app</p><p>Free to use</p><p>Annual Google Play Relay Access subscription, existing license, or eligible founder restore.</p></article>
       </div>
-      <p class="hero-footnote">A web or Android Relay purchase does not include the paid iOS download. Each completed Relay purchase or verified Apple entitlement creates a separate one-main-device license.</p>
+      <p class="hero-footnote">Each Stripe, App Store, or Google Play subscription creates a separate one-main-device entitlement. Unrelated purchases are not silently merged.</p>
     </div>
   </section>
 
@@ -99,21 +99,21 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
       <div class="cadence-line cadence-line--mobile" data-reveal>
         <article class="cadence-item"><strong>About 1 h</strong><h3>Real-world schedules</h3><p>Standalone requests new shared airline-schedule data no more often than about once an hour.</p></article>
         <article class="cadence-item"><strong>Between checks</strong><h3>Saved board view</h3><p>The app keeps the latest board available and re-evaluates saved rows locally without requesting a new schedule.</p></article>
-        <article class="cadence-item"><strong>About 3 min</strong><h3>Real-world radar</h3><p>Nearby aircraft can refresh about every three minutes while Radar is open, with 1, 3, 5, and 10 NM ranges.</p></article>
+        <article class="cadence-item"><strong>BYOK or VATSIM</strong><h3>Radar</h3><p>Shared real-aircraft radar is not included in Relay Access. Companion can follow a host's BYOK/VATSIM radar, and VATSIM Radar remains available in Standalone.</p></article>
         <article class="cadence-item"><strong>About 1 min</strong><h3>VATSIM mode</h3><p>VATSIM board and Radar views target about one-minute checks while the phone is in use.</p></article>
       </div>
     </div>
   </section>
 
-  <section class="section section--raised section--ruled" id="availability" data-mobile-catalog data-relay-origin={relayOrigin} data-current-release={currentRelease} data-release-state={availability.relayAccess}>
+  <section class="section section--raised section--ruled" id="availability" data-mobile-catalog data-relay-origin={relayOrigin} data-current-release={candidateRelease} data-release-state={availability.relayAccess}>
     <div class="terminal-frame terminal-grid split-story">
       <div class="split-story-copy" data-reveal>
         <span class="section-index">06 / AVAILABILITY</span>
         <h2 id="mobileAvailabilityTitle">The mobile apps are currently in testing.</h2>
         <p id="mobileAvailabilityLead">Public store or testing links appear here only after Beacon Tools has verified that they are open to the intended audience.</p>
         <ul class="data-list">
-          <li><b>iOS</b><span id="iosAvailabilityText">The paid iOS app and included Relay Access are still in testing.</span></li>
-          <li><b>Android</b><span id="androidAvailabilityText">The free Android app and optional Relay purchase are still in testing.</span></li>
+          <li><b>iOS</b><span id="iosAvailabilityText">The free iOS app and annual Relay Access plan are still in testing.</span></li>
+          <li><b>Android</b><span id="androidAvailabilityText">The free Android app and annual Relay Access plan are still in testing.</span></li>
           <li><b>Relay</b><span>Relay Access purchasing is in prelaunch. No payment can be started yet.</span></li>
         </ul>
         <div class="inline-actions editorial-actions">
@@ -167,9 +167,7 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
           link.removeAttribute("aria-disabled");
         }
         output.textContent = available
-          ? source?.included_with_paid_app
-            ? `The paid ${label} release is available and includes one Relay license.`
-            : `The free ${label} release is available; Relay Access remains an optional one-time purchase.`
+          ? `The free ${label} release is available; real-flight Standalone uses the annual Relay Access plan.`
           : testing
             ? `${label} testing is open for Local Flight ${release}.`
             : `${label} testing is not open through a public link yet.`;
@@ -181,8 +179,8 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
           const response = await fetch(`${relay}/v1/access/catalog`, { headers: { Accept: "application/json" } });
           const data = await response.json();
           const product = data?.product;
-          if (!response.ok || !data?.ok || product?.product_code !== "beacon_relay_lifetime_v1" || product?.independent_receivers !== 1) return;
-          const iosState = setStore("apple_app", product?.purchase_sources?.apple_app, "iOS", iosText);
+          if (!response.ok || !data?.ok || data?.catalog_contract_version !== 2 || product?.product_code !== "beacon_relay_annual_v1" || product?.billing_period !== "P1Y" || product?.independent_receivers !== 1) return;
+          const iosState = setStore("apple_app", product?.purchase_sources?.apple_subscription, "iOS", iosText);
           const googleSource = product?.purchase_sources?.google_play || product?.purchase_sources?.google_app;
           const androidState = setStore("google_play", googleSource, "Android", androidText);
           const states = [iosState, androidState];

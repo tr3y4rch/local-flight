@@ -3,12 +3,14 @@ export type MobileSetupRoute = "lan_companion" | "standalone";
 export type MobileFlightSource = "real" | "virtual";
 export type MobileAccessAction = "none" | "ios_app_transaction" | "android_purchase" | "android_integrity_grant" | "unsupported";
 
-const TERMINAL_ACCESS_STATES = new Set(["suspended", "refunded", "revoked"]);
+const TERMINAL_ACCESS_STATES = new Set(["past_due", "expired", "suspended", "refunded", "revoked"]);
 const NON_RUNTIME_ACCESS_STATES = new Set(["available", "active_elsewhere", ...TERMINAL_ACCESS_STATES]);
 const TERMINAL_CREDENTIAL_CODES = new Set([
   "license_inactive",
   "license_not_found",
   "license_suspended",
+  "license_past_due",
+  "license_expired",
   "license_refunded",
   "license_revoked",
   "relay_credential_required",
@@ -50,10 +52,6 @@ export function mobileActivationProtocolState(input: {
   return input.activated ? "active" : "invalid";
 }
 
-export function platformUsesIncludedPaidAppAccess(platform: MobilePlatform): boolean {
-  return platform === "ios";
-}
-
 export function routeNeedsRelayAccess(route: MobileSetupRoute, source: MobileFlightSource): boolean {
   return route === "standalone" && source === "real";
 }
@@ -93,9 +91,15 @@ export function routeMayUseRelayRuntime(input: {
     && !NON_RUNTIME_ACCESS_STATES.has(input.accessState);
 }
 
-export function terminalAccessStateFromCode(code: string): "suspended" | "refunded" | "revoked" | null {
+export function terminalAccessStateFromCode(code: string): "past_due" | "expired" | "suspended" | "refunded" | "revoked" | null {
   const normalized = code.trim().toLowerCase();
   if (normalized === "license_refunded" || normalized === "purchase_refunded") return "refunded";
+  if (normalized === "license_expired" || normalized === "subscription_expired") return "expired";
+  if (
+    normalized === "license_past_due"
+    || normalized === "subscription_past_due"
+    || normalized === "payment_failed"
+  ) return "past_due";
   if (
     normalized === "license_revoked"
     || normalized === "purchase_revoked"

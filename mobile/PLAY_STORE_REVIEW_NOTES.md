@@ -1,94 +1,62 @@
-# Local Flight Mobile Google Play Review Notes
+# Google Play Review Notes
 
-This file is the working checklist for the `0.6.1` Play internal-testing build. It is not legal advice; keep the final Play Console answers aligned with the exact submitted AAB.
+This is the working checklist for the Local Flight `0.7.0` internal-testing/review candidate. It must stay aligned with the exact submitted AAB and Play Console configuration.
 
-## Reviewer Test Path
+## Build
 
-- App name: **Local Flight**
-- Android package: `cc.beacontools.localflight`
-- Version name: `0.6.1`
-- Version code: `17` (reserved; verify uploaded counters before submission)
-- Project / support URL: `https://beacontools.cc/local-flight/mobile`
-- Privacy Policy URL: `https://beacontools.cc/privacy`
-- Recommended review path: choose **Use without a Local Flight host** on first launch so the app can be tested without a desktop, Linux server, or Raspberry Pi host. The app explains that this is Standalone mode after the choice.
-- The Android app is free to download. Companion and VATSIM require no Relay Access purchase. Real-flight Standalone uses the one-time, non-consumable Beacon Relay Access product and has no subscription. First run keeps the existing four stages: Welcome, connection choice, pair or choose airport, then privacy and review. The final real-flight Standalone action is **Get or restore Relay Access & open Board**; only that explicit action queries or opens Google Play Billing and prepares this phone as the main device after server verification.
-- Companion pairs with a Local Flight desktop, Linux server, or Pi host on the same local network by QR code or manual URL.
-- Both modes use **Board**, **Radar**, **History**, and **More**. Host/display controls appear only for Companion.
-- Remote Companion is part of Companion mode. After explicit host-side grant pairing, Companion uses the nearby host first and can fall back to encrypted relay routing when this device is away from the same Wi-Fi and the host is online.
-- Companion’s final explicit action pairs the host without querying or purchasing the Relay Access product. VATSIM likewise uses no purchase or licensing endpoint. A store or relay outage never blocks LAN Companion or VATSIM. Remote Companion still requires Relay Access on its desktop host. Mobile never accepts or displays an LFRA key, and moving access always requires an explicit, integrity-protected transfer plus a named confirmation.
-- Google Play Billing queries the non-consumable managed product `cc.beacontools.localflight.relay_access`. Only a `PURCHASED` purchase token can create or restore Relay Access; `PENDING` never grants access. Grant-based transfers use a request-bound Play Integrity Standard token. Purchase-token verification, acknowledgement, Integrity-token decryption, and refund/revocation reconciliation remain server-side.
-- The candidate internal-track profile targets `https://relay-staging.beacontools.cc`; its Android verifier requires `test` evidence. The staging deployment accepts only the cross-platform `sandbox,test` set. The production profile uses `https://relay.beacontools.cc` and accepts only `production` evidence; the two deployments must not share a database.
+- Package: `cc.beacontools.localflight`
+- Version name: `0.7.0`
+- Version code: `18`
+- Distribution: free download
+- Relay Access product: annual auto-renewing subscription `cc.beacontools.localflight.relay_access.annual`
+- Optional support products: three separate consumables that unlock nothing
 
-## Permission And Network Rationale
+## What Reviewers Can Use For Free
 
-- Camera: used only to scan Local Flight pairing QR codes. Manual URL entry remains available if camera access is denied.
-- Internet: used for Standalone relay requests, Remote Companion fallback, and Companion requests to the user's own Local Flight host.
-- Local cleartext HTTP: the Android manifest permits cleartext transport because Companion must support user-owned hosts at `http://localflight.local:8000` and arbitrary private LAN IP addresses that cannot be enumerated in a domain allowlist. Remote Companion, Standalone, support, and Beacon Tools relay traffic use HTTPS.
-- Vibration: used only for small touch/haptic feedback where supported.
-- `com.android.vending.BILLING` is used for the Relay Access non-consumable and the separate optional support products. The obsolete `com.android.vending.CHECK_LICENSE` permission is removed. The release build should not request microphone, storage, or overlay permissions.
+- **Companion** connects to a Local Flight desktop, Linux server, or Raspberry Pi host. LAN is preferred. Explicitly paired Remote Companion uses end-to-end encrypted relay routing while that host remains online.
+- **VATSIM Standalone** uses sanitized virtual-flight data without a Relay Access subscription.
+- Companion and VATSIM do not query or purchase Relay Access.
+- Shared real-aircraft radar is not included in Relay Access. Companion can follow its host's appropriately licensed BYOK or VATSIM radar; Standalone VATSIM Radar remains available.
 
-## Play Data Safety Summary
+## Annual Relay Access
 
-Play Console Data Safety answers should be conservative:
+- Real-flight Standalone schedules require active annual Relay Access, an existing portable license moved to the phone, or preserved founder/legacy access.
+- The app first restores an existing annual or eligible founder entitlement. It opens Google Play Billing only after the user explicitly chooses to get Relay Access.
+- The relay verifies the subscription with `purchases.subscriptionsv2.get`, checks the expected package, product, purchase state, subscription lineage, period, grace/hold state, and acknowledgement state, then acknowledges only a verified purchased subscription.
+- Authenticated RTDN and provider reconciliation update renewal, cancellation, grace, account hold, expiry, refund, and revocation.
+- `PENDING`, cancelled-before-purchase, unverified, expired, refunded, or revoked purchases do not create active access.
+- Cancellation keeps access through Google's confirmed paid period. Authoritative grace is honored only until Google's reported boundary.
+- The phone stores only its revocable device credential and safe license summary. It does not expose a raw `LFRA-...` key in the app.
+- One entitlement operates one main device: either real-flight Standalone on one phone or one desktop/Pi host. Companion phones do not consume another place. A move names the active device, prepares the new credential, stores it securely, and revokes the old credential only after commit.
+- Earlier verified ownership of the legacy Android non-consumable can restore permanent legacy access. It is not converted into a subscription.
+- Email is optional until a mobile holder chooses portable-key export, recovery, or transfer. Email protection uses a confirmation link and no Beacon account/password.
+- The app contains no Stripe checkout, external payment link, or hardcoded Google Play subscription price. Google Play owns localized price display and purchase confirmation.
 
-- Privacy Policy URL: `https://beacontools.cc/privacy`.
-- Data collected: yes.
-- Data sharing: complete the Play Console answer per data category and Google's current definition. App-functionality requests go to the user's own Local Flight host or the Beacon Tools relay; diagnostic/report data only leaves the app under the consent rules below. Do not use one blanket answer without matching the submitted console questionnaire.
-- Data encrypted in transit: yes for Remote Companion and Standalone relay HTTPS; Companion LAN may use local HTTP on the user's private network by design.
-- Identifiers: install-scoped mobile ID, companion ID, Remote Companion grant/install refs when enabled, and standalone relay install ID for pairing, rate limits, reports, and troubleshooting.
-- Remote Companion privacy: encrypted request/response envelopes are routed through the build-profile relay only after explicit pairing (`https://relay-staging.beacontools.cc` for this internal-track build). The relay cannot read board data or commands and does not receive the AES grant secret.
-- Diagnostics: crash reports and diagnostic context only when the user chooses automatic diagnostics or submits a manual report.
-- App activity / usage: coarse relay quota/policy metadata, selected airport, app version, source mode, and refresh status used for app functionality and support.
-- User content: manual report title/description if the user sends a report.
-- Purchase history: the Relay Access managed-product token plus optional support product metadata, linked conservatively to an install-scoped identifier. Beacon Relay retains one-way purchase/evidence references and license state for app functionality, duplicate prevention, recovery, refunds, and store/security compliance; not for advertising or tracking.
-- Not collected by Local Flight: precise location, contacts, photos/videos, payment-card information, advertising ID, or financial account details. Google Play processes payment details. Local Flight receives only purchase-token/product evidence and encrypted Play Integrity tokens needed for verification.
+## Optional Support
 
-## Google Play Billing And Relay Access
+- `cc.beacontools.localflight.support.small`, `.medium`, and `.large` are consumable tips.
+- They unlock no feature and never create, extend, or restore Relay Access.
+- Purchase buttons remain unavailable until all products and server verification are ready. Store-approved but unfinished purchases are retried and consumed only after verification.
 
-- The Android app requests a relay nonce and queries the Relay Access non-consumable through Google Play Billing. It sends the transient purchase token to Beacon Relay for verification with the Google Play Developer API. A website-transfer grant instead obtains a Play Integrity token whose request hash binds the relay nonce, install ID, and activation grant.
-- One verified Relay managed-product purchase maps idempotently to one portable `beacon_relay_lifetime_v1` license for one main device: a Local Flight desktop using Beacon Relay or a phone in Standalone mode.
-- Real-flight Standalone activates the phone only after the final explicit verification action. If access is already active elsewhere, the app names that main device and waits for **Move Relay Access here**. The backend prepares a short-lived credential while the old main device remains active; the app stores it securely and commits the move only after that write succeeds.
-- Email is not collected during ordinary mobile use. It is requested only in post-setup protection, key delivery, recovery, or transfer. After the address is confirmed, Beacon Tools displays and emails the portable desktop-compatible key once. There is no password, Beacon profile, or general-purpose account.
-- Switching from real-flight Standalone to Companion pairs the host first and then releases the phone. Switching to VATSIM also releases real-flight access. If the relay is temporarily unreachable, the encrypted device credential is retained only to retry that release; LAN Companion and VATSIM can continue and show `release_pending` without allowing direct Relay runtime use.
-- The app contains no Stripe checkout, price, web-purchase prompt, or direct link to the Relay Access sales page.
-- The existing three consumable support products remain unrelated to Relay Access and unlock nothing.
-- Before internal testing, verify the existing listing and product configuration without changing pricing or production tracks. Link the correct staging Cloud project to Play Integrity and provide its public project number through the testing EAS environment. If existing paid-download customers require migration, stop for a separate migration decision; Google Play Billing cannot infer historical ownership of the paid APK.
+## Data Safety And Permissions
 
-## Optional In-App Support
+- `com.android.vending.BILLING` is used for the annual subscription and optional support consumables. `com.android.vending.CHECK_LICENSE` is not requested.
+- Camera access is optional and used only for QR pairing. Manual LAN entry remains available.
+- Cleartext LAN HTTP is permitted only because Companion must reach user-owned private-LAN hosts such as `http://localflight.local:8000`; relay and Remote Companion traffic use HTTPS.
+- No advertising identifier, advertising SDK, cross-app tracking, contacts, microphone, external storage, overlay, precise location, or payment-card details are used.
+- Standalone movement history remains on-device. The widget reads only the bounded app snapshot and makes no network requests itself.
+- Raw purchase tokens and Play Integrity payloads are processed transiently. The relay retains keyed references and encrypted reconciliation material only where required; it does not log raw tokens, card data, Google Account identity, or plaintext email.
 
-- New support purchases are currently held behind the relay's explicit legal/licensing switch. The submitted build must show **Purchases on hold**, offer no purchase button, and make no Google Play verification request while the switch is off.
-- More includes three optional consumable support products: `cc.beacontools.localflight.support.small`, `.medium`, and `.large`.
-- Every product unlocks nothing and creates no entitlement. The sheet states this before purchase and displays only Google Play-owned localized prices.
-- Local Flight sends the purchase token to the Beacon Tools relay, which verifies it through the Google Play Developer API. The app consumes the product only after verification.
-- The purchase buttons remain disabled until all three localized products and the Google Play verifier report ready. This readiness check exposes no credential values.
-- The relay stores a keyed transaction hash, short reference, product ID, store environment, status, and timestamps. It does not retain the purchase token, payment-card data, or Google account identity.
-- No external Buy Me a Coffee or other external purchase call-to-action appears in Play builds.
+## Review Walkthrough
 
-## Home-Screen Widget
+1. Complete Companion or VATSIM setup and confirm no purchase sheet appears.
+2. Choose real-flight Standalone, use **Get or restore Relay Access**, and verify the annual Play product and localized price appear.
+3. Test purchase, pending payment, acknowledgement, restore after reinstall, cancellation through period end, grace, account hold, expiry, refund/revocation, RTDN replay, and repeated verification.
+4. Restore an eligible legacy non-consumable owner and confirm no annual subscription is created.
+5. Confirm real-flight Standalone shows schedule boards but hides shared real-aircraft Radar; VATSIM Radar remains usable.
+6. Move the main device and confirm the former credential stays active until the new credential is securely stored and committed.
+7. Test an email outage: verified access must remain durable while delivery reports `pending` or `needs_attention` and offers resend/recovery.
+8. Test all three support consumables independently and confirm they change no entitlement or feature.
+9. Test phone, tablet, and foldable layouts, TalkBack, font scaling, reduced motion, and widget resizing.
 
-- Candidate version code `17` includes a resizable Android home-screen widget with compact one-row and wide up-to-three-row layouts.
-- The app writes a bounded snapshot to its private files directory. The widget reads that local file only; it does not make LAN, relay, provider, analytics, or advertising requests.
-- The widget refresh action rereads local app data and does not trigger an external data fetch. Android's periodic widget update remains at 30 minutes.
-
-## Safety Copy
-
-Local Flight flight, weather, radar, and surface data are informational display aids only. They are not for navigation, dispatch, operational control, or safety decisions. Keep this message visible in onboarding/help and Play Store metadata.
-
-## Manual Review Checklist
-
-- Fresh install: Companion and VATSIM complete without buying Relay Access; real-flight Standalone completes without LAN server hardware after a license-tester purchase or restore of the Relay Access managed product.
-- Fresh install: Companion setup still works by manual URL if camera access is denied.
-- Remote Companion: pair on the same Wi-Fi, block the nearby route, confirm **Connected remotely** loads Board/Radar/History/More, then revoke and confirm remote access stops.
-- Bad QR/fingerprint mismatch: app rejects the wrong LAN server.
-- Offline relay: Standalone shows a useful retry/error state.
-- Relay Access: finish Standalone once, open **More → Relay Access**, and confirm cached purchase source, masked key reference, protection state, and this phone as the current main device are shown without contacting Google Play or revealing a raw key.
-- License delivery: from Companion, request optional email protection, confirm the link, and verify the same `LFRA-…` key is delivered for desktop activation while Mobile never displays or accepts it.
-- Main-device move: start from a holder-issued `localflight://relay-access#grant=…` link, confirm Play Integrity authenticates the request-bound transfer without another Google purchase, and verify the old credential remains active until the new credential is securely stored and committed after **Move Relay Access here**.
-- Store outcomes: exercise owned, not-owned, pending, cancelled, refunded/revoked, unavailable product, timeout, missing/outdated Play client, reinstall, second-device restore, durable acknowledgement retry, RTDN replay, cancellation/refund reconciliation, and a voided purchase. Exercise valid, malformed, mismatched-request-hash, unlicensed-app, and failed-device Play Integrity verdicts for grant transfers. Real-flight Standalone must remain on Review for failures; Companion and VATSIM remain usable without purchase.
-- Mode switch: change Standalone to Companion online and offline; verify the online release is immediate and the offline release remains visibly pending while LAN Companion stays usable.
-- Environment isolation: on physical devices, confirm an authorized internal-track tester sends test proof only to the staging relay and that the production relay/database rejects it.
-- Release manifest: build the final AAB with `LOCALFLIGHT_PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER` set and run `npm run android-manifest:contract`; the merged release manifest must contain `com.android.vending.BILLING`, the product/project metadata, no `CHECK_LICENSE`, and no microphone, legacy external-storage, or overlay permission.
-- Purchase surface: open **More**, choose **Support Local Flight**, confirm all three localized products load, complete one license-tester purchase, and confirm the thank-you state. Interrupt relay access after store approval to verify the unfinished transaction is retained and safely retried before consumption.
-- Widget: add and resize the Local Flight widget, confirm compact/medium layouts, empty/stale states, app tap-through, and local refresh behavior.
-- Navigation: both modes show Board/Radar/History/More. Compact widths use bottom tabs; tablets and foldables use an adaptive rail. Display is entered explicitly and always has an exit control.
-- Accessibility: only claim Play listing accessibility support after real Android common-task testing with TalkBack, font scaling, contrast, and reduced animation.
+Local Flight is an informational display aid. It is not for navigation, dispatch, operational control, flight planning, professional aviation work, or safety decisions.

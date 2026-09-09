@@ -1,8 +1,16 @@
 import { Platform } from "react-native";
 import {
+  fetchProducts,
+  finishTransaction,
+  getAvailablePurchases,
+  initConnection,
+  requestPurchase,
+  type ProductSubscription,
+  type Purchase
+} from "expo-iap";
+import {
   GOOGLE_PLAY_RELAY_ACCESS_PRODUCT_ID,
   getFreshAppleAppTransactionProof,
-  purchaseGooglePlayRelayAccess,
   queryGooglePlayRelayAccessPurchase,
   requestGooglePlayIntegrityToken
 } from "localflight-paid-app";
@@ -21,15 +29,29 @@ import {
 
 const RELAY_ACCESS_TIMEOUT_MS = 20_000;
 const FAILOVER_ROUTE_STATUSES = new Set([404, 405]);
+export const RELAY_ACCESS_ANNUAL_PRODUCT_ID =
+  "cc.beacontools.localflight.relay_access.annual" as const;
 
 export type MobileAccessIntent = "inspect" | "companion" | "standalone";
-export type RelayLicenseAccessState = "active" | "suspended" | "refunded" | "revoked";
+export type RelayLicenseAccessState =
+  | "active"
+  | "grace"
+  | "cancelled_active"
+  | "past_due"
+  | "expired"
+  | "suspended"
+  | "refunded"
+  | "revoked";
 export type MobileRelayAccessState =
   | "verification_needed"
   | "checking"
   | "available"
   | "active_here"
   | "active_elsewhere"
+  | "grace"
+  | "cancelled_active"
+  | "past_due"
+  | "expired"
   | "suspended"
   | "refunded"
   | "revoked"
@@ -45,6 +67,12 @@ export type MobileRelayAccessSummary = {
   protectionEnabled: boolean;
   currentMainDeviceDescription: string;
   lastSuccessfulCheckAt: string;
+  entitlementKind?: string;
+  currentPeriodEnd?: string;
+  graceExpiresAt?: string;
+  renewalState?: string;
+  autoRenews?: boolean;
+  founder?: boolean;
 };
 
 export type MobileRelayAccessSnapshot = MobileRelayAccessSummary & {
@@ -68,7 +96,7 @@ export const EMPTY_MOBILE_RELAY_ACCESS: MobileRelayAccessSnapshot = {
   deliveryClaim: "",
   message: Platform.OS === "android"
     ? "Get or restore Relay Access when you want real-flight Standalone mode. Companion and VATSIM do not require it."
-    : "Verify the Relay Access included with this paid app when you are ready."
+    : "Get or restore annual Relay Access when you want real-flight Standalone mode. Companion and VATSIM stay free."
 };
 
 export type PaidAppActivation = {
@@ -85,10 +113,10 @@ export type PaidAppActivation = {
 };
 
 export type MobileAccessErrorPresentation = {
-  state: Exclude<MobileRelayAccessState, "checking" | "available" | "active_here" | "active_elsewhere" | "release_pending">;
+  state: Exclude<MobileRelayAccessState, "checking" | "available" | "active_here" | "active_elsewhere" | "grace" | "cancelled_active" | "release_pending">;
   title: string;
   body: string;
-  action: "Try again" | "Verify included access" | "Restore included access" | "Get or restore Relay Access" | "Restore Relay Access";
+  action: "Try again" | "Get Relay Access" | "Restore Relay Access" | "Get or restore Relay Access";
 };
 
 type ApiErrorPayload = {
@@ -116,8 +144,51 @@ type RawLicense = {
   reason_code?: string;
   key_ref?: string;
   created_at?: string;
+  entitlement_kind?: string;
+  effective_state?: string;
+  current_period_end?: string;
+  grace_expires_at?: string;
+  renewal_state?: string;
+  auto_renews?: boolean;
+  founder?: boolean;
   receiver?: RawMainDevice | null;
 };
+
+async function annualStorePurchase(allowPurchase: boolean): Promise<Purchase | null> {
+  await initConnection();
+  const available = await getAvailablePurchases({
+    alsoPublishToEventListenerIOS: false,
+    onlyIncludeActiveItemsIOS: true
+  });
+  const restored = available.find((item) => item.productId === RELAY_ACCESS_ANNUAL_PRODUCT_ID);
+  if (restored || !allowPurchase) return restored || null;
+  const products = await fetchProducts({ skus: [RELAY_ACCESS_ANNUAL_PRODUCT_ID], type: "subs" });
+  const product = products?.find((item) => item.id === RELAY_ACCESS_ANNUAL_PRODUCT_ID) as ProductSubscription | undefined;
+  if (!product) {
+    throw new LocalFlightApiError(
+      "The annual Relay Access plan is not available from this store yet.",
+      undefined,
+      "purchase_unavailable"
+    );
+  }
+  const androidOffer = product.platform === "android"
+    ? product.subscriptionOfferDetailsAndroid?.find((offer) => Boolean(offer.offerToken))
+    : undefined;
+  const purchased = await requestPurchase({
+    type: "subs",
+    request: {
+      apple: { sku: RELAY_ACCESS_ANNUAL_PRODUCT_ID },
+      google: {
+        skus: [RELAY_ACCESS_ANNUAL_PRODUCT_ID],
+        subscriptionOffers: androidOffer
+          ? [{ sku: RELAY_ACCESS_ANNUAL_PRODUCT_ID, offerToken: androidOffer.offerToken }]
+          : undefined
+      }
+    }
+  });
+  const candidates = Array.isArray(purchased) ? purchased : purchased ? [purchased] : [];
+  return candidates.find((item) => item.productId === RELAY_ACCESS_ANNUAL_PRODUCT_ID) || null;
+}
 
 type OwnershipVerification = ApiErrorPayload & {
   verified?: boolean;
@@ -142,8 +213,8 @@ type OwnershipVerification = ApiErrorPayload & {
 
 function sourceLabel(source: string): string {
   const normalized = source.trim().toLowerCase();
-  if (["apple_app", "app_store", "apple_app_store", "ios_app"].includes(normalized)) return "App Store";
-  if (["google_app", "google_play", "google_play_billing", "android_app"].includes(normalized)) return "Google Play";
+  if (["apple_app", "apple_subscription", "app_store", "apple_app_store", "ios_app"].includes(normalized)) return "App Store";
+  if (["google_app", "google_subscription", "google_play", "google_play_billing", "android_app"].includes(normalized)) return "Google Play";
   if (["stripe", "website", "web"].includes(normalized)) return "Beacon Tools website";
   return source ? "Beacon Tools" : "";
 }
@@ -155,7 +226,16 @@ function safeReasonCode(value: unknown): string {
 
 function normalizeAccessState(value: unknown): RelayLicenseAccessState {
   const state = String(value || "").trim().toLowerCase();
-  return state === "suspended" || state === "refunded" || state === "revoked" ? state : "active";
+  return [
+    "active",
+    "grace",
+    "cancelled_active",
+    "past_due",
+    "expired",
+    "suspended",
+    "refunded",
+    "revoked"
+  ].includes(state) ? state as RelayLicenseAccessState : "active";
 }
 
 function rawErrorMetadata(error: unknown): {
@@ -177,11 +257,30 @@ function rawErrorMetadata(error: unknown): {
       : raw.code || detail.code || nested.code
   );
   const reasonCode = safeReasonCode(raw.reason_code || detail.reason_code || nested.reason_code || license.reason_code || code);
-  const explicitState = String(raw.access_state || detail.access_state || nested.access_state || license.access_state || "").toLowerCase();
-  const explicitAccessState = explicitState === "active" || explicitState === "suspended" || explicitState === "refunded" || explicitState === "revoked"
-    ? explicitState
+  const explicitState = String(
+    raw.effective_state
+    || detail.effective_state
+    || nested.effective_state
+    || license.effective_state
+    || raw.access_state
+    || detail.access_state
+    || nested.access_state
+    || license.access_state
+    || ""
+  ).toLowerCase();
+  const explicitAccessState = [
+    "active",
+    "grace",
+    "cancelled_active",
+    "past_due",
+    "expired",
+    "suspended",
+    "refunded",
+    "revoked"
+  ].includes(explicitState)
+    ? explicitState as RelayLicenseAccessState
     : null;
-  const accessState = explicitAccessState === "active"
+  const accessState = explicitAccessState === "active" || explicitAccessState === "grace" || explicitAccessState === "cancelled_active"
     ? null
     : explicitAccessState || terminalAccessStateFromCode(code);
   const credentialState = safeReasonCode(raw.credential_state || detail.credential_state || nested.credential_state);
@@ -333,6 +432,14 @@ export function mobileRelayAccessMessage(summary: Pick<MobileRelayAccessSummary,
       return `Relay Access is currently used by ${summary.currentMainDeviceDescription || "another main device"}.`;
     case "available":
       return "Relay Access is available for a desktop or a phone in Standalone mode.";
+    case "grace":
+      return "Relay Access remains available during the store's billing grace period. Restore the subscription to check the latest status.";
+    case "cancelled_active":
+      return "Renewal is cancelled, but Relay Access remains available through the current paid period.";
+    case "past_due":
+      return "The store reports a payment problem. Update the subscription or restore it to check the latest status.";
+    case "expired":
+      return "The annual Relay Access subscription has ended. Renew or restore it to use hosted real-flight data again.";
     case "suspended":
       return "Relay Access is suspended. Verify the store purchase for the latest status.";
     case "refunded":
@@ -340,18 +447,14 @@ export function mobileRelayAccessMessage(summary: Pick<MobileRelayAccessSummary,
     case "revoked":
       return "Relay Access has been revoked and cannot be used on a main device.";
     case "retryable_unavailable":
-      return Platform.OS === "android"
-        ? "Relay Access could not be checked. Your saved setup has not changed."
-        : "The included access could not be checked. Your saved setup has not changed.";
+      return "Relay Access could not be checked. Your saved setup has not changed.";
     case "release_pending":
       return "Companion is ready. Relay Access will be freed from this phone when Beacon Relay is reachable.";
     case "checking":
-      return Platform.OS === "android" ? "Checking Google Play Relay Access…" : "Checking the paid app purchase…";
+      return `Checking ${paidAppStoreLabel()} Relay Access…`;
     case "verification_needed":
     default:
-      return Platform.OS === "android"
-        ? "Get or restore Relay Access when you want real-flight Standalone mode. Companion and VATSIM do not require it."
-        : "Verify the Relay Access included with this paid app when you are ready.";
+      return "Get or restore annual Relay Access when you want real-flight Standalone mode. Companion and VATSIM stay free.";
   }
 }
 
@@ -363,21 +466,35 @@ export function mobileRelayAccessSnapshotFromSummary(summary: MobileRelayAccessS
     state: summary.state === "checking" ? "verification_needed" : summary.state,
     protectionEnabled: Boolean(summary.protectionEnabled),
     currentMainDeviceDescription: String(summary.currentMainDeviceDescription || "").slice(0, 80),
-    lastSuccessfulCheckAt: String(summary.lastSuccessfulCheckAt || "")
+    lastSuccessfulCheckAt: String(summary.lastSuccessfulCheckAt || ""),
+    entitlementKind: String(summary.entitlementKind || ""),
+    currentPeriodEnd: String(summary.currentPeriodEnd || ""),
+    graceExpiresAt: String(summary.graceExpiresAt || ""),
+    renewalState: String(summary.renewalState || ""),
+    autoRenews: Boolean(summary.autoRenews),
+    founder: Boolean(summary.founder)
   };
   return {
     ...EMPTY_MOBILE_RELAY_ACCESS,
     ...normalized,
-    accessState: normalized.state === "suspended" || normalized.state === "refunded" || normalized.state === "revoked"
-      ? normalized.state
-      : "active",
+    accessState: [
+      "grace",
+      "cancelled_active",
+      "past_due",
+      "expired",
+      "suspended",
+      "refunded",
+      "revoked"
+    ].includes(normalized.state) ? normalized.state as RelayLicenseAccessState : "active",
     message: mobileRelayAccessMessage(normalized)
   };
 }
 
 function snapshotFromVerification(data: OwnershipVerification): MobileRelayAccessSnapshot {
   const license = rawLicense(data);
-  const accessState = normalizeAccessState(data.access_state || license?.access_state || license?.status);
+  const accessState = normalizeAccessState(
+    license?.effective_state || data.access_state || license?.access_state || license?.status
+  );
   const state = normalizedClientState(data, accessState);
   const summary: MobileRelayAccessSummary = {
     licenseRef: String(license?.license_ref || "").slice(0, 80),
@@ -386,7 +503,13 @@ function snapshotFromVerification(data: OwnershipVerification): MobileRelayAcces
     state,
     protectionEnabled: Boolean(data.email_protected),
     currentMainDeviceDescription: mainDeviceDescription(rawMainDevice(data)),
-    lastSuccessfulCheckAt: new Date().toISOString()
+    lastSuccessfulCheckAt: new Date().toISOString(),
+    entitlementKind: String(license?.entitlement_kind || ""),
+    currentPeriodEnd: String(license?.current_period_end || ""),
+    graceExpiresAt: String(license?.grace_expires_at || ""),
+    renewalState: String(license?.renewal_state || ""),
+    autoRenews: Boolean(license?.auto_renews),
+    founder: Boolean(license?.founder)
   };
   return {
     ...summary,
@@ -435,15 +558,15 @@ function normalizedNativeError(error: unknown): LocalFlightApiError {
     : code === "store_unavailable"
       ? `${store} could not verify this purchase right now.`
       : code === "ownership_unverified"
-        ? Platform.OS === "android" ? `${store} could not confirm Relay Access ownership.` : `${store} could not confirm ownership of this paid app.`
+        ? `${store} could not confirm an active Relay Access subscription or eligible founder purchase.`
         : code === "device_verification_missing"
           ? "This device could not complete the store verification."
           : code === "store_timeout"
             ? `${store} did not answer in time.`
             : code === "purchase_pending"
-              ? "The Google Play purchase is still pending."
+              ? "The store purchase is still pending."
               : code === "purchase_required"
-                ? "Relay Access has not been purchased from Google Play."
+                ? "Relay Access has not been purchased from this store."
                 : code === "activation_commit_pending"
                   ? "Relay activation is safely staged and waiting for Beacon Relay."
                   : code === "credential_write_failed"
@@ -467,23 +590,29 @@ export function mobileAccessErrorPresentation(error: unknown): MobileAccessError
   const terminal = accessStateFromError(normalized);
   const code = normalized.code.toLowerCase();
   const store = paidAppStoreLabel();
+  if (terminal === "past_due" || code === "license_past_due" || code === "subscription_past_due") {
+    return { state: "past_due", title: "Payment needs attention", body: "The store reports a billing problem. Update the subscription or restore it to check the latest status. Companion, BYOK, and VATSIM remain available.", action: "Restore Relay Access" };
+  }
+  if (terminal === "expired" || code === "license_expired" || code === "subscription_expired") {
+    return { state: "expired", title: "Relay Access ended", body: "The annual subscription has ended. Renew or restore it to use hosted real-flight data again. Your local settings and history remain on this device.", action: "Restore Relay Access" };
+  }
   if (terminal === "suspended" || code === "license_suspended") {
-    return { state: "suspended", title: "Relay Access is suspended", body: "Verify the store purchase for the latest status. Companion remains available.", action: Platform.OS === "android" ? "Restore Relay Access" : "Restore included access" };
+    return { state: "suspended", title: "Relay Access needs attention", body: "Restore the subscription for its latest billing status. Companion and VATSIM remain available.", action: "Restore Relay Access" };
   }
   if (terminal === "refunded" || code === "license_refunded") {
-    return { state: "refunded", title: "Purchase refunded", body: "The store reports that this purchase was refunded, so Relay Access cannot be activated.", action: Platform.OS === "android" ? "Restore Relay Access" : "Restore included access" };
+    return { state: "refunded", title: "Purchase refunded", body: "The store reports that this purchase was refunded, so hosted Relay Access is unavailable.", action: "Restore Relay Access" };
   }
   if (terminal === "revoked" || code === "license_revoked") {
-    return { state: "revoked", title: "Relay Access revoked", body: "Relay Access cannot be activated from this purchase. Companion remains available.", action: Platform.OS === "android" ? "Restore Relay Access" : "Restore included access" };
+    return { state: "revoked", title: "Relay Access revoked", body: "Hosted Relay Access is unavailable. Companion, BYOK, and VATSIM remain available.", action: "Restore Relay Access" };
   }
   if (code === "store_cancelled") {
     return { state: "verification_needed", title: "Purchase check cancelled", body: "Nothing changed. Try again when you’re ready.", action: "Try again" };
   }
   if (code === "purchase_required") {
-    return { state: "verification_needed", title: "Relay Access required", body: "Companion and VATSIM remain free. Get or restore Relay Access to use real-flight Standalone mode.", action: "Get or restore Relay Access" };
+    return { state: "verification_needed", title: "Relay Access required", body: "Companion and VATSIM remain free. Get or restore annual Relay Access to use real-flight Standalone mode.", action: "Get Relay Access" };
   }
   if (code === "purchase_pending") {
-    return { state: "verification_needed", title: "Purchase pending", body: "Google Play is still processing the Relay Access purchase. Try again after it completes.", action: "Try again" };
+    return { state: "verification_needed", title: "Purchase pending", body: "The store is still processing the Relay Access subscription. Try again after it completes.", action: "Try again" };
   }
   if (code === "activation_commit_pending") {
     return { state: "retryable_unavailable", title: "Activation safely staged", body: "The credential is protected on this device. Retry to finish activation without purchasing again.", action: "Try again" };
@@ -492,21 +621,21 @@ export function mobileAccessErrorPresentation(error: unknown): MobileAccessError
     return { state: "retryable_unavailable", title: "Secure storage unavailable", body: "Relay Access was not finalized because this device could not safely store its credential. Try again.", action: "Try again" };
   }
   if (code === "ownership_unverified") {
-    return { state: "verification_needed", title: "Purchase not verified", body: Platform.OS === "android" ? `${store} could not confirm Relay Access ownership.` : `${store} could not confirm this paid-app purchase.`, action: "Try again" };
+    return { state: "verification_needed", title: "Purchase not verified", body: `${store} could not confirm an active subscription or eligible founder purchase.`, action: "Try again" };
   }
   if (code === "device_verification_missing") {
     return { state: "verification_needed", title: "Device verification unavailable", body: "This device could not complete the store verification. Try again after restarting the app.", action: "Try again" };
   }
   if (code === "unsupported_build") {
-    return { state: "retryable_unavailable", title: "Verification unavailable in this build", body: Platform.OS === "android" ? "Install a supported Google Play build to verify Relay Access." : "Install a supported App Store build to verify the included access.", action: "Try again" };
+    return { state: "retryable_unavailable", title: "Verification unavailable in this build", body: `Install a supported ${store} build to use or restore Relay Access.`, action: "Try again" };
   }
   if (code === "store_timeout") {
     return { state: "retryable_unavailable", title: `${store} took too long`, body: "The purchase check timed out. Check the connection and try again.", action: "Try again" };
   }
   if (code === "store_unavailable") {
-    return { state: "retryable_unavailable", title: `${store} is unavailable`, body: Platform.OS === "android" ? "Relay Access could not be checked right now. Try again when Google Play is reachable." : "The paid-app purchase could not be checked right now. Try again when the store service is reachable.", action: "Try again" };
+    return { state: "retryable_unavailable", title: `${store} is unavailable`, body: "Relay Access could not be checked right now. Your saved setup has not changed.", action: "Try again" };
   }
-  return { state: "retryable_unavailable", title: "Relay Access unavailable", body: Platform.OS === "android" ? "Beacon Relay could not check Relay Access. Your saved setup has not changed." : "Beacon Relay could not check the included access. Your saved setup has not changed.", action: "Try again" };
+  return { state: "retryable_unavailable", title: "Relay Access unavailable", body: "Beacon Relay could not check Relay Access. Your saved setup has not changed.", action: "Try again" };
 }
 
 export function mobileRelayAccessFailureSnapshot(
@@ -530,7 +659,11 @@ export function mobileRelayAccessFailureSnapshot(
   return {
     ...current,
     state: presentation.state,
-    accessState: presentation.state === "suspended" || presentation.state === "refunded" || presentation.state === "revoked"
+    accessState: presentation.state === "past_due"
+      || presentation.state === "expired"
+      || presentation.state === "suspended"
+      || presentation.state === "refunded"
+      || presentation.state === "revoked"
       ? presentation.state
       : current.accessState,
     reasonCode: metadata.reasonCode,
@@ -546,6 +679,7 @@ async function verifyPaidMobileOwnership(input: {
   activationGrant?: string;
   confirmMoveToken?: string;
   allowPurchase?: boolean;
+  forceAnnualPurchase?: boolean;
 }): Promise<{ response: Response; data: OwnershipVerification; origin: string }> {
   if (Platform.OS !== "ios" && Platform.OS !== "android") {
     throw new LocalFlightApiError(
@@ -566,8 +700,30 @@ async function verifyPaidMobileOwnership(input: {
 
   const identity = await getCompanionIdentity();
   const proof: Record<string, string | number> = {};
+  let annualPurchase: Purchase | null = null;
   try {
-    if (platform === "ios") {
+    if (!input.activationGrant) {
+      // Restore an existing annual subscription before testing the legacy
+      // founder proof. A new purchase is requested only after founder restore
+      // has failed, so paid-app owners never see an unnecessary store sheet.
+      annualPurchase = await annualStorePurchase(Boolean(input.forceAnnualPurchase));
+    }
+    if (annualPurchase?.purchaseState === "pending") {
+      throw new LocalFlightApiError(
+        "The store is still processing the Relay Access subscription.",
+        undefined,
+        "purchase_pending"
+      );
+    }
+    if (annualPurchase?.purchaseToken) {
+      if (platform === "ios") {
+        proof.signed_transaction = annualPurchase.purchaseToken;
+      } else {
+        proof.google_play_purchase_token = annualPurchase.purchaseToken;
+        proof.google_play_product_id = RELAY_ACCESS_ANNUAL_PRODUCT_ID;
+      }
+    } else if (platform === "ios") {
+      // Preserve founder restore for customers who bought the paid iOS app.
       const transaction = await getFreshAppleAppTransactionProof();
       proof.signed_app_transaction = transaction.signedAppTransaction;
       proof.device_verification_id = transaction.deviceVerificationId;
@@ -586,9 +742,7 @@ async function verifyPaidMobileOwnership(input: {
       }
       proof.play_integrity_token = integrity.token;
     } else {
-      const purchase = input.allowPurchase
-        ? await purchaseGooglePlayRelayAccess()
-        : await queryGooglePlayRelayAccessPurchase();
+      const purchase = await queryGooglePlayRelayAccessPurchase();
       if (purchase.state === "pending") {
         throw new LocalFlightApiError(
           "Google Play is still processing the Relay Access purchase.",
@@ -607,7 +761,16 @@ async function verifyPaidMobileOwnership(input: {
       proof.google_play_product_id = purchase.productId || GOOGLE_PLAY_RELAY_ACCESS_PRODUCT_ID;
     }
   } catch (error) {
-    throw normalizedNativeError(error);
+    const normalized = normalizedNativeError(error);
+    if (
+      input.allowPurchase
+      && !input.forceAnnualPurchase
+      && !input.activationGrant
+      && normalized.code === "purchase_required"
+    ) {
+      return verifyPaidMobileOwnership({ ...input, forceAnnualPurchase: true });
+    }
+    throw normalized;
   }
 
   const verified = await relayPost<OwnershipVerification>(input.relayUrl, "/v1/access/mobile/attestation/verify", {
@@ -622,6 +785,19 @@ async function verifyPaidMobileOwnership(input: {
     confirm_move_token: input.confirmMoveToken || "",
     ...proof
   }, "", challenge.origin);
+  if (verified.response.ok && verified.data.verified && annualPurchase) {
+    await finishTransaction({ purchase: annualPurchase, isConsumable: false });
+  }
+  if (
+    !verified.response.ok
+    && input.allowPurchase
+    && !input.forceAnnualPurchase
+    && !input.activationGrant
+    && !annualPurchase
+    && errorParts(verified.data, "").code === "paid_app_verification_failed"
+  ) {
+    return verifyPaidMobileOwnership({ ...input, forceAnnualPurchase: true });
+  }
   return verified;
 }
 
@@ -770,6 +946,13 @@ export async function getRelayAccessStatus(input: {
         status?: string;
         key_ref?: string;
         created_at?: string;
+        entitlement_kind?: string;
+        effective_state?: string;
+        current_period_end?: string;
+        grace_expires_at?: string;
+        renewal_state?: string;
+        auto_renews?: boolean;
+        founder?: boolean;
         device_kind?: string;
         device_name?: string;
         activated_at?: string;
@@ -790,6 +973,13 @@ export async function getRelayAccessStatus(input: {
           reason_code: data.reason_code,
           key_ref: data.key_ref,
           created_at: data.created_at,
+          entitlement_kind: data.entitlement_kind,
+          effective_state: data.effective_state,
+          current_period_end: data.current_period_end,
+          grace_expires_at: data.grace_expires_at,
+          renewal_state: data.renewal_state,
+          auto_renews: data.auto_renews,
+          founder: data.founder,
           receiver: {
             device_kind: data.device_kind,
             device_name: data.device_name,

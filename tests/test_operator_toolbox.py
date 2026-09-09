@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from relay.access.service import LicenseService
-from relay.access.schema import ensure_access_schema
+from relay.access.schema import ACCESS_SCHEMA_VERSION, ensure_access_schema
 from relay.access.models import (
     InvalidChallenge,
     LicenseInactive,
@@ -192,7 +192,7 @@ def test_operator_recovery_is_scoped_and_never_reveals_or_rotates(service):
         )
 
 
-def test_version_seven_upgrade_preserves_purchase_and_encrypted_records(service):
+def test_version_eight_upgrade_preserves_purchase_and_encrypted_records(service):
     purchased, key, _ = service.fulfill_purchase(
         VerifiedPurchase(
             provider="stripe",
@@ -220,7 +220,7 @@ def test_version_seven_upgrade_preserves_purchase_and_encrypted_records(service)
             conn.execute(
                 "SELECT MAX(version) FROM relay_access_schema_migrations"
             ).fetchone()[0]
-            == 8
+            == ACCESS_SCHEMA_VERSION
         )
         assert (
             tuple(conn.execute("SELECT * FROM license_holders").fetchone())

@@ -67,9 +67,12 @@ from relay.access.backup import AccessBackupManager
 from relay.access.email_templates import contact_email, valid_mailbox
 from relay.access.mobile_verifiers import (
     ApplePaidAppVerifier,
+    AppleSubscriptionVerifier,
     GooglePlayIntegrityVerifier,
     GooglePlayProductVerifier,
+    GooglePlaySubscriptionVerifier,
     PAID_APP_PRODUCT_ID,
+    RELAY_ACCESS_ANNUAL_PRODUCT_ID,
     PaidAppVerificationError,
     apple_root_certificates,
 )
@@ -1678,8 +1681,8 @@ def _optional_enabled_env(key: str) -> Optional[bool]:
 
 def _access_mode() -> str:
     selected = _env("RELAY_ACCESS_MODE", "legacy").strip().lower()
-    if selected not in {"legacy", "licensed"}:
-        raise AccessConfigurationError("RELAY_ACCESS_MODE must be legacy or licensed")
+    if selected not in {"legacy", "migration", "licensed"}:
+        raise AccessConfigurationError("RELAY_ACCESS_MODE must be legacy, migration, or licensed")
     return selected
 
 
@@ -1754,7 +1757,7 @@ def _mobile_platform_preflight_errors(platform: str) -> list[str]:
         )
         if environment != expected_environment:
             errors.append("google_environment")
-        if not _env("GOOGLE_RELAY_ACCESS_PRODUCT_ID"):
+        if not _env("GOOGLE_RELAY_ACCESS_SUBSCRIPTION_ID", RELAY_ACCESS_ANNUAL_PRODUCT_ID):
             errors.append("google_product_id")
         if not _google_play_developer_adapter().configured():
             errors.append("google_developer_api")
@@ -1818,7 +1821,7 @@ def _require_mobile_platform_verification(platform: str) -> str:
 
 def _access_requires_production_secrets() -> bool:
     return (
-        _access_mode() == "licensed"
+        _access_mode() in {"migration", "licensed"}
         or _enabled_env("RELAY_ACCESS_SALES_ENABLED")
         or _mobile_ownership_enabled()
     )
@@ -1839,6 +1842,14 @@ def _access_preflight_errors(*, stripe: bool = False, mail: bool = False) -> lis
         errors.append("key_secret")
     if len(encryption_secret) < 24:
         errors.append("encryption_secret")
+    if _access_mode() == "migration":
+        cutoff = _env("RELAY_ACCESS_FOUNDER_CUTOFF_AT")
+        try:
+            parsed_cutoff = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
+            if not cutoff or parsed_cutoff.tzinfo is None:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append("founder_cutoff_at")
     configured_secrets = [value for value in (hash_secret, key_secret, encryption_secret) if value]
     if len(configured_secrets) != len(set(configured_secrets)):
         errors.append("secrets_must_differ")
@@ -1860,7 +1871,7 @@ def _access_preflight_errors(*, stripe: bool = False, mail: bool = False) -> lis
     backup_required = bool(
         _access_deployment_environment() == "production"
         and (
-            _access_mode() == "licensed"
+            _access_mode() in {"migration", "licensed"}
             or _enabled_env("RELAY_ACCESS_SALES_ENABLED")
             or _mobile_ownership_enabled()
         )
@@ -1939,7 +1950,7 @@ def _license_service() -> LicenseService:
         hash_secret=_access_secret("RELAY_ACCESS_HASH_SECRET", "hash"),
         key_secret=_access_secret("RELAY_ACCESS_KEY_SECRET", "key"),
         encryption_secret=_access_secret("RELAY_ACCESS_ENCRYPTION_SECRET", "encryption"),
-        product_code=_env("RELAY_ACCESS_PRODUCT_CODE", "beacon_relay_lifetime_v1"),
+        product_code=_env("RELAY_ACCESS_PRODUCT_CODE", "beacon_relay_annual_v1"),
         deployment_environment=_access_deployment_environment(),
         key_secret_id=_env("RELAY_ACCESS_KEY_SECRET_ID", "v1"),
         hash_secret_id=_env("RELAY_ACCESS_HASH_SECRET_ID", "v1"),
@@ -2028,15 +2039,30 @@ def _maybe_create_access_backup(*, force: bool = False) -> Dict[str, Any] | None
 
 
 def _purchase_catalog() -> PurchaseCatalog:
-    product_code = _env("RELAY_ACCESS_PRODUCT_CODE", "beacon_relay_lifetime_v1")
+    product_code = _env("RELAY_ACCESS_PRODUCT_CODE", "beacon_relay_annual_v1")
     return PurchaseCatalog(
         product_code=product_code,
         stripe_price_id=_env("STRIPE_RELAY_ACCESS_PRICE_ID"),
+        apple_product_id=_env("APPLE_RELAY_ACCESS_SUBSCRIPTION_ID", RELAY_ACCESS_ANNUAL_PRODUCT_ID),
+        google_product_id=_env(
+            "GOOGLE_RELAY_ACCESS_SUBSCRIPTION_ID",
+            RELAY_ACCESS_ANNUAL_PRODUCT_ID,
+        ),
+        entitlement_kind="subscription",
+        accepted_environments=_accepted_purchase_environments(),
+    )
+
+
+def _legacy_purchase_catalog() -> PurchaseCatalog:
+    return PurchaseCatalog(
+        product_code="beacon_relay_lifetime_v1",
+        stripe_price_id=_env("STRIPE_RELAY_ACCESS_LEGACY_PRICE_ID"),
         apple_product_id=PAID_APP_PRODUCT_ID,
         google_product_id=_env(
-            "GOOGLE_RELAY_ACCESS_PRODUCT_ID",
+            "GOOGLE_RELAY_ACCESS_LEGACY_PRODUCT_ID",
             "cc.beacontools.localflight.relay_access",
         ),
+        entitlement_kind="permanent",
         accepted_environments=_accepted_purchase_environments(),
     )
 
@@ -2067,7 +2093,7 @@ def _provider_access_policy() -> ProviderAccessPolicy:
 
 
 def _licensed_provider_allowed(capability: str, provider: str) -> bool:
-    return _access_mode() != "licensed" or _provider_access_policy().allows(capability, provider)
+    return _access_mode() == "legacy" or _provider_access_policy().allows(capability, provider)
 
 
 def _require_licensed_provider_allowed(capability: str, provider: str) -> None:
@@ -2083,7 +2109,7 @@ def _require_licensed_provider_allowed(capability: str, provider: str) -> None:
 
 
 def _licensed_schedule_snapshot_allowed(provider: str) -> bool:
-    if _access_mode() != "licensed":
+    if _access_mode() == "legacy":
         return True
     value = provider.strip().lower()
     used = [name for name in ("aerodatabox", "aviationstack") if name in value]
@@ -2095,9 +2121,17 @@ def _relay_sales_policy_ready(policy: ProviderAccessPolicy | None = None) -> boo
     return bool(
         selected.sales_enabled
         and (selected.allows("schedule", "aerodatabox") or selected.allows("schedule", "aviationstack"))
-        and selected.allows("radar", "adsbexchange")
         and selected.allows("remote_companion", "relay")
     )
+
+
+def _sales_channel_enabled(channel: str) -> bool:
+    env_key = {
+        "stripe": "RELAY_ACCESS_STRIPE_SALES_ENABLED",
+        "apple": "RELAY_ACCESS_APPLE_SALES_ENABLED",
+        "google": "RELAY_ACCESS_GOOGLE_SALES_ENABLED",
+    }.get(channel.strip().lower())
+    return bool(env_key and _enabled_env("RELAY_ACCESS_SALES_ENABLED") and _enabled_env(env_key))
 
 
 def _stripe_adapter() -> StripeAdapter:
@@ -2105,6 +2139,7 @@ def _stripe_adapter() -> StripeAdapter:
         api_key=_env("STRIPE_SECRET_KEY"),
         webhook_secret=_env("STRIPE_WEBHOOK_SECRET"),
         price_id=_env("STRIPE_RELAY_ACCESS_PRICE_ID"),
+        subscription_mode=True,
     )
 
 
@@ -2200,7 +2235,10 @@ def _access_exception(exc: Exception) -> HTTPException:
         "retryable": bool(getattr(exc, "retryable", False)),
     }
     access_state = getattr(exc, "access_state", None)
-    if access_state in {"active", "suspended", "refunded", "revoked"}:
+    if access_state in {
+        "active", "grace", "cancelled_active", "past_due", "expired",
+        "suspended", "refunded", "revoked",
+    }:
         detail["access_state"] = access_state
     receiver = getattr(exc, "current_receiver", None)
     if isinstance(receiver, dict):
@@ -2967,6 +3005,15 @@ def _resolve_access(
             "activation_row": None,
             "license_id": "",
         }
+    if service == "radar" and _access_mode() != "legacy" and not _provider_access_policy().allows("radar"):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "shared_radar_unavailable",
+                "message": "Shared real-aircraft radar is not included. Use VATSIM or a provider key on your Local Flight host.",
+                "retryable": False,
+            },
+        )
     if token.startswith("lfr_"):
         is_schedule = service in {"aviationstack", "vatsim_schedule", "public_summary", "public_weather"}
         capability = "schedule" if is_schedule else "radar"
@@ -3005,7 +3052,29 @@ def _resolve_access(
             "license_id": str(credential_row["license_id"]),
         }
 
-    if _access_mode() == "licensed":
+    activation_row = _load_activation(token)
+    founder_bridge: Dict[str, Any] = {}
+    if _access_mode() == "migration" and activation_row is not None:
+        bound_install_id = (activation_row["bound_install_id"] or "").strip()
+        if bound_install_id != install_id:
+            raise HTTPException(status_code=403, detail="Activation token belongs to another install")
+        try:
+            founder_bridge = _license_service().founder_bridge_status(
+                install_id=install_id,
+                legacy_token_hash=str(activation_row["token_hash"]),
+            )
+        except Exception as exc:
+            raise _access_exception(exc) from exc
+        if not founder_bridge.get("bridge_active"):
+            raise HTTPException(
+                status_code=426,
+                detail={
+                    "code": "founder_upgrade_required",
+                    "message": "This founder install must upgrade its saved Relay credential to continue hosted access.",
+                    "retryable": False,
+                },
+            )
+    elif _access_mode() in {"migration", "licensed"}:
         raise HTTPException(
             status_code=401 if not token else 403,
             detail={
@@ -3017,7 +3086,6 @@ def _resolve_access(
             },
         )
 
-    activation_row = _load_activation(token)
     if token and activation_row is None:
         raise HTTPException(status_code=403, detail="Activation token invalid or revoked")
 
@@ -3041,6 +3109,8 @@ def _resolve_access(
         "limit": limit,
         "subject_key": subject_key,
         "activation_row": activation_row,
+        "founder": bool(founder_bridge),
+        "founder_bridge_expires_at": founder_bridge.get("bridge_expires_at", ""),
     }
 
 
@@ -10766,7 +10836,7 @@ def _public_access_readiness() -> Dict[str, Any]:
         catalog_ready = bool(
             schema_version == ACCESS_SCHEMA_VERSION
             and _purchase_catalog().public_product().get("product_code")
-            == "beacon_relay_lifetime_v1"
+            == "beacon_relay_annual_v1"
         )
     except Exception:
         catalog_ready = False
@@ -10795,6 +10865,7 @@ def _public_access_readiness() -> Dict[str, Any]:
         apple_ready = bool(
             core_ready
             and not _mobile_platform_preflight_errors("ios")
+            and _env("APPLE_RELAY_ACCESS_SUBSCRIPTION_ID")
             and _mobile_reconciliation_ready("ios")
         )
     except Exception:
@@ -10803,6 +10874,7 @@ def _public_access_readiness() -> Dict[str, Any]:
         google_ready = bool(
             core_ready
             and not _mobile_platform_preflight_errors("android")
+            and _env("GOOGLE_RELAY_ACCESS_SUBSCRIPTION_ID")
             and _mobile_reconciliation_ready("android")
         )
     except Exception:
@@ -10832,8 +10904,12 @@ def _public_access_readiness() -> Dict[str, Any]:
         "sales_ready": sales_ready,
         "providers": {
             "stripe": stripe_ready,
-            "apple_app": apple_ready,
+            "apple_subscription": apple_ready,
             "google_play": google_ready,
+        },
+        "legacy_restore": {
+            "apple_paid_app": bool(core_ready and not _mobile_platform_preflight_errors("ios")),
+            "google_play_product": bool(core_ready and not _mobile_platform_preflight_errors("android")),
         },
     }
 
@@ -11047,6 +11123,15 @@ class AccessStripeResultIn(BaseModel):
         return _admin_text(value)
 
 
+class AccessBillingPortalIn(BaseModel):
+    install_id: str = Field(..., min_length=36, max_length=80)
+
+    @field_validator("install_id", mode="before")
+    @classmethod
+    def _coerce_install_id(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
 class AccessActivateIn(BaseModel):
     install_id: str = Field(..., min_length=36, max_length=80)
     device_kind: str = Field("desktop", max_length=32)
@@ -11061,6 +11146,17 @@ class AccessActivateIn(BaseModel):
     )
     @classmethod
     def _coerce_activate_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessFounderClaimIn(BaseModel):
+    install_id: str = Field(..., min_length=36, max_length=80)
+    device_name: str = Field("Local Flight", max_length=80)
+    confirm_move_token: str = Field("", max_length=200)
+
+    @field_validator("install_id", "device_name", "confirm_move_token", mode="before")
+    @classmethod
+    def _coerce_founder_text(cls, value: Any) -> str:
         return _admin_text(value)
 
 
@@ -11083,6 +11179,7 @@ class AccessMobileVerifyIn(BaseModel):
     device_name: str = Field("Local Flight Mobile", max_length=80)
     nonce: str = Field(..., min_length=1, max_length=160)
     signed_app_transaction: str = Field("", max_length=32_768)
+    signed_transaction: str = Field("", max_length=32_768)
     device_verification_id: str = Field("", max_length=64)
     environment: str = Field("", max_length=24)
     confirm_move_token: str = Field("", max_length=200)
@@ -11093,13 +11190,22 @@ class AccessMobileVerifyIn(BaseModel):
 
     @field_validator(
         "platform", "install_id", "mode", "intent", "device_name", "nonce", "signed_app_transaction",
-        "device_verification_id",
+        "signed_transaction", "device_verification_id",
         "environment", "confirm_move_token", "activation_grant",
         "google_play_purchase_token", "google_play_product_id", "play_integrity_token",
         mode="before",
     )
     @classmethod
     def _coerce_mobile_verify_text(cls, value: Any) -> str:
+        return _admin_text(value)
+
+
+class AccessAppleNotificationIn(BaseModel):
+    signedPayload: str = Field(..., min_length=20, max_length=65_536)
+
+    @field_validator("signedPayload", mode="before")
+    @classmethod
+    def _coerce_signed_payload(cls, value: Any) -> str:
         return _admin_text(value)
 
 
@@ -11185,6 +11291,11 @@ class AccessAdminSearchIn(BaseModel):
         return _admin_text(value)
 
 
+class AccessFounderSnapshotIn(BaseModel):
+    execute: bool = False
+    confirmed: bool = False
+
+
 def _access_site_url(path: str) -> str:
     default = "https://staging.beacontools.cc" if _access_deployment_environment() == "staging" else "https://beacontools.cc"
     base = _env("RELAY_ACCESS_SITE_URL", default).rstrip("/")
@@ -11196,11 +11307,20 @@ def _access_site_url(path: str) -> str:
 
 
 def _access_license_payload(record: Any) -> Dict[str, Any]:
-    access_state = str(record.status or "revoked").strip().lower()
-    if access_state not in {"active", "suspended", "refunded", "revoked"}:
+    access_state = str(
+        getattr(record, "effective_state", "") or record.status or "revoked"
+    ).strip().lower()
+    if access_state not in {
+        "active", "grace", "cancelled_active", "past_due", "expired",
+        "suspended", "refunded", "revoked",
+    }:
         access_state = "revoked"
     reason_code = {
         "active": "license_active",
+        "grace": "license_grace",
+        "cancelled_active": "license_cancelled_active",
+        "past_due": "license_past_due",
+        "expired": "license_expired",
         "suspended": "purchase_suspended",
         "refunded": "purchase_refunded",
         "revoked": "purchase_revoked",
@@ -11222,6 +11342,20 @@ def _access_license_payload(record: Any) -> Dict[str, Any]:
         "reason_code": reason_code,
         "key_ref": f"{record.key_prefix}…{record.key_last_four}",
         "created_at": record.created_at,
+        "entitlement_kind": str(getattr(record, "entitlement_kind", "permanent") or "permanent"),
+        "effective_state": str(getattr(record, "effective_state", access_state) or access_state),
+        "current_period_end": str(getattr(record, "current_period_end", "") or ""),
+        "grace_expires_at": str(getattr(record, "grace_expires_at", "") or ""),
+        "auto_renews": bool(getattr(record, "auto_renews", False)),
+        "renewal_state": (
+            "renews"
+            if str(getattr(record, "entitlement_kind", "") or "") == "subscription"
+            and bool(getattr(record, "auto_renews", False))
+            else "ends_at_period_end"
+            if str(getattr(record, "entitlement_kind", "") or "") == "subscription"
+            else "permanent"
+        ),
+        "founder": bool(getattr(record, "founder", False)),
     }
 
 
@@ -11400,9 +11534,21 @@ def _apply_authoritative_purchase_state(
     service: LicenseService,
     verified: VerifiedPurchase,
 ) -> str:
-    verified = _purchase_catalog().validate_identity(verified)
+    catalog = _purchase_catalog() if verified.entitlement_kind == "subscription" else _legacy_purchase_catalog()
+    verified = catalog.validate_identity(verified)
+    if verified.entitlement_kind == "subscription":
+        if verified.effective_state in {"active", "grace", "cancelled_active"}:
+            license_record, _key, _created = PurchaseFulfillmentService(service, catalog).fulfill(verified)
+        else:
+            license_record = service.reconcile_subscription(verified)
+        if verified.provider == "google_play_subscription" and verified.acknowledgement_state == "pending":
+            service.queue_provider_operation(
+                license_id=license_record.license_id,
+                operation="acknowledge_subscription",
+            )
+        return license_record.license_id
     if verified.state in {"paid", "purchased"}:
-        license_record, _key, _created = _purchase_fulfillment(service).fulfill(verified)
+        license_record, _key, _created = PurchaseFulfillmentService(service, catalog).fulfill(verified)
         if (
             verified.provider == "google_play_product"
             and verified.acknowledgement_state == "pending"
@@ -11443,6 +11589,21 @@ def _process_provider_operations(*, limit: int = 10) -> int:
                     purchase_token=str(item.get("handle") or ""),
                 )
                 service.mark_purchase_acknowledged(purchase_id)
+            elif purpose == "google_play_subscription:acknowledge_subscription":
+                _google_play_developer_adapter().acknowledge_subscription_purchase(
+                    package_name=_env("GOOGLE_PLAY_PACKAGE_NAME", _IAP_BUNDLE_ID),
+                    subscription_id=str(payload.get("product_id") or ""),
+                    purchase_token=str(item.get("handle") or ""),
+                )
+                service.mark_purchase_acknowledged(purchase_id)
+            elif purpose == "google_play_subscription:reconcile":
+                verified = _google_play_subscription_verifier().verify(
+                    {
+                        "google_play_purchase_token": str(item.get("handle") or ""),
+                        "google_play_product_id": str(payload.get("product_id") or ""),
+                    }
+                )
+                _apply_authoritative_purchase_state(service, verified)
             elif purpose == "google_play_product:reconcile":
                 verified = _google_play_product_verifier().verify(
                     {
@@ -11457,6 +11618,17 @@ def _process_provider_operations(*, limit: int = 10) -> int:
                     str(payload.get("environment") or "production"),
                 )
                 verified = _apple_paid_app_verifier().verify_server(signed)
+                _apply_authoritative_purchase_state(service, verified)
+            elif purpose == "apple_subscription:reconcile":
+                transaction, renewal, status = _apple_app_transaction_adapter().get_subscription_status(
+                    str(item.get("handle") or ""),
+                    str(payload.get("environment") or "production"),
+                )
+                verified = _apple_subscription_verifier().verify_server_status(
+                    transaction,
+                    renewal,
+                    status,
+                )
                 _apply_authoritative_purchase_state(service, verified)
             else:
                 raise InvalidChallenge("Provider operation is not supported")
@@ -11621,13 +11793,27 @@ def access_catalog() -> Dict[str, Any]:
     product["verification_environment"] = (
         "production" if _access_deployment_environment() == "production" else "testing"
     )
-    stripe_ready = _relay_sales_policy_ready(policy) and not _access_preflight_errors(stripe=True, mail=True)
+    stripe_ready = (
+        _relay_sales_policy_ready(policy)
+        and _sales_channel_enabled("stripe")
+        and not _access_preflight_errors(stripe=True, mail=True)
+    )
     ios_state = _mobile_platform_state("ios")
     android_state = _mobile_platform_state("android")
-    ios_config_ready = not _mobile_platform_preflight_errors("ios")
-    android_config_ready = not _mobile_platform_preflight_errors("android")
-    ios_verification_ready = _mobile_platform_verification_ready("ios")
-    android_verification_ready = _mobile_platform_verification_ready("android")
+    ios_config_ready = bool(
+        not _mobile_platform_preflight_errors("ios")
+        and _env("APPLE_RELAY_ACCESS_SUBSCRIPTION_ID")
+    )
+    android_config_ready = bool(
+        not _mobile_platform_preflight_errors("android")
+        and _env("GOOGLE_RELAY_ACCESS_SUBSCRIPTION_ID")
+    )
+    ios_verification_ready = bool(
+        _mobile_platform_verification_ready("ios") and ios_config_ready
+    )
+    android_verification_ready = bool(
+        _mobile_platform_verification_ready("android") and android_config_ready
+    )
     delivery_ready = _mobile_license_delivery_ready()
     ios_reconciliation_ready = _mobile_reconciliation_ready("ios")
     android_reconciliation_ready = _mobile_reconciliation_ready("android")
@@ -11649,21 +11835,25 @@ def access_catalog() -> Dict[str, Any]:
     )
     product["sales_available"] = stripe_ready
     product["pricing"] = {
-        "kind": "one_time",
-        "display_label": _env("RELAY_ACCESS_DISPLAY_PRICE"),
+        "kind": "annual_auto_renewing",
+        "billing_period": "P1Y",
+        "display_label": _env("RELAY_ACCESS_DISPLAY_PRICE", "CHF 8/year"),
         "available": stripe_ready,
+        "localized_price_owner": "checkout_or_store",
     }
     android_source = {
         "available": bool(
             android_verification_ready
             and delivery_ready
             and android_reconciliation_ready
+            and _sales_channel_enabled("google")
             and android_store_url
             and android_state == "available"
         ),
         "testing_available": bool(
             android_verification_ready
             and delivery_ready
+            and _sales_channel_enabled("google")
             and android_test_url
             and android_state == "testing"
         ),
@@ -11671,7 +11861,7 @@ def access_catalog() -> Dict[str, Any]:
         "delivery_ready": delivery_ready,
         "reconciliation_ready": android_reconciliation_ready,
         "configuration_ready": android_config_ready,
-        "acquisition_model": "free_download_in_app_purchase",
+        "acquisition_model": "free_download_annual_subscription",
         "included_with_paid_app": False,
         "free_modes": ["companion", "vatsim"],
         "standalone_requires_relay_access": True,
@@ -11682,25 +11872,30 @@ def access_catalog() -> Dict[str, Any]:
     product["purchase_sources"] = {
         "stripe": {
             "available": stripe_ready,
-            "acquisition_model": "web_one_time_purchase",
+            "acquisition_model": "web_annual_subscription",
         },
-        "apple_app": {
+        "apple_subscription": {
             "available": bool(
                 ios_verification_ready
                 and delivery_ready
                 and ios_reconciliation_ready
+                and _sales_channel_enabled("apple")
                 and ios_store_url
                 and ios_state == "available"
             ),
             "testing_available": bool(
-                ios_verification_ready and delivery_ready and ios_test_url and ios_state == "testing"
+                ios_verification_ready
+                and delivery_ready
+                and _sales_channel_enabled("apple")
+                and ios_test_url
+                and ios_state == "testing"
             ),
             "verification_ready": ios_verification_ready,
             "delivery_ready": delivery_ready,
             "reconciliation_ready": ios_reconciliation_ready,
             "configuration_ready": ios_config_ready,
-            "acquisition_model": "paid_download_included_license",
-            "included_with_paid_app": True,
+            "acquisition_model": "free_download_annual_subscription",
+            "included_with_paid_app": False,
             "state": ios_state,
             "testing_url": ios_test_url,
             "store_url": ios_store_url,
@@ -11710,17 +11905,27 @@ def access_catalog() -> Dict[str, Any]:
         # describes the new IAP model and can be removed after the cutover.
         "google_app": {**android_source, "deprecated_catalog_key": True},
     }
+    product["legacy_products"] = {
+        "stripe_lifetime": "beacon_relay_lifetime_v1",
+        "apple_paid_app": PAID_APP_PRODUCT_ID,
+        "google_non_consumable": "cc.beacontools.localflight.relay_access",
+    }
     product["platform_rules"] = {
-        "ios": {"download": "paid", "included_license": True},
+        "ios": {
+            "download": "free",
+            "free_modes": ["companion", "vatsim"],
+            "relay_access_purchase": "annual_auto_renewable",
+        },
         "android": {
             "download": "free",
             "free_modes": ["companion", "vatsim"],
-            "relay_access_purchase": "one_time_non_consumable",
+            "relay_access_purchase": "annual_auto_renewing",
             "activation_grants_supported": True,
         },
     }
     return {
         "ok": True,
+        "catalog_contract_version": 2,
         "schema_version": ACCESS_SCHEMA_VERSION,
         "product": product,
         "capabilities": {
@@ -11806,6 +12011,37 @@ def access_stripe_result(body: AccessStripeResultIn, request: Request) -> Dict[s
     return payload
 
 
+@app.post("/v1/access/stripe/billing-portal")
+def access_stripe_billing_portal(body: AccessBillingPortalIn, request: Request) -> Dict[str, Any]:
+    install_id = _validate_install_id(body.install_id.strip())
+    credential = _request_access_token(request)
+    if not credential.startswith("lfr_"):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "relay_credential_required", "message": "Relay Access is required."},
+        )
+    try:
+        _require_access_preflight(stripe=True)
+        _check_access_rate_limit(
+            request,
+            action="stripe_billing_portal",
+            limit=_int_env("RELAY_ACCESS_PORTAL_HOURLY_LIMIT", 10, minimum=1),
+            window_seconds=3600,
+            subject=install_id,
+        )
+        customer = _license_service().subscription_customer_reference(
+            credential,
+            install_id=install_id,
+        )
+        url = _stripe_adapter().create_billing_portal(
+            customer_reference=customer,
+            return_url=_access_site_url("local-flight/relay-access/"),
+        )
+        return {"ok": True, "portal_url": url}
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
 def _stripe_object(event: Dict[str, Any]) -> Dict[str, Any]:
     data = event.get("data") if isinstance(event.get("data"), dict) else {}
     value = data.get("object") if isinstance(data.get("object"), dict) else {}
@@ -11820,6 +12056,108 @@ def _stripe_checkout_email(session: Dict[str, Any]) -> str:
 def _stripe_checkout_ref(value: Dict[str, Any]) -> str:
     metadata = value.get("metadata") if isinstance(value.get("metadata"), dict) else {}
     return str(metadata.get("checkout_ref") or "").strip()
+
+
+def _stripe_subscription_id(value: Dict[str, Any]) -> str:
+    subscription = value.get("subscription")
+    if isinstance(subscription, dict):
+        return str(subscription.get("id") or "").strip()
+    if isinstance(subscription, str):
+        return subscription.strip()
+    parent = value.get("parent") if isinstance(value.get("parent"), dict) else {}
+    details = parent.get("subscription_details") if isinstance(parent.get("subscription_details"), dict) else {}
+    nested = details.get("subscription")
+    if isinstance(nested, dict):
+        return str(nested.get("id") or "").strip()
+    return str(nested or "").strip()
+
+
+def _stripe_object_id(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("id") or "").strip()
+    return str(value or "").strip()
+
+
+def _stripe_relay_access_item(value: Dict[str, Any]) -> Dict[str, Any]:
+    items = value.get("items") if isinstance(value.get("items"), dict) else {}
+    item_rows = items.get("data") if isinstance(items.get("data"), list) else []
+    configured_price = _env("STRIPE_RELAY_ACCESS_PRICE_ID")
+    matching = [
+        item
+        for item in item_rows
+        if isinstance(item, dict)
+        and isinstance(item.get("price"), dict)
+        and str(item["price"].get("id") or "") == configured_price
+    ]
+    if len(matching) != 1:
+        raise InvalidChallenge("Stripe subscription does not contain exactly one Relay Access item")
+    try:
+        quantity = int(matching[0].get("quantity") or 1)
+    except (TypeError, ValueError) as exc:
+        raise InvalidChallenge("Stripe subscription quantity is invalid") from exc
+    if quantity != 1:
+        raise InvalidChallenge("Stripe subscription quantity is not supported")
+    return matching[0]
+
+
+def _stripe_subscription_purchase(
+    value: Dict[str, Any],
+    *,
+    event_created: int,
+    evidence_hash: str,
+    email: str = "",
+    forced_state: str = "",
+    provider_event: str = "",
+) -> VerifiedPurchase:
+    subscription_id = str(value.get("id") or "").strip()
+    customer = value.get("customer")
+    customer_reference = str(customer.get("id") if isinstance(customer, dict) else customer or "").strip()
+    provider_state = str(value.get("status") or "").strip().lower()
+    relay_item = _stripe_relay_access_item(value)
+    try:
+        # Stripe Basil moved billing periods from the Subscription to each
+        # Subscription Item. Retain the top-level fallback for older webhook
+        # endpoint API versions during a controlled migration.
+        period_start_raw = int(relay_item.get("current_period_start") or value.get("current_period_start") or 0)
+        period_end_raw = int(relay_item.get("current_period_end") or value.get("current_period_end") or 0)
+        period_start = datetime.fromtimestamp(period_start_raw, tz=timezone.utc).isoformat() if period_start_raw > 0 else ""
+        period_end = datetime.fromtimestamp(period_end_raw, tz=timezone.utc).isoformat() if period_end_raw > 0 else ""
+    except (OverflowError, OSError, TypeError, ValueError) as exc:
+        raise InvalidChallenge("Stripe subscription period is invalid") from exc
+    if not subscription_id or not period_end:
+        raise InvalidChallenge("Stripe subscription identity is incomplete")
+    if forced_state:
+        effective = forced_state
+    elif provider_state in {"active", "trialing"}:
+        effective = "cancelled_active" if bool(value.get("cancel_at_period_end")) else "active"
+    elif provider_state in {"past_due", "unpaid", "incomplete"}:
+        effective = "past_due"
+    elif provider_state == "paused":
+        effective = "suspended"
+    elif provider_state in {"canceled", "incomplete_expired"}:
+        effective = "expired"
+    else:
+        raise InvalidChallenge("Stripe subscription state is not supported")
+    return VerifiedPurchase(
+        provider="stripe",
+        external_id=subscription_id,
+        product_id=_env("STRIPE_RELAY_ACCESS_PRICE_ID"),
+        environment="production" if bool(value.get("livemode")) else "test",
+        state=effective,
+        email=email,
+        evidence_hash=evidence_hash,
+        verified_at_ms=max(0, int(event_created or 0)) * 1000,
+        identity_kind="stripe_subscription_id",
+        reconciliation_mode="webhook_authoritative",
+        reconciliation_handle=subscription_id,
+        entitlement_kind="subscription",
+        effective_state=effective,
+        current_period_start=period_start,
+        current_period_end=period_end,
+        auto_renews=effective == "active" and not bool(value.get("cancel_at_period_end")),
+        provider_state=provider_event or provider_state or effective,
+        customer_reference=customer_reference,
+    )
 
 
 @app.post("/v1/access/stripe/webhook")
@@ -11855,46 +12193,100 @@ async def access_stripe_webhook(request: Request) -> Dict[str, Any]:
             if payment_status not in {"paid", "no_payment_required"}:
                 service.finish_purchase_event("stripe", event_id, status="pending", detail_code="payment_pending")
                 return {"ok": True, "pending": True}
-            external_id = str(value.get("payment_intent") or value.get("id") or "").strip()
-            verified = VerifiedPurchase(
-                provider="stripe",
-                external_id=external_id,
-                product_id=checkout_product_id or _env("STRIPE_RELAY_ACCESS_PRICE_ID"),
-                environment="test" if not bool(value.get("livemode")) else "production",
-                state="paid",
-                email=_stripe_checkout_email(value),
+            subscription_id = _stripe_subscription_id(value)
+            if not subscription_id:
+                raise InvalidChallenge("Stripe subscription reference is missing")
+            checkout_email = _stripe_checkout_email(value)
+            if not valid_mailbox(checkout_email):
+                raise InvalidChallenge("Stripe Checkout did not return a valid delivery email")
+            subscription = _stripe_adapter().retrieve_subscription(subscription_id)
+            verified = _stripe_subscription_purchase(
+                subscription,
+                event_created=int(event.get("created") or 0),
                 evidence_hash=hashlib.sha256(raw).hexdigest(),
+                email=checkout_email,
+                provider_event="checkout_paid",
             )
+            if verified.product_id != checkout_product_id:
+                raise InvalidChallenge("Stripe subscription does not match this Checkout")
             license_record, _license_key, _created = _purchase_fulfillment(service).fulfill_checkout(checkout_ref, verified)
             linked_license_id = license_record.license_id
-            if verified.email:
-                service.queue_license_email(license_record.license_id, purpose="stripe_purchase")
+            service.queue_license_email(license_record.license_id, purpose="stripe_purchase")
         elif event_type in {"checkout.session.async_payment_failed", "checkout.session.expired"}:
             checkout_ref = _stripe_checkout_ref(value)
             if checkout_ref:
                 service.validate_checkout_session(checkout_ref, str(value.get("id") or ""))
                 service.fail_checkout(checkout_ref, "failed" if "failed" in event_type else "expired")
-        elif event_type == "charge.refunded" and bool(value.get("refunded")):
-            payment_intent = str(value.get("payment_intent") or "").strip()
-            if payment_intent:
-                linked_license_id = service.update_purchase_state(
-                    "stripe", payment_intent, "refunded", reason="charge_refunded"
+        elif event_type in {
+            "customer.subscription.created",
+            "customer.subscription.updated",
+            "customer.subscription.deleted",
+        }:
+            verified = _stripe_subscription_purchase(
+                value,
+                event_created=int(event.get("created") or 0),
+                evidence_hash=hashlib.sha256(raw).hexdigest(),
+                provider_event=event_type.replace(".", "_"),
+            )
+            linked_license_id = service.reconcile_subscription(
+                _purchase_catalog().validate_identity(verified)
+            ).license_id
+        elif event_type in {"invoice.paid", "invoice.payment_failed"}:
+            subscription_id = _stripe_subscription_id(value)
+            if subscription_id:
+                subscription = _stripe_adapter().retrieve_subscription(subscription_id)
+                verified = _stripe_subscription_purchase(
+                    subscription,
+                    event_created=int(event.get("created") or 0),
+                    evidence_hash=hashlib.sha256(raw).hexdigest(),
+                    forced_state="past_due" if event_type == "invoice.payment_failed" else "",
+                    provider_event=(
+                        "invoice_payment_failed"
+                        if event_type == "invoice.payment_failed"
+                        else "invoice_paid"
+                    ),
+                )
+                linked_license_id = service.reconcile_subscription(
+                    _purchase_catalog().validate_identity(verified)
                 ).license_id
-        elif event_type == "charge.dispute.created":
-            payment_intent = str(value.get("payment_intent") or "").strip()
-            if payment_intent:
-                linked_license_id = service.update_purchase_state(
-                    "stripe", payment_intent, "disputed", reason="dispute_created"
-                ).license_id
-        elif event_type == "charge.dispute.closed":
-            payment_intent = str(value.get("payment_intent") or "").strip()
-            dispute_status = str(value.get("status") or "").lower()
-            if payment_intent and dispute_status in {"won", "lost"}:
-                linked_license_id = service.update_purchase_state(
-                    "stripe",
-                    payment_intent,
-                    "paid" if dispute_status == "won" else "revoked",
-                    reason=f"dispute_{dispute_status}",
+        elif event_type in {"charge.refunded", "charge.dispute.created", "charge.dispute.closed"}:
+            charge = value
+            if event_type.startswith("charge.dispute."):
+                charge_id = _stripe_object_id(value.get("charge"))
+                charge = _stripe_adapter().retrieve_charge(charge_id) if charge_id else {}
+            invoice_id = _stripe_object_id(charge.get("invoice")) if isinstance(charge, dict) else ""
+            subscription_id = ""
+            if invoice_id:
+                subscription_id = _stripe_subscription_id(_stripe_adapter().retrieve_invoice(invoice_id))
+            if subscription_id:
+                subscription = _stripe_adapter().retrieve_subscription(subscription_id)
+                dispute_status = str(value.get("status") or "").lower()
+                forced = (
+                    "refunded"
+                    if event_type == "charge.refunded" and bool(value.get("refunded"))
+                    else "suspended"
+                    if event_type == "charge.dispute.created"
+                    else "revoked"
+                    if dispute_status == "lost"
+                    else "active"
+                )
+                verified = _stripe_subscription_purchase(
+                    subscription,
+                    event_created=int(event.get("created") or 0),
+                    evidence_hash=hashlib.sha256(raw).hexdigest(),
+                    forced_state=forced,
+                    provider_event=(
+                        "charge_refunded"
+                        if event_type == "charge.refunded"
+                        else "dispute_opened"
+                        if event_type == "charge.dispute.created"
+                        else "dispute_lost"
+                        if dispute_status == "lost"
+                        else "dispute_won"
+                    ),
+                )
+                linked_license_id = service.reconcile_subscription(
+                    _purchase_catalog().validate_identity(verified)
                 ).license_id
         service.finish_purchase_event(
             "stripe",
@@ -11905,7 +12297,7 @@ async def access_stripe_webhook(request: Request) -> Dict[str, Any]:
         )
         return {"ok": True, "duplicate": False}
     except LicenseNotFound as exc:
-        if event_type in {"charge.refunded", "charge.dispute.created", "charge.dispute.closed"}:
+        if event_type.startswith("customer.subscription.") or event_type.startswith("invoice.") or event_type.startswith("charge."):
             service.finish_purchase_event(
                 "stripe",
                 event_id,
@@ -11956,6 +12348,67 @@ def access_activate(body: AccessActivateIn, request: Request) -> Response:
     return JSONResponse(payload, status_code=409 if result.move_token else 200)
 
 
+@app.post("/v1/access/founder/claim")
+def access_founder_claim(body: AccessFounderClaimIn, request: Request) -> Response:
+    """Exchange an eligible bound legacy credential through the normal safe activation flow."""
+    if _access_mode() != "migration":
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "founder_claim_unavailable", "message": "Founder migration is not active."},
+        )
+    install_id = _validate_install_id(body.install_id.strip())
+    _ensure_install_allowed(install_id)
+    credential = _request_access_token(request)
+    activation_row = _load_activation(credential)
+    if activation_row is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "legacy_credential_required", "message": "The saved legacy Relay credential is required."},
+        )
+    bound_install_id = str(activation_row["bound_install_id"] or "").strip()
+    if bound_install_id != install_id:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "legacy_credential_mismatch", "message": "This credential belongs to another Local Flight install."},
+        )
+    try:
+        _check_access_rate_limit(
+            request,
+            action="founder_claim",
+            limit=_int_env("RELAY_ACCESS_FOUNDER_CLAIM_10M_LIMIT", 10, minimum=1),
+            window_seconds=600,
+            subject=install_id,
+        )
+        service = _license_service()
+        founder = service.founder_bridge_status(
+            install_id=install_id,
+            legacy_token_hash=str(activation_row["token_hash"]),
+        )
+        result = service.activate_license(
+            license_id=str(founder["license_id"]),
+            install_id=install_id,
+            device_kind="desktop",
+            device_name=body.device_name or "Local Flight",
+            confirm_move_token=body.confirm_move_token,
+            prepare_only=True,
+        )
+        payload = _access_activation_payload(result)
+        payload.update(
+            {
+                "founder": True,
+                "founder_status": str(founder.get("founder_status") or "eligible"),
+                "bridge_expires_at": str(founder.get("bridge_expires_at") or ""),
+                "delivery_claim": service.create_mobile_license_claim(
+                    license_id=str(founder["license_id"]),
+                    install_id=install_id,
+                ),
+            }
+        )
+        return JSONResponse(payload, status_code=409 if result.move_token else 200)
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
 @app.post("/v1/access/activate/commit")
 def access_activate_commit(body: AccessActivationCommitIn, request: Request) -> Dict[str, Any]:
     install_id = _validate_install_id(body.install_id.strip())
@@ -11982,6 +12435,7 @@ def access_activate_commit(body: AccessActivationCommitIn, request: Request) -> 
         )
         service = _license_service()
         result = service.commit_activation(credential, install_id=install_id)
+        service.mark_founder_claimed(result.license.license_id)
         _send_receiver_move_notice(service, result)
         return _access_activation_payload(result)
     except Exception as exc:
@@ -12052,6 +12506,22 @@ def _apple_paid_app_verifier() -> ApplePaidAppVerifier:
         app_apple_id=app_id or None,
         root_certificates=apple_root_certificates(_env("APPLE_ROOT_CERTIFICATES_B64_JSON")),
         online_checks=_enabled_env("APPLE_APP_TRANSACTION_ONLINE_CHECKS", True),
+        founder_cutoff_at=(
+            _env("RELAY_ACCESS_FOUNDER_CUTOFF_AT")
+            if _access_mode() in {"migration", "licensed"}
+            else ""
+        ),
+    )
+
+
+def _apple_subscription_verifier() -> AppleSubscriptionVerifier:
+    app_id = _int_env("APPLE_APP_ID", 0)
+    return AppleSubscriptionVerifier(
+        bundle_id=_env("APPLE_IAP_BUNDLE_ID", _IAP_BUNDLE_ID),
+        app_apple_id=app_id or None,
+        product_id=_env("APPLE_RELAY_ACCESS_SUBSCRIPTION_ID", RELAY_ACCESS_ANNUAL_PRODUCT_ID),
+        root_certificates=apple_root_certificates(_env("APPLE_ROOT_CERTIFICATES_B64_JSON")),
+        online_checks=_enabled_env("APPLE_TRANSACTION_ONLINE_CHECKS", True),
     )
 
 
@@ -12064,6 +12534,16 @@ def _google_play_product_verifier() -> GooglePlayProductVerifier:
             "cc.beacontools.localflight.relay_access",
         ),
         lookup=adapter.lookup_product_purchase,
+        environment=_env("GOOGLE_PLAY_PURCHASE_ENVIRONMENT", "test"),
+    )
+
+
+def _google_play_subscription_verifier() -> GooglePlaySubscriptionVerifier:
+    adapter = _google_play_developer_adapter()
+    return GooglePlaySubscriptionVerifier(
+        package_name=_env("GOOGLE_PLAY_PACKAGE_NAME", _IAP_BUNDLE_ID),
+        product_id=_env("GOOGLE_RELAY_ACCESS_SUBSCRIPTION_ID", RELAY_ACCESS_ANNUAL_PRODUCT_ID),
+        lookup=adapter.lookup_subscription_purchase,
         environment=_env("GOOGLE_PLAY_PURCHASE_ENVIRONMENT", "test"),
     )
 
@@ -12140,7 +12620,46 @@ async def access_google_rtdn(request: Request) -> Response:
     service = _license_service()
     if not service.begin_purchase_event("google_play", message_id, "rtdn"):
         return Response(status_code=204)
+    subscription_notice = notification.get("subscriptionNotification")
     one_time = notification.get("oneTimeProductNotification")
+    if isinstance(subscription_notice, dict):
+        purchase_token = str(subscription_notice.get("purchaseToken") or "").strip()
+        product_id = str(subscription_notice.get("subscriptionId") or "").strip()
+        if not purchase_token:
+            service.finish_purchase_event("google_play", message_id, status="failed", detail_code="notification_incomplete")
+            raise HTTPException(status_code=400, detail={"code": "google_rtdn_invalid"})
+        try:
+            verified = _google_play_subscription_verifier().verify(
+                {
+                    "google_play_purchase_token": purchase_token,
+                    "google_play_product_id": product_id or _purchase_catalog().google_product_id,
+                }
+            )
+            verified = _purchase_catalog().validate_identity(verified)
+            license_record = service.reconcile_subscription(verified)
+            service.finish_purchase_event(
+                "google_play", message_id, status="processed", license_id=license_record.license_id
+            )
+            return Response(status_code=204)
+        except LicenseNotFound:
+            service.finish_purchase_event(
+                "google_play", message_id, status="reconciliation_required", detail_code="unlinked_subscription"
+            )
+            return Response(status_code=204)
+        except (InvalidChallenge, InvalidLicenseKey, LicenseInactive) as exc:
+            service.finish_purchase_event("google_play", message_id, status="failed", detail_code=exc.code)
+            raise _access_exception(exc) from exc
+        except Exception as exc:
+            service.finish_purchase_event(
+                "google_play", message_id, status="failed", detail_code=exc.__class__.__name__
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "google_reconciliation_unavailable",
+                    "message": "Google subscription reconciliation is temporarily unavailable",
+                },
+            ) from exc
     if not isinstance(one_time, dict):
         detail = "test_notification" if isinstance(notification.get("testNotification"), dict) else "unsupported_notification"
         service.finish_purchase_event("google_play", message_id, status="processed", detail_code=detail)
@@ -12197,6 +12716,39 @@ async def access_google_rtdn(request: Request) -> Response:
         ) from exc
 
 
+@app.post("/v1/access/apple/notifications")
+def access_apple_notifications(body: AccessAppleNotificationIn) -> Response:
+    """Consume App Store Server Notifications V2 without retaining signed evidence."""
+    try:
+        verified, event_id, event_type = _apple_subscription_verifier().verify_notification(body.signedPayload)
+        service = _license_service()
+        if not service.begin_purchase_event("apple", event_id, event_type):
+            return Response(status_code=204)
+        if verified is None:
+            service.finish_purchase_event(
+                "apple", event_id, status="processed", detail_code="test_notification",
+            )
+            return Response(status_code=204)
+        try:
+            license_id = _apply_authoritative_purchase_state(service, verified)
+            service.finish_purchase_event(
+                "apple", event_id, status="processed", license_id=license_id,
+            )
+        except LicenseNotFound:
+            service.finish_purchase_event(
+                "apple", event_id, status="reconciliation_required",
+                detail_code="unlinked_subscription",
+            )
+        except Exception as exc:
+            service.finish_purchase_event(
+                "apple", event_id, status="failed", detail_code=exc.__class__.__name__,
+            )
+            raise
+        return Response(status_code=204)
+    except Exception as exc:
+        raise _access_exception(exc) from exc
+
+
 @app.post("/v1/access/mobile/attestation/verify")
 def access_mobile_attestation_verify(body: AccessMobileVerifyIn, request: Request) -> Response:
     if not _mobile_ownership_enabled():
@@ -12214,6 +12766,8 @@ def access_mobile_attestation_verify(body: AccessMobileVerifyIn, request: Reques
         )
     proof = {
         "signed_app_transaction": body.signed_app_transaction,
+        "signed_transaction": body.signed_transaction,
+        "purchase_token": body.signed_transaction,
         "device_verification_id": body.device_verification_id,
         "nonce": body.nonce,
         "environment": body.environment,
@@ -12260,13 +12814,20 @@ def access_mobile_attestation_verify(body: AccessMobileVerifyIn, request: Reques
             payload.update({"verified": True, "intent": intent, "mode": intent, "grant_transfer": True})
             return JSONResponse(payload, status_code=409 if activation.move_token else 200)
 
-        if platform == "ios":
+        if platform == "ios" and body.signed_transaction:
+            verified = _apple_subscription_verifier().verify(proof)
+            verified = _purchase_catalog().validate_identity(verified)
+        elif platform == "ios":
             verified = _apple_paid_app_verifier().verify(proof)
+            verified = _legacy_purchase_catalog().validate_identity(verified)
+        elif platform == "android" and body.google_play_product_id == _purchase_catalog().google_product_id:
+            verified = _google_play_subscription_verifier().verify(proof)
+            verified = _purchase_catalog().validate_identity(verified)
         elif platform == "android":
             verified = _google_play_product_verifier().verify(proof)
+            verified = _legacy_purchase_catalog().validate_identity(verified)
         else:
             raise InvalidChallenge("Platform must be ios or android")
-        verified = _purchase_catalog().validate_identity(verified)
         service.consume_attestation_challenge(
             platform=platform,
             install_id=install_id,
@@ -12280,19 +12841,22 @@ def access_mobile_attestation_verify(body: AccessMobileVerifyIn, request: Reques
                 evidence_hash=verified.evidence_hash,
                 install_id=install_id,
             )
-        if verified.state in {"suspended", "revoked"}:
+        if verified.effective_state not in {"active", "grace", "cancelled_active"}:
             try:
-                service.update_purchase_state(
-                    verified.provider,
-                    verified.external_id,
-                    verified.state,
-                    reason=(
-                        "store_entitlement_revoked"
-                        if verified.state == "revoked"
-                        else "store_purchase_pending"
-                    ),
-                    evidence_hash=verified.evidence_hash,
-                )
+                if verified.entitlement_kind == "subscription":
+                    service.reconcile_subscription(verified)
+                else:
+                    service.update_purchase_state(
+                        verified.provider,
+                        verified.external_id,
+                        verified.state,
+                        reason=(
+                            "store_entitlement_revoked"
+                            if verified.state == "revoked"
+                            else "store_purchase_pending"
+                        ),
+                        evidence_hash=verified.evidence_hash,
+                    )
             except LicenseNotFound:
                 pass
             raise LicenseInactive(
@@ -12305,7 +12869,11 @@ def access_mobile_attestation_verify(body: AccessMobileVerifyIn, request: Reques
                     else "store_purchase_pending"
                 ),
             )
-        included_license, _license_key, _created = _purchase_fulfillment(service).fulfill(verified)
+        fulfillment = PurchaseFulfillmentService(
+            service,
+            _purchase_catalog() if verified.entitlement_kind == "subscription" else _legacy_purchase_catalog(),
+        )
+        included_license, _license_key, _created = fulfillment.fulfill(verified)
         if (
             verified.provider == "google_play_product"
             and verified.acknowledgement_state == "pending"
@@ -12313,6 +12881,14 @@ def access_mobile_attestation_verify(body: AccessMobileVerifyIn, request: Reques
             service.queue_provider_operation(
                 license_id=included_license.license_id,
                 operation="acknowledge",
+            )
+        if (
+            verified.provider == "google_play_subscription"
+            and verified.acknowledgement_state == "pending"
+        ):
+            service.queue_provider_operation(
+                license_id=included_license.license_id,
+                operation="acknowledge_subscription",
             )
         included_summary = service.license_receiver_summary(
             included_license.license_id,
@@ -12756,7 +13332,17 @@ def _build_client_status(
             },
         )
     licensed_row: Optional[Dict[str, Any]] = None
+    founder_bridge: Dict[str, Any] = {}
     activation_row = None if token.startswith("lfr_") else _load_activation(token)
+    if _access_mode() == "migration" and not token.startswith("lfr_") and activation_row is None:
+        raise HTTPException(
+            status_code=401 if not token else 403,
+            detail={
+                "code": "relay_license_required",
+                "message": "Relay Access, a founder credential, BYOK, or VATSIM is required.",
+                "retryable": False,
+            },
+        )
     if token.startswith("lfr_"):
         try:
             licensed_row = _license_service().resolve_credential(token, install_id=install_id)
@@ -12773,6 +13359,14 @@ def _build_client_status(
         bound_install_id = (activation_row["bound_install_id"] or "").strip()
         if bound_install_id and bound_install_id != install_id:
             raise HTTPException(status_code=403, detail="Activation token already bound to another install")
+        if _access_mode() == "migration":
+            try:
+                founder_bridge = _license_service().founder_bridge_status(
+                    install_id=install_id,
+                    legacy_token_hash=str(activation_row["token_hash"]),
+                )
+            except Exception as exc:
+                raise _access_exception(exc) from exc
         _bind_activation_install(str(activation_row["token_hash"]), install_id)
         plan = "community" if str(activation_row["access_plan"] or "managed").strip().lower() == "community" else "managed"
         schedule_limit = int(activation_row["schedule_limit"] or _managed_schedule_limit())
@@ -12816,6 +13410,14 @@ def _build_client_status(
         "token_prefix": token_prefix,
         "label": label,
         "purchase_environment": str((licensed_row or {}).get("purchase_environment") or "") if licensed_row else "",
+        "founder": bool(founder_bridge or (licensed_row or {}).get("purchase_source") == "founder_legacy"),
+        "founder_claim_available": bool(founder_bridge),
+        "founder_bridge_expires_at": str(founder_bridge.get("bridge_expires_at") or ""),
+        "entitlement_kind": str((licensed_row or {}).get("entitlement_kind") or ("permanent" if founder_bridge else "")),
+        "effective_state": str((licensed_row or {}).get("effective_state") or ("active" if founder_bridge else "")),
+        "current_period_end": str((licensed_row or {}).get("current_period_end") or ""),
+        "grace_expires_at": str((licensed_row or {}).get("grace_expires_at") or ""),
+        "auto_renews": bool((licensed_row or {}).get("auto_renews")),
         "app_version": (app_version or "").strip(),
         "providers": {
             "aerodatabox": bool(aerodatabox_key),
@@ -13285,7 +13887,7 @@ def _mobile_cache_store(*, install_id: str, service: str, cache_key: str, payloa
 
 @app.post("/v1/activate")
 def relay_activate(body: ActivationRequestIn, request: Request) -> Dict[str, Any]:
-    if _access_mode() == "licensed":
+    if _access_mode() in {"migration", "licensed"}:
         raise HTTPException(
             status_code=403,
             detail={
@@ -13608,7 +14210,7 @@ def _require_remote_companion_install(install_id: str, activation_token: str, in
     if not token:
         raise HTTPException(status_code=403, detail="Remote Companion requires a relay activation token")
     status = _build_client_status(install_id=install_id, activation_token=token)
-    required_plan = "licensed" if _access_mode() == "licensed" else "managed"
+    required_plan = "licensed" if _access_mode() in {"migration", "licensed"} else "managed"
     if status.get("plan") != required_plan:
         raise HTTPException(status_code=403, detail="Remote Companion requires active Relay Access on its desktop host")
     if required_plan == "licensed" and not _provider_access_policy().allows("remote_companion", "relay"):
@@ -13725,9 +14327,9 @@ def remote_companion_grants(body: RemoteCompanionGrantIn, request: Request) -> D
     install_id = _validate_install_id(body.install_id)
     credential = _request_access_token(
         request,
-        body.activation_token if _access_mode() == "legacy" else "",
+        body.activation_token if _access_mode() in {"legacy", "migration"} else "",
     )
-    if _access_mode() == "licensed" and not credential:
+    if _access_mode() in {"migration", "licensed"} and not credential:
         raise HTTPException(
             status_code=401,
             detail="Remote Companion receiver credential must be sent in Authorization",
@@ -13816,7 +14418,7 @@ def remote_companion_host_ticket(
         )
         install_ref = _require_remote_companion_install(install_id, credential)
         service = _license_service()
-        if _access_mode() == "licensed":
+        if _access_mode() in {"migration", "licensed"} and credential.startswith("lfr_"):
             if not credential.startswith("lfr_"):
                 raise LicenseNotFound("Relay Access credential was not found")
             receiver = service.resolve_credential(credential, install_id=install_id)
@@ -13857,7 +14459,7 @@ def _consume_remote_companion_host_ticket(*, install_id: str, ticket: str, with_
     if str(result.get("install_ref") or "") != expected_ref:
         raise InvalidChallenge("Remote Companion ticket installation reference does not match")
     if bool(result.get("legacy")):
-        if _access_mode() != "legacy":
+        if _access_mode() == "licensed":
             raise LicenseInactive("Legacy Remote Companion tickets are not accepted in licensed mode")
         conn = _connect()
         try:
@@ -13878,7 +14480,7 @@ def _consume_remote_companion_host_ticket(*, install_id: str, ticket: str, with_
         ):
             raise LicenseInactive("Managed Relay credential is no longer active")
         return result if with_authority else expected_ref
-    if _access_mode() != "licensed":
+    if _access_mode() not in {"migration", "licensed"}:
         raise LicenseInactive("Licensed Remote Companion ticket is not accepted in legacy mode")
     if not _provider_access_policy().allows("remote_companion", "relay"):
         raise AccessConfigurationError("Remote Companion commercial access is not enabled")
@@ -16321,6 +16923,36 @@ def admin_api_access_search(
         source=body.source,
         state=body.state,
     )
+
+
+@app.post("/admin/api/access/founders/snapshot")
+def admin_api_access_founder_snapshot(
+    body: AccessFounderSnapshotIn,
+    request: Request,
+    _username: str = Depends(_require_admin),
+) -> Dict[str, Any]:
+    cutoff_at = _env("RELAY_ACCESS_FOUNDER_CUTOFF_AT")
+    if not cutoff_at:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "founder_cutoff_missing", "message": "The immutable founder cutoff is not configured."},
+        )
+    if body.execute and not body.confirmed:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "confirmation_required", "message": "Founder snapshot execution requires explicit confirmation."},
+        )
+    try:
+        _check_access_rate_limit(
+            request,
+            action="founder_snapshot",
+            limit=4,
+            window_seconds=600,
+        )
+        result = _license_service().founder_snapshot(cutoff_at=cutoff_at, execute=body.execute)
+        return {"ok": True, **result}
+    except Exception as exc:
+        raise _access_exception(exc) from exc
 
 
 @app.get("/admin/api/access/{license_id}")

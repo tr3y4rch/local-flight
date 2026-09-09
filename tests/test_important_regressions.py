@@ -6614,8 +6614,9 @@ def test_mobile_setup_copy_matches_companion_and_standalone_product() -> None:
     assert "Local Flight Mobile will save this pairing locally" not in product_copy
     assert "Connect to a Local Flight host" in product_copy
     assert "Connect to your Local Flight host" in product_copy
-    assert "does not use the Relay Access included with the app" in product_copy
-    assert "Companion uses your desktop host" in product_copy
+    assert "Companion is free and follows the host's data access" in product_copy
+    assert "Companion is free and does not require Relay Access" in product_copy
+    assert "Companion is free and follows your Local Flight host" in product_copy
     assert "same Wi-Fi" in product_copy
 
 
@@ -6851,9 +6852,9 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     )
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "14"
+    assert app["ios"]["buildNumber"] == "15"
     assert app["android"]["package"] == "cc.beacontools.localflight"
-    assert app["android"]["versionCode"] == 17
+    assert app["android"]["versionCode"] == 18
     assert "./plugins/with-localflight-ios-widget" in app["plugins"]
     assert "./plugins/with-localflight-android-widget" in app["plugins"]
     assert app["ios"]["entitlements"]["com.apple.security.application-groups"] == [

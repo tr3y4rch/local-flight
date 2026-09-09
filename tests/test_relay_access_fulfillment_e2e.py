@@ -23,7 +23,7 @@ from relay.access.adapters import (
 )
 
 
-PRODUCT_CODE = "beacon_relay_lifetime_v1"
+PRODUCT_CODE = "beacon_relay_annual_v1"
 STORE_PRODUCT = "cc.beacontools.localflight.paid-app"
 GOOGLE_RELAY_PRODUCT = "cc.beacontools.localflight.relay_access"
 STRIPE_PRICE = "price_relay_e2e"
@@ -68,8 +68,10 @@ class LocalStripeAdapter(StripeAdapter):
             api_key="sk_test_local_only",
             webhook_secret=STRIPE_WEBHOOK_SECRET,
             price_id=STRIPE_PRICE,
+            subscription_mode=True,
         )
         self.session_ids: dict[str, str] = {}
+        self.subscription_ids: dict[str, str] = {}
         self.parse_error = ""
 
     def create_checkout(
@@ -82,12 +84,27 @@ class LocalStripeAdapter(StripeAdapter):
         assert success_url.startswith("https://staging.beacontools.cc/")
         assert cancel_url.startswith("https://staging.beacontools.cc/")
         session_id = f"cs_test_{checkout_ref}"
+        subscription_id = f"sub_test_{checkout_ref}"
         self.session_ids[checkout_ref] = session_id
+        self.subscription_ids[checkout_ref] = subscription_id
         return StripeCheckout(
             checkout_ref=checkout_ref,
             session_id=session_id,
             url=f"https://checkout.stripe.test/{checkout_ref}",
         )
+
+    def retrieve_subscription(self, subscription_id: str) -> dict[str, Any]:
+        now = int(time.time())
+        return {
+            "id": subscription_id,
+            "status": "active",
+            "livemode": False,
+            "customer": f"cus_{subscription_id}",
+            "current_period_start": now,
+            "current_period_end": now + 365 * 24 * 60 * 60,
+            "cancel_at_period_end": False,
+            "items": {"data": [{"price": {"id": STRIPE_PRICE}}]},
+        }
 
     def parse_webhook(self, payload: bytes, signature: str) -> dict[str, Any]:
         try:
@@ -121,10 +138,11 @@ def access_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AccessHar
         "RELAY_ACCESS_ENCRYPTION_SECRET_ID": "test-encryption-v1",
         "RELAY_ACCESS_SITE_URL": "https://staging.beacontools.cc",
         "RELAY_ACCESS_SALES_ENABLED": "1",
+        "RELAY_ACCESS_STRIPE_SALES_ENABLED": "1",
         "RELAY_ACCESS_SCHEDULE_ENABLED": "1",
         "RELAY_ACCESS_AERODATABOX_ENABLED": "1",
         "RELAY_ACCESS_AVIATIONSTACK_ENABLED": "1",
-        "RELAY_ACCESS_RADAR_ENABLED": "1",
+        "RELAY_ACCESS_RADAR_ENABLED": "0",
         "RELAY_ACCESS_ADSBEXCHANGE_ENABLED": "1",
         "RELAY_ACCESS_REMOTE_COMPANION_ENABLED": "1",
         "RELAY_ACCESS_MOBILE_OWNERSHIP_ENABLED": "1",
@@ -133,6 +151,8 @@ def access_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AccessHar
         "STRIPE_SECRET_KEY": "sk_test_local_only",
         "STRIPE_WEBHOOK_SECRET": STRIPE_WEBHOOK_SECRET,
         "STRIPE_RELAY_ACCESS_PRICE_ID": STRIPE_PRICE,
+        "APPLE_RELAY_ACCESS_SUBSCRIPTION_ID": "cc.beacontools.localflight.relay_access_annual",
+        "GOOGLE_RELAY_ACCESS_SUBSCRIPTION_ID": "cc.beacontools.localflight.relay_access_annual",
         "GOOGLE_RELAY_ACCESS_PRODUCT_ID": GOOGLE_RELAY_PRODUCT,
     }
     for key, value in settings.items():
@@ -202,7 +222,7 @@ def _stripe_checkout_event(
                 "object": "checkout.session",
                 "livemode": False,
                 "payment_status": "paid",
-                "payment_intent": payment_id,
+                "subscription": f"sub_test_{checkout_ref}",
                 "metadata": {"checkout_ref": checkout_ref},
                 "customer_details": {"email": email},
             }
@@ -332,7 +352,11 @@ def _verify_mobile_purchase(
     assert body["verified"] is True
     assert body["activated"] is False
     assert body.get("seat_state", body.get("included_seat_state")) == "available"
-    assert body["license"]["product_code"] == PRODUCT_CODE
+    expected_product = (
+        PRODUCT_CODE if provider in {"stripe", "apple_subscription", "google_play_subscription"}
+        else "beacon_relay_lifetime_v1"
+    )
+    assert body["license"]["product_code"] == expected_product
     assert body["license"]["purchase_source"] == provider
     assert body["delivery_claim"].startswith("lfrclaim_")
     assert "license_key" not in body
@@ -515,7 +539,10 @@ def test_stripe_ios_entitlement_and_google_product_create_portable_distinct_lice
             "FROM relay_licenses ORDER BY created_at"
         ).fetchall()
         assert len(rows) == 4
-        assert {row[1] for row in rows} == {PRODUCT_CODE}
+        assert {row[1] for row in rows} == {
+            PRODUCT_CODE,
+            "beacon_relay_lifetime_v1",
+        }
         assert {row[2] for row in rows} == {"stripe", "apple_app", "google_play_product"}
         assert len({row[0] for row in rows}) == 4
         assert {row[3] for row in rows} == {1}
@@ -535,6 +562,8 @@ def test_stripe_ios_entitlement_and_google_product_create_portable_distinct_lice
         "evt_second_distinct_purchase",
         harness.stripe.session_ids[first["checkout_ref"]],
         harness.stripe.session_ids[second["checkout_ref"]],
+        harness.stripe.subscription_ids[first["checkout_ref"]],
+        harness.stripe.subscription_ids[second["checkout_ref"]],
         first["result_secret"],
         second["result_secret"],
         apple_external,

@@ -31,7 +31,7 @@ import {
   protectRelayAccessByEmail,
   type MobileRelayAccessSnapshot
 } from "../access/paidAppAccess";
-import { pendingActivationExpired, platformUsesIncludedPaidAppAccess, routeMayUseRelayRuntime } from "../access/mobileRelayState";
+import { pendingActivationExpired, routeMayUseRelayRuntime } from "../access/mobileRelayState";
 import { accessibleButton, tapTargetHitSlop, useReducedMotionPreference } from "../accessibility/mobileA11y";
 import { AirportConfigSheet, CompanionSetupScreen, FlightActionSheet, FlightDetailSheet, StandaloneAirportSheet, WeatherDetailsSheet, type ActivityStatus, type CompanionSetupResult, type ConnectionState, type StandaloneSetupResult } from "../screens/AppScreens";
 import { ACTION_ICONS, LocalFlightIcon } from "../theme/icons";
@@ -1739,20 +1739,7 @@ export function AppShell() {
     } else if (remoteGrant) {
       configureRemoteCompanionGrant(remoteGrant);
     }
-    const includedInstallId = await loadMobileRelayInstallId();
     let companionAccess: MobileRelayAccessSnapshot = relayAccess;
-    if (platformUsesIncludedPaidAppAccess(Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "other")) {
-      try {
-        companionAccess = await inspectPaidMobileOwnership({
-          installId: includedInstallId,
-          intent: "companion"
-        });
-      } catch (verificationError) {
-        // Companion is powered by its paired host. A cancelled or unavailable
-        // StoreKit check must never undo successful LAN/Remote pairing.
-        companionAccess = mobileRelayAccessFailureSnapshot(verificationError, relayAccess);
-      }
-    }
     const release = relayDeviceCredential.startsWith("lfr_")
       ? await releaseRelayCredential(companionAccess)
       : { pending: false, terminal: false, access: companionAccess };
@@ -1793,7 +1780,7 @@ export function AppShell() {
         ? "This phone is paired with your Local Flight host. Relay Access will be freed from Standalone when Beacon Relay is reachable."
         : Platform.OS === "android"
           ? "This phone is paired with your Local Flight host. Companion follows that host and does not require Relay Access."
-          : "This phone is paired with your Local Flight host. Companion follows that host and does not use the included Relay Access.",
+          : "This phone is paired with your Local Flight host. Companion follows that host and does not occupy another main-device place.",
       meta: normalized
     });
     hapticSuccess();
@@ -1855,7 +1842,7 @@ export function AppShell() {
     setRelayAccess((current) => ({
       ...current,
       state: "checking",
-      message: Platform.OS === "android" ? "Checking Google Play Relay Access…" : "Checking the App Store purchase…"
+      message: `Checking ${Platform.OS === "android" ? "Google Play" : "App Store"} Relay Access…`
     }));
     try {
       const installId = mobileSetupState.relayInstallId || await loadMobileRelayInstallId();
@@ -1908,13 +1895,10 @@ export function AppShell() {
       }
       const next = await inspectPaidMobileOwnership({
         installId,
-        intent: "inspect",
-        allowPurchase: Platform.OS === "android" && isStandalone && standaloneSource === "real"
+        intent: "inspect"
       });
       await commitRelayAccess(next);
-      return Platform.OS === "android"
-        ? "Google Play Relay Access is verified. Protect it by email before moving it to another device."
-        : "The Relay Access included with this app was verified.";
+      return "Relay Access is verified. Add a recovery email before moving it to another main device.";
     } catch (accessError) {
       const failed = mobileRelayAccessFailureSnapshot(accessError, relayAccessRef.current);
       await commitRelayAccess(failed);

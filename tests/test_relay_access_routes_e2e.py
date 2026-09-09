@@ -5,6 +5,7 @@ import json
 import sqlite3
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,8 @@ GOOGLE_RELAY_PRODUCT = "cc.beacontools.localflight.relay_access"
 class DeterministicStripeAdapter:
     price_id: str = "price_route_e2e"
     sessions: dict[str, str] = field(default_factory=dict)
+    subscriptions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    portal_customers: list[str] = field(default_factory=list)
 
     def configured(self) -> bool:
         return True
@@ -35,7 +38,19 @@ class DeterministicStripeAdapter:
         assert success_url.startswith("https://beacontools.cc/")
         assert cancel_url.startswith("https://beacontools.cc/")
         session_id = f"cs_test_{len(self.sessions) + 1}"
+        subscription_id = f"sub_test_{len(self.sessions) + 1}"
         self.sessions[checkout_ref] = session_id
+        now = int(time.time())
+        self.subscriptions[subscription_id] = {
+            "id": subscription_id,
+            "status": "active",
+            "livemode": True,
+            "customer": f"cus_test_{len(self.sessions)}",
+            "current_period_start": now,
+            "current_period_end": now + 365 * 24 * 60 * 60,
+            "cancel_at_period_end": False,
+            "items": {"data": [{"price": {"id": self.price_id}}]},
+        }
         return StripeCheckout(
             checkout_ref=checkout_ref,
             session_id=session_id,
@@ -46,6 +61,24 @@ class DeterministicStripeAdapter:
         if signature != "route-e2e-signature":
             raise ValueError("invalid signature")
         return json.loads(payload)
+
+    def subscription_for(self, checkout_ref: str) -> str:
+        index = self.sessions[checkout_ref].rsplit("_", 1)[-1]
+        return f"sub_test_{index}"
+
+    def retrieve_subscription(self, subscription_id: str) -> dict[str, Any]:
+        return dict(self.subscriptions[subscription_id])
+
+    def retrieve_invoice(self, invoice_id: str) -> dict[str, Any]:
+        return {"id": invoice_id, "subscription": invoice_id.removeprefix("in_")}
+
+    def retrieve_charge(self, charge_id: str) -> dict[str, Any]:
+        return {"id": charge_id, "invoice": f"in_{charge_id.removeprefix('ch_')}"}
+
+    def create_billing_portal(self, *, customer_reference: str, return_url: str) -> str:
+        assert return_url.startswith("https://beacontools.cc/")
+        self.portal_customers.append(customer_reference)
+        return "https://billing.stripe.test/session"
 
 
 @pytest.fixture()
@@ -66,8 +99,9 @@ def access_stack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("RELAY_ACCESS_BACKUP_DIRECTORY", str(tmp_path / "access-backups"))
     monkeypatch.setenv("RELAY_ACCESS_SITE_URL", "https://beacontools.cc")
     monkeypatch.setenv("RELAY_ACCESS_SALES_ENABLED", "1")
+    monkeypatch.setenv("RELAY_ACCESS_STRIPE_SALES_ENABLED", "1")
     monkeypatch.setenv("RELAY_ACCESS_SCHEDULE_ENABLED", "1")
-    monkeypatch.setenv("RELAY_ACCESS_RADAR_ENABLED", "1")
+    monkeypatch.setenv("RELAY_ACCESS_RADAR_ENABLED", "0")
     monkeypatch.setenv("RELAY_ACCESS_REMOTE_COMPANION_ENABLED", "1")
     monkeypatch.setenv("RELAY_ACCESS_AERODATABOX_ENABLED", "1")
     monkeypatch.setenv("RELAY_ACCESS_AVIATIONSTACK_ENABLED", "1")
@@ -114,6 +148,30 @@ def _post_stripe_webhook(client: TestClient, event: dict[str, Any]):
     )
 
 
+def test_signed_apple_test_notification_is_accepted_without_a_transaction(
+    access_stack,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, service, _stripe, _mailer = access_stack
+
+    class TestNotificationVerifier:
+        @staticmethod
+        def verify_notification(_signed_payload: str):
+            return None, "apple-test-notification", "test"
+
+    monkeypatch.setattr(relay_main, "_apple_subscription_verifier", TestNotificationVerifier)
+    response = client.post(
+        "/v1/access/apple/notifications",
+        headers=PUBLIC_HOST,
+        json={"signedPayload": "signed-test-notification"},
+    )
+
+    assert response.status_code == 204
+    event = service.admin_purchase_events(limit=1)[0]
+    assert event["status"] == "processed"
+    assert event["detail_code"] == "test_notification"
+
+
 def _purchase(
     external_id: str,
     *,
@@ -149,11 +207,14 @@ def test_access_route_manifest_host_split_cors_and_private_headers(access_stack)
     assert registered == {
         ("GET", "/v1/access/catalog"),
         ("POST", "/v1/access/stripe/checkout"),
+        ("POST", "/v1/access/stripe/billing-portal"),
         ("POST", "/v1/access/stripe/result"),
         ("POST", "/v1/access/stripe/webhook"),
+        ("POST", "/v1/access/apple/notifications"),
         ("POST", "/v1/access/activate"),
         ("POST", "/v1/access/activate/commit"),
         ("POST", "/v1/access/deactivate"),
+        ("POST", "/v1/access/founder/claim"),
         ("POST", "/v1/access/google/rtdn"),
         ("POST", "/v1/access/mobile/attestation/challenge"),
         ("POST", "/v1/access/mobile/attestation/verify"),
@@ -169,7 +230,8 @@ def test_access_route_manifest_host_split_cors_and_private_headers(access_stack)
 
     catalog = client.get("/v1/access/catalog", headers=PUBLIC_HOST)
     assert catalog.status_code == 200
-    assert catalog.json()["product"]["product_code"] == "beacon_relay_lifetime_v1"
+    assert catalog.json()["catalog_contract_version"] == 2
+    assert catalog.json()["product"]["product_code"] == "beacon_relay_annual_v1"
     assert catalog.json()["product"]["desktop_routes"] == ["relay", "byok", "vatsim"]
     _assert_private_response(catalog)
 
@@ -226,7 +288,15 @@ def test_health_identifies_release_and_safe_access_readiness(
     assert payload["access"]["keyrings_ready"] is True
     assert payload["access"]["license_core_ready"] is True
     assert payload["access"]["smtp_ready"] is True
-    assert set(payload["access"]["providers"]) == {"stripe", "apple_app", "google_play"}
+    assert set(payload["access"]["providers"]) == {
+        "stripe",
+        "apple_subscription",
+        "google_play",
+    }
+    assert set(payload["access"]["legacy_restore"]) == {
+        "apple_paid_app",
+        "google_play_product",
+    }
     assert "errors" not in payload["access"]
 
 
@@ -335,7 +405,7 @@ def test_stripe_checkout_webhook_result_recovery_and_email_are_one_flow(access_s
         "data": {
             "object": {
                 "id": stripe.sessions[checkout_body["checkout_ref"]],
-                "payment_intent": "pi_route_e2e_checkout",
+                "subscription": stripe.subscription_for(checkout_body["checkout_ref"]),
                 "payment_status": "paid",
                 "livemode": True,
                 "metadata": {"checkout_ref": checkout_body["checkout_ref"]},
@@ -424,7 +494,7 @@ def test_stripe_delayed_payment_only_fulfills_after_authoritative_success(access
     session_id = stripe.sessions[checkout["checkout_ref"]]
     session = {
         "id": session_id,
-        "payment_intent": "pi_route_e2e_delayed",
+        "subscription": stripe.subscription_for(checkout["checkout_ref"]),
         "payment_status": "unpaid",
         "livemode": True,
         "metadata": {"checkout_ref": checkout["checkout_ref"]},
@@ -457,6 +527,71 @@ def test_stripe_delayed_payment_only_fulfills_after_authoritative_success(access
     result = service.checkout_result(checkout["checkout_ref"], checkout["result_secret"])
     assert result["state"] == "active"
     assert result["license_key"].startswith("LFRA-")
+
+
+def test_past_due_stripe_receiver_can_open_billing_portal_without_hosted_access(
+    access_stack,
+) -> None:
+    client, service, stripe, _mailer = access_stack
+    verified = _purchase("sub_route_e2e_portal", provider="stripe_subscription")
+    now = datetime.now(timezone.utc)
+    verified = VerifiedPurchase(
+        **{
+            **verified.__dict__,
+            "product_id": "price_route_e2e",
+            "entitlement_kind": "subscription",
+            "effective_state": "active",
+            "current_period_start": (now - timedelta(days=1)).isoformat(),
+            "current_period_end": (now + timedelta(days=365)).isoformat(),
+            "auto_renews": True,
+            "customer_reference": "cus_route_e2e_portal",
+            "license_product_code": "beacon_relay_annual_v1",
+        }
+    )
+    _license, key, _created = service.fulfill_purchase(verified)
+    install_id = "71717171-7171-4171-8171-717171717171"
+    prepared = service.activate(
+        install_id=install_id,
+        device_kind="desktop",
+        device_name="Billing recovery desktop",
+        license_key=key,
+    )
+    assert prepared.credential is not None
+    committed = service.commit_activation(
+        prepared.credential.credential,
+        install_id=install_id,
+    )
+    credential = committed.credential.credential
+    service.reconcile_subscription(
+        VerifiedPurchase(
+            **{
+                **verified.__dict__,
+                "effective_state": "past_due",
+                "state": "past_due",
+                "provider_state": "invoice_payment_failed",
+                "verified_at_ms": verified.verified_at_ms + 1,
+            }
+        )
+    )
+
+    denied = client.get(
+        "/v1/access/status",
+        headers={**PUBLIC_HOST, "authorization": f"Bearer {credential}"},
+        params={"install_id": install_id},
+    )
+    assert denied.status_code == 403
+
+    portal = client.post(
+        "/v1/access/stripe/billing-portal",
+        headers={**PUBLIC_HOST, "authorization": f"Bearer {credential}"},
+        json={"install_id": install_id},
+    )
+    assert portal.status_code == 200
+    assert portal.json() == {
+        "ok": True,
+        "portal_url": "https://billing.stripe.test/session",
+    }
+    assert stripe.portal_customers == ["cus_route_e2e_portal"]
 
 
 @pytest.mark.parametrize(
@@ -502,13 +637,14 @@ def test_stripe_refund_and_dispute_webhooks_update_access_state(access_stack) ->
 
     def fulfilled_checkout(reference: str, payment_intent: str, email: str) -> dict[str, Any]:
         checkout = client.post("/v1/access/stripe/checkout", headers=PUBLIC_HOST, json={}).json()
+        subscription_id = stripe.subscription_for(checkout["checkout_ref"])
         event = {
             "id": reference,
             "type": "checkout.session.completed",
             "data": {
                 "object": {
                     "id": stripe.sessions[checkout["checkout_ref"]],
-                    "payment_intent": payment_intent,
+                    "subscription": subscription_id,
                     "payment_status": "paid",
                     "livemode": True,
                     "metadata": {"checkout_ref": checkout["checkout_ref"]},
@@ -517,7 +653,9 @@ def test_stripe_refund_and_dispute_webhooks_update_access_state(access_stack) ->
             },
         }
         assert _post_stripe_webhook(client, event).status_code == 200
-        return service.checkout_result(checkout["checkout_ref"], checkout["result_secret"])
+        result = service.checkout_result(checkout["checkout_ref"], checkout["result_secret"])
+        result["test_subscription_id"] = subscription_id
+        return result
 
     refunded = fulfilled_checkout(
         "evt_route_e2e_refund_purchase",
@@ -545,7 +683,7 @@ def test_stripe_refund_and_dispute_webhooks_update_access_state(access_stack) ->
             "type": "charge.refunded",
             "data": {
                 "object": {
-                    "payment_intent": "pi_route_e2e_refund",
+                    "invoice": f"in_{refunded['test_subscription_id']}",
                     "refunded": True,
                 }
             },
@@ -570,7 +708,9 @@ def test_stripe_refund_and_dispute_webhooks_update_access_state(access_stack) ->
         {
             "id": "evt_route_e2e_dispute_opened",
             "type": "charge.dispute.created",
-            "data": {"object": {"payment_intent": "pi_route_e2e_dispute"}},
+            "data": {
+                "object": {"charge": f"ch_{disputed['test_subscription_id']}"}
+            },
         },
     )
     assert opened.status_code == 200
@@ -583,7 +723,7 @@ def test_stripe_refund_and_dispute_webhooks_update_access_state(access_stack) ->
             "type": "charge.dispute.closed",
             "data": {
                 "object": {
-                    "payment_intent": "pi_route_e2e_dispute",
+                    "charge": f"ch_{disputed['test_subscription_id']}",
                     "status": "won",
                 }
             },

@@ -66,7 +66,7 @@ def _payloads() -> tuple[dict, dict, str, int]:
             "sales_ready": False,
             "providers": {
                 "stripe": False,
-                "apple_app": False,
+                "apple_subscription": False,
                 "google_play": False,
             },
         },
@@ -74,11 +74,18 @@ def _payloads() -> tuple[dict, dict, str, int]:
     catalog = {
         "ok": True,
         "schema_version": schema,
+        "catalog_contract_version": 2,
+        "capabilities": {"schedule": True, "remote_companion": True, "radar": False},
         "product": {
-            "product_code": "beacon_relay_lifetime_v1",
+            "product_code": "beacon_relay_annual_v1",
+            "billing_period": "P1Y",
+            "pricing": {
+                "kind": "annual_auto_renewing",
+                "localized_price_owner": "checkout_or_store",
+            },
             "purchase_sources": {
                 "stripe": {},
-                "apple_app": {},
+                "apple_subscription": {},
                 "google_play": {},
             },
         },

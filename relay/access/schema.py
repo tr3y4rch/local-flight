@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 
-ACCESS_SCHEMA_VERSION = 8
+ACCESS_SCHEMA_VERSION = 9
 
 
 def _now() -> str:
@@ -456,6 +456,57 @@ def _apply_access_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_mail_attempt_recovery ON mail_attempts(outcome, started_at);
     """)
     _record_migration(conn, 8)
+
+    # Version 9 keeps renewable terms and founder migration authority separate
+    # from permanent purchase records. Existing lifetime and operator licenses
+    # therefore remain byte-for-byte valid while new annual entitlements can
+    # expire, enter provider grace, or stop renewing without replacing keys.
+    _execute_script(conn, """
+        CREATE TABLE IF NOT EXISTS subscription_terms (
+            license_id          TEXT PRIMARY KEY REFERENCES relay_licenses(license_id),
+            purchase_id         TEXT UNIQUE REFERENCES purchase_records(purchase_id),
+            provider            TEXT NOT NULL,
+            entitlement_kind    TEXT NOT NULL,
+            effective_state     TEXT NOT NULL,
+            provider_state      TEXT NOT NULL,
+            current_period_start TEXT,
+            current_period_end  TEXT,
+            grace_expires_at    TEXT,
+            auto_renews         INTEGER NOT NULL DEFAULT 0,
+            provider_verified_at_ms INTEGER NOT NULL DEFAULT 0,
+            customer_ref_ciphertext TEXT,
+            customer_ref_key_id TEXT,
+            last_verified_at    TEXT NOT NULL,
+            updated_at          TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_subscription_terms_due
+            ON subscription_terms (effective_state, current_period_end, grace_expires_at);
+
+        CREATE TABLE IF NOT EXISTS founder_entitlements (
+            founder_id          TEXT PRIMARY KEY,
+            license_id          TEXT NOT NULL UNIQUE REFERENCES relay_licenses(license_id),
+            install_ref_hash    TEXT NOT NULL UNIQUE,
+            legacy_token_hash   TEXT,
+            hash_secret_id      TEXT NOT NULL,
+            status              TEXT NOT NULL,
+            cutoff_at           TEXT NOT NULL,
+            eligibility_start_at TEXT NOT NULL,
+            bridge_expires_at   TEXT NOT NULL,
+            claimed_at          TEXT,
+            created_at          TEXT NOT NULL,
+            updated_at          TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_founder_entitlements_bridge
+            ON founder_entitlements (status, bridge_expires_at);
+
+        CREATE TABLE IF NOT EXISTS access_migration_state (
+            migration_key      TEXT PRIMARY KEY,
+            value_text         TEXT NOT NULL,
+            created_at         TEXT NOT NULL,
+            updated_at         TEXT NOT NULL
+        );
+    """)
+    _record_migration(conn, 9)
 
 
 def ensure_access_schema(conn: sqlite3.Connection) -> None:

@@ -67,7 +67,7 @@ Use it when you want the full Local Flight app on the machine that runs the serv
 
 The browser UI is a supported access and display surface. It is not being removed.
 
-In `0.6.1`, the browser UI follows the same visual and information hierarchy as
+In `0.7.0`, the browser UI follows the same visual and information hierarchy as
 the native Qt shell: airport-local and UTC clocks, Display/FIDS/Radar/Matrix
 navigation, readable cards and status labels, appearance choices, and grouped
 Settings. It also provides the same fingerprint-bound Companion QR/manual
@@ -180,7 +180,7 @@ This is useful when the browser UI fits your display setup better or native Qt k
 
 ## Mobile App
 
-The mobile app runs on iPhone, iPad, and Android and has two modes. Testing source for iOS build `14` and Android versionCode 17 uses the same `0.6.1` data and privacy contract as desktop, Linux server, and Pi hosts.
+The mobile app runs on iPhone, iPad, and Android and has two modes. Testing source for iOS build `15` and Android versionCode 18 uses the same `0.7.0` data and privacy contract as desktop, Linux server, and Pi hosts.
 
 ### Companion
 
@@ -204,12 +204,12 @@ Remote Companion still requires the host to be online. It is not Standalone mode
 
 ### Standalone
 
-Standalone talks directly to the hosted Beacon Tools relay and does not need your own Local Flight host online. It can use licensed real-flight data or free VATSIM virtual traffic. Its careful refresh limits keep the shared service reliable and fairly available.
+Standalone talks directly to the hosted Beacon Tools relay and does not need your own Local Flight host online. It can use licensed real-flight schedules or free VATSIM virtual traffic. Shared real-aircraft radar is not included in Relay Access. Its careful refresh limits keep the shared service reliable and fairly available.
 
 Use Standalone for:
 
 - Board/FIDS
-- Radar
+- Radar in VATSIM mode
 - Local on-device History
 - Lightweight Settings
 - Manual reports and diagnostics consent
@@ -218,8 +218,8 @@ Use Standalone for:
 Standalone limits:
 
 - Airline schedule target: about 1 hour
-- Open Radar traffic target: about 3 minutes
-- Radar ranges: `1`, `3`, `5`, and `10` NM
+- Shared real-aircraft Radar is hidden; VATSIM Radar remains available
+- VATSIM Radar ranges: `1`, `3`, `5`, and `10` NM
 - No Matrix, Admin, scheduler restart, server URL controls, LAN check-in, or WebSocket connection
 
 ---
@@ -255,7 +255,7 @@ You can use any display mode with:
 
 Changing display mode does not change your data source by itself.
 
-Mobile Standalone is the one special case: it does not expose BYOK because there is no paired local server. Real airline data uses the hosted Relay policy and requires one portable Relay license on the phone. VATSIM uses sanitized virtual-data endpoints and needs no Relay Access credential. Both keep movement history on the device.
+Mobile Standalone is the one special case: it does not expose BYOK because there is no paired local server. Real airline schedules use the hosted Relay policy and require annual Relay Access or preserved founder access on the phone. Shared real-aircraft radar is not included. VATSIM uses sanitized virtual-data endpoints and needs no Relay Access credential. Both keep movement history on the device.
 
 The hosted relay's current real-data path is cache-first and can use AeroDataBox primary schedule data with AviationStack sparse fill/fallback where configured. That provider mix is separate from the display mode you choose.
 

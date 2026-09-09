@@ -57,7 +57,6 @@ export class PaidAppProofError extends Error {
 type PaidAppNativeModule = {
   getFreshAppleAppTransactionProof(): Promise<AppleAppTransactionProof>;
   queryGooglePlayRelayAccessPurchase(): Promise<GooglePlayRelayAccessPurchase>;
-  purchaseGooglePlayRelayAccess(): Promise<GooglePlayRelayAccessPurchase>;
   requestGooglePlayIntegrityToken(
     nonce: string,
     installId: string,
@@ -98,13 +97,6 @@ export async function queryGooglePlayRelayAccessPurchase(): Promise<GooglePlayRe
     throw unsupportedPlatform("Google Play purchasing is available only on Android.");
   }
   return module().queryGooglePlayRelayAccessPurchase();
-}
-
-export async function purchaseGooglePlayRelayAccess(): Promise<GooglePlayRelayAccessPurchase> {
-  if (Platform.OS !== "android") {
-    throw unsupportedPlatform("Google Play purchasing is available only on Android.");
-  }
-  return module().purchaseGooglePlayRelayAccess();
 }
 
 export async function requestGooglePlayIntegrityToken(

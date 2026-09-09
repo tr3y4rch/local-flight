@@ -179,6 +179,16 @@ assert.equal(
   appConfig.expo.ios.infoPlist.NSLocalNetworkUsageDescription,
   "Local Flight connects to a Local Flight host on the same Wi-Fi."
 );
+assert.equal(
+  appConfig.expo.ios.infoPlist.NSAppTransportSecurity.NSAllowsLocalNetworking,
+  true,
+  "iOS must explicitly permit HTTP connections to local Local Flight hosts."
+);
+assert.notEqual(
+  appConfig.expo.ios.infoPlist.NSAppTransportSecurity.NSAllowsArbitraryLoads,
+  true,
+  "iOS must not disable App Transport Security for non-local internet traffic."
+);
 requireText(iosWidget, 'Text("Pinned flight")', "iOS widget terminology");
 requireText(androidWidgetStrings, '<string name="localflight_widget_pinned_flight">Pinned flight</string>', "Android widget terminology");
 requireText(androidWidget, "R.string.localflight_widget_pinned_flight", "Android widget resource usage");

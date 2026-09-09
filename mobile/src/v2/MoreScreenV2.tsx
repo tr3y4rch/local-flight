@@ -357,6 +357,14 @@ function RelayAccessPanel({
       ? "Active on another main device"
       : relayAccess.state === "available"
         ? "Ready to use"
+        : relayAccess.state === "grace"
+          ? "Active in billing grace"
+          : relayAccess.state === "cancelled_active"
+            ? "Active until period end"
+            : relayAccess.state === "past_due"
+              ? "Payment needs attention"
+              : relayAccess.state === "expired"
+                ? "Subscription ended"
         : relayAccess.state === "suspended"
           ? "Access suspended"
           : relayAccess.state === "refunded"
@@ -372,13 +380,13 @@ function RelayAccessPanel({
                     : "Verification needed";
   const verifyLabel = relayAccess.state === "release_pending"
     ? "Retry freeing Relay Access"
-    : Platform.OS === "android" && !standalone
-      ? "Check purchased access"
-    : Platform.OS === "android" && relayAccess.state === "verification_needed"
-      ? "Get or restore Relay Access"
-    : ["suspended", "refunded", "revoked", "retryable_unavailable"].includes(relayAccess.state)
-      ? Platform.OS === "android" ? "Restore Relay Access" : "Restore included access"
-      : Platform.OS === "android" ? "Verify Relay Access" : "Verify included access";
+    : !standalone
+      ? "Check Relay Access"
+    : relayAccess.state === "verification_needed"
+      ? "Get Relay Access"
+    : ["past_due", "expired", "suspended", "refunded", "revoked", "retryable_unavailable"].includes(relayAccess.state)
+      ? "Restore Relay Access"
+      : "Verify Relay Access";
   const protect = async () => {
     if (sending || checking) return;
     if (!email.trim()) {
@@ -414,9 +422,7 @@ function RelayAccessPanel({
     : "Not verified yet";
   return (
     <View style={styles.panelContent}>
-      <Text style={styles.panelIntro}>{Platform.OS === "android"
-        ? "Companion and VATSIM are free. The one-time Google Play Relay Access product powers one main device: this phone in real-flight Standalone mode or one Local Flight desktop."
-        : "This paid app includes one portable Beacon Relay Access license. It can power one main device: this phone in Standalone mode or one Local Flight desktop. Companion follows its host and uses no additional place."}</Text>
+      <Text style={styles.panelIntro}>Companion and VATSIM are free. Annual Relay Access powers one main device: this phone in real-flight Standalone mode or one Local Flight desktop or Pi. Eligible founders keep permanent access.</Text>
       <View style={styles.informationCard}>
         <Text style={styles.informationTitle}>{statusTitle}</Text>
         <Text style={styles.informationBody}>{relayAccess.message}</Text>
@@ -426,11 +432,13 @@ function RelayAccessPanel({
             {relayAccess.maskedKeyRef ? <Text style={styles.informationBody}>Reference: {relayAccess.maskedKeyRef}</Text> : null}
             <Text style={styles.informationBody}>Protection: {relayAccess.protectionEnabled ? "On" : "Not added"}</Text>
             {relayAccess.currentMainDeviceDescription ? <Text style={styles.informationBody}>Main device: {relayAccess.currentMainDeviceDescription}</Text> : null}
+            {relayAccess.currentPeriodEnd ? <Text style={styles.informationBody}>Current access through {new Date(relayAccess.currentPeriodEnd).toLocaleDateString()}{relayAccess.autoRenews ? " · renews automatically" : ""}</Text> : null}
+            {relayAccess.graceExpiresAt ? <Text style={styles.informationBody}>Billing grace through {new Date(relayAccess.graceExpiresAt).toLocaleDateString()}</Text> : null}
             <Text style={styles.informationBody}>Last verified: {lastChecked}</Text>
           </>
         ) : null}
       </View>
-      <Text style={styles.informationBody}>{paidAppStoreLabel()} may ask you to sign in only after you choose the action below.</Text>
+      <Text style={styles.informationBody}>{paidAppStoreLabel()} may ask you to sign in only after you choose Buy or Restore. Store pricing is shown in your local currency.</Text>
       <Pressable
         style={[styles.secondaryButton, checking && { opacity: 0.6 }]}
         disabled={checking}
@@ -441,7 +449,7 @@ function RelayAccessPanel({
       </Pressable>
       <Text style={styles.informationTitle}>{relayAccess.protectionEnabled
         ? "Recovery and moving access"
-        : Platform.OS === "android" ? "Protect Relay Access" : "Protect your included access"}</Text>
+        : "Protect Relay Access"}</Text>
       {relayProtectionAvailable ? (
         <>
           <Text style={styles.informationBody}>
@@ -485,7 +493,7 @@ function RelayAccessPanel({
         ? "Moving Relay Access stops direct Standalone data here. LAN and Remote Companion continue through their desktop host."
         : Platform.OS === "android"
           ? "Remote Companion requires Relay Access on its desktop host. A Google Play Relay Access purchase on this phone cannot substitute for an unlicensed host."
-          : "Remote Companion requires Relay Access on its desktop host. The access included with this phone cannot substitute for an unlicensed host."}</Text>
+          : "Remote Companion requires Relay Access on its desktop host. An App Store Relay Access subscription on this phone cannot substitute for an unlicensed host."}</Text>
     </View>
   );
 }
@@ -1108,13 +1116,21 @@ export function MoreScreenV2(props: MoreScreenV2Props) {
   const styles = useMemo(() => makeStyles(appearance, props.layoutClass), [appearance, props.layoutClass]);
   const [panel, setPanel] = useState<MorePanel>(null);
   const expanded = props.layoutClass === "expanded" || props.layoutClass === "large";
-  const includedPrefix = Platform.OS === "android" ? "Relay Access" : "Included access";
+  const includedPrefix = "Relay Access";
   const relayDetail = props.relayAccess.state === "active_here"
     ? "Active on this device · recovery and transfers"
     : props.relayAccess.state === "active_elsewhere"
       ? `Active on ${props.relayAccess.currentMainDeviceDescription || "another main device"}`
       : props.relayAccess.state === "available"
         ? `${includedPrefix} ready for a main device`
+        : props.relayAccess.state === "grace"
+          ? "Relay Access active in billing grace"
+          : props.relayAccess.state === "cancelled_active"
+            ? "Relay Access active until period end"
+            : props.relayAccess.state === "past_due"
+              ? "Relay Access payment needs attention"
+              : props.relayAccess.state === "expired"
+                ? "Relay Access subscription ended"
         : props.relayAccess.state === "release_pending"
           ? "Freeing access from this phone is pending"
           : props.relayAccess.state === "suspended"

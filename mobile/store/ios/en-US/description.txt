@@ -6,13 +6,13 @@ Choose “Connect to a Local Flight host” during setup. This becomes Companion
 
 NO HOST? USE STANDALONE.
 
-Choose “Use without a Local Flight host” for a simpler airport board. This becomes Standalone mode. Your paid App Store download includes Beacon Relay Access for real airline data. There is no subscription or extra purchase. Relay Access can be active on one phone using real-flight Standalone or one Local Flight desktop. Verification starts only after you choose the explicit real-flight setup or restore action, and Mobile never asks for or displays an LFRA key. VATSIM virtual traffic does not use Relay Access.
+Choose “Use without a Local Flight host” for a simpler airport board. This becomes Standalone mode. The app is free. VATSIM virtual traffic is free; real airline schedules use the optional annual Relay Access subscription. Relay Access can be active on one phone using real-flight Standalone or one Local Flight desktop/Pi host. Restore checks existing annual or eligible founder access before offering a purchase, and Mobile never asks for or displays an LFRA key during setup.
 
 BUILT FOR DAILY GLANCES
 
 • Arrivals and departures with airport-local times
 • Status, delay, terminal, and gate details when supplied by the selected data source
-• A responsive radar-style view of nearby aircraft
+• A responsive radar-style view through Companion or VATSIM
 • Deduplicated movement history
 • Flight detail sheets using available movement data
 • Pinned-flight and airport-board Home Screen widgets
@@ -33,19 +33,19 @@ LOCAL-FIRST BY DESIGN
 • Remote Companion traffic is end-to-end encrypted
 • Standalone movement history stays on your device
 • Automatic diagnostics are an explicit choice
-• Companion follows your Local Flight host and leaves the included Relay Access available for another main device
+• Companion follows your Local Flight host and does not use another main-device place
 • Email stays optional and appears only if you later choose protection or recovery
 • Camera access is used only for optional pairing QR codes; manual entry remains available
 
 OPTIONAL SUPPORT
 
-Three one-time App Store support choices are available in More. They unlock nothing, add no subscription, and do not change app features. Apple handles payment details; Local Flight receives only the minimal transaction evidence needed for verification.
+Three one-time App Store support choices are available in More. They unlock nothing, do not extend Relay Access, and do not change app features. Apple handles payment details; Local Flight receives only the minimal transaction evidence needed for verification.
 
 WHAT YOU NEED
 
-Companion requires a Local Flight desktop, Linux server, or Raspberry Pi host. Remote Companion additionally requires explicit pairing, Relay Access on that host, and an online host. Companion follows the host and does not use the Relay Access included with the app. Moving included access to a different main device always requires fresh paid-app verification and a named confirmation; the previous main device stays active until the receiving device stores and commits its new credential.
+Companion requires a Local Flight desktop, Linux server, or Raspberry Pi host. Remote Companion additionally requires explicit pairing, Relay Access on that host, and an online host. Companion follows the host and consumes no additional place. Moving Relay Access to a different main device requires verified ownership and a named confirmation; the previous main device stays active until the receiving device stores and commits its new credential.
 
-Standalone requires internet access and intentionally refreshes less frequently than Companion.
+Standalone requires internet access and intentionally refreshes less frequently than Companion. Shared real-aircraft radar is not included in Relay Access; use Companion with your own appropriately licensed source or VATSIM Radar.
 
 IMPORTANT
 

@@ -49,7 +49,7 @@ export const publicFacts = {
   account: "No Beacon Tools account is required for normal Local Flight use.",
   relay: "Beacon Relay is optional paid hosted access for real-flight data.",
   freePaths: "Bring Your Own Keys and VATSIM remain available without Relay Access.",
-  receiverRule: "One Relay license can be active on one main device at a time.",
+  receiverRule: "One Relay entitlement can be active on one main device at a time.",
   remotePrivacy: "Remote Companion messages are end-to-end encrypted.",
   diagnostics: "Automatic diagnostics are sent only after you opt in.",
 } as const;

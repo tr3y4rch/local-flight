@@ -50,37 +50,37 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
 
   <section class="section section--raised section--ruled" id="how-it-works">
     <div class="terminal-frame">
-      <SectionHeading index="02 / ONE MAIN DEVICE" title="A license follows the setup that needs hosted data." description="One license can be active on one desktop Beacon Relay installation or one mobile real-flight Standalone installation at a time." />
+      <SectionHeading index="02 / ONE MAIN DEVICE" title="Access follows the setup that needs hosted data." description="One annual entitlement can be active on one desktop Beacon Relay installation or one mobile real-flight Standalone installation at a time." />
       <div class="entitlement-map" data-reveal>
         <div class="entitlement-main"><span>ACTIVE MAIN DEVICE</span><strong>Desktop Beacon Relay <i>or</i> mobile real-flight Standalone</strong><p>Confirm a move when you change which main device uses the license.</p></div>
         <div class="entitlement-branch"><span>SHARES THE DESKTOP HOST</span><strong>LAN browsers · LED matrices · Companion phones</strong><p>These screens do not need their own Relay license.</p></div>
         <div class="entitlement-branch"><span>AWAY FROM HOME</span><strong>Remote Companion</strong><p>Uses the licensed desktop host and end-to-end encrypted messages. No additional license is needed.</p></div>
       </div>
-      <p class="hero-footnote">Relay Access has no scheduled expiry and no recurring Beacon Tools fee. Hosted service and aviation-data provider availability are not guaranteed; see the complete terms.</p>
+      <p class="hero-footnote">New Relay Access renews annually at CHF 8/year. Eligible early users and existing permanent license holders keep their earlier access. Hosted service and aviation-data provider availability are not guaranteed; see the complete terms.</p>
     </div>
   </section>
 
   <section class="section" id="get-access" data-access-catalog data-relay-origin={relayOrigin} data-public-state={availability.relayAccess}>
     <div class="terminal-frame">
-      <SectionHeading index="03 / PURCHASE ROUTES" title="Web, iOS, and Android use the same main-device rule." description="Purchasing is not open yet. When it launches, the route changes how the transaction is handled—not what Beacon Relay Access does." />
+      <SectionHeading index="03 / PURCHASE ROUTES" title="Web, iOS, and Android use the same annual plan." description="Purchasing is not open yet. When it launches, each provider shows the final localized price and tax before confirmation." />
       <p class="catalog-status" id="accessCatalogStatus" role="status" aria-live="polite">Prelaunch · no purchase route is open.</p>
       <div class="acquisition-table" data-reveal>
         <div class="acquisition-row acquisition-row--head" aria-hidden="true"><span>Route</span><span>What is purchased</span><span>How Relay Access is provided</span><span>Current state</span></div>
         <article class="acquisition-row" data-purchase-source="stripe">
-          <strong>Web</strong><p>A one-time Beacon Relay Access purchase.</p><p>A key can activate desktop first and later move to an eligible mobile main device.</p><span class="source-status" data-source-status>Prelaunch</span>
+          <strong>Web</strong><p>A CHF 8/year Stripe subscription.</p><p>A portable key activates desktop or Pi and can later move to an eligible mobile main device.</p><span class="source-status" data-source-status>Prelaunch</span>
         </article>
-        <article class="acquisition-row" data-purchase-source="apple_app">
-          <strong>iOS</strong><p>The paid Local Flight Mobile app.</p><p>One Relay license is included after App Store ownership is verified.</p><span class="source-status" data-source-status>Testing</span>
+        <article class="acquisition-row" data-purchase-source="apple_subscription">
+          <strong>iOS</strong><p>The app is free; real-flight Standalone uses the annual App Store subscription.</p><p>Restore checks the subscription or eligible founder ownership before offering a purchase.</p><span class="source-status" data-source-status>Testing</span>
         </article>
         <article class="acquisition-row" data-purchase-source="google_play">
-          <strong>Android</strong><p>The app is free; Relay is an optional one-time in-app purchase.</p><p>Companion and VATSIM remain free without the Relay purchase.</p><span class="source-status" data-source-status>Testing</span>
+          <strong>Android</strong><p>The app is free; real-flight Standalone uses the annual Google Play subscription.</p><p>Companion, VATSIM, and eligible founder access remain available without a new purchase.</p><span class="source-status" data-source-status>Testing</span>
         </article>
       </div>
       <div class="purchase-prelaunch-action">
         <button class="action-button action-button--primary" type="button" id="relayCheckout" disabled>Purchases are not open yet</button>
         <p class="form-status" id="relayCheckoutStatus" role="status" aria-live="polite">No payment can be started in the prelaunch state.</p>
       </div>
-      <p class="terms-note">Before purchases open, the exact price, currency, and taxes will be shown by Stripe, the App Store, or Google Play. The <a href="/local-flight/relay-access/terms/">Relay Access terms</a> and <a href="/privacy/">privacy policy</a> remain available now.</p>
+      <p class="terms-note">The launch price is CHF 8/year. Stripe, the App Store, or Google Play shows the final localized currency and applicable tax before purchase. The <a href="/local-flight/relay-access/terms/">Relay Access terms</a> and <a href="/privacy/">privacy policy</a> remain available now.</p>
     </div>
   </section>
 
@@ -88,8 +88,8 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
     <div class="terminal-frame terminal-grid split-story">
       <div class="split-story-copy" data-reveal>
         <span class="section-index">04 / USE AND MOVE</span>
-        <h2>Keep the license separate from the app download.</h2>
-        <p>A web or Android Relay purchase does not buy the paid iOS app. Buying the iOS app includes one Relay license, but it does not buy anything on Android. Each completed purchase creates a separate license.</p>
+        <h2>Keep hosted access separate from the free app.</h2>
+        <p>iOS and Android downloads are free. A Stripe, App Store, or Google Play subscription creates its own Relay Access entitlement; unrelated purchases are not silently merged. Existing permanent licenses and eligible founder access remain permanent.</p>
         <ol class="action-checklist action-checklist--compact">
           <li><span class="step">01</span><strong>Use on a computer</strong><p>Enter the delivered <code>LFRA-…</code> key during Beacon Relay setup.</p></li>
           <li><span class="step">02</span><strong>Move to a phone</strong><p>Use the private management page to create a short-lived handoff. Mobile verifies the receiving app.</p></li>
@@ -109,11 +109,12 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
 
   <section class="section">
     <div class="terminal-frame">
-      <SectionHeading index="05 / PRACTICAL DETAILS" title="Access without a conventional Beacon account." description="Email is used only for delivery, protection, recovery, or a device move. There is no profile, password, advertising identity, or recurring plan." />
+      <SectionHeading index="05 / PRACTICAL DETAILS" title="Access without a conventional Beacon account." description="Email is used only for web delivery, protection, recovery, or a device move. There is no profile, password, or advertising identity." />
       <div class="summary-lines summary-lines--compact" data-reveal>
         <div class="summary-line"><span>RCV</span><strong>Recover access</strong><p>Request a short-lived private link using the purchase or protection email. You can email the current key again without changing the active device.</p></div>
         <div class="summary-line"><span>MAIL</span><strong>Protect a mobile license</strong><p>Add and verify an email before retrieving a portable key or moving access. Payment receipts come from the payment provider; Beacon Tools sends delivery and recovery emails separately.</p></div>
         <div class="summary-line"><span>TIP</span><strong>Optional support</strong><p>Support purchases are one-time tips. They unlock nothing and do not create Relay Access or another license.</p></div>
+        <div class="summary-line"><span>BILL</span><strong>Manage renewal</strong><p>Stripe subscribers use the secure billing portal. App Store and Google Play subscribers use their store subscription controls.</p></div>
         <div class="summary-line"><span>MOV</span><strong>Move the main device</strong><p>Create a one-use desktop activation code or verified mobile handoff.</p></div>
         <div class="summary-line"><span>KEY</span><strong>Replace a lost key</strong><p>Rotating a lost master key also revokes its old key and active device credential.</p></div>
       </div>
@@ -147,13 +148,13 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
           const response = await fetch(`${relay}/v1/access/catalog`, { headers: { Accept: "application/json" } });
           const data = await response.json();
           const product = data?.product;
-          if (!response.ok || !data?.ok || product?.product_code !== "beacon_relay_lifetime_v1" || product?.independent_receivers !== 1) return;
+          if (!response.ok || !data?.ok || data?.catalog_contract_version !== 2 || product?.product_code !== "beacon_relay_annual_v1" || product?.billing_period !== "P1Y" || product?.independent_receivers !== 1) return;
           const sources = product?.purchase_sources;
           const salesReady = publicState === "live" && data?.capabilities?.sales === true && product?.sales_available === true && sources?.stripe?.available === true;
           button.disabled = !salesReady;
           button.textContent = salesReady ? "Continue to Stripe Checkout" : "Purchases are not open yet";
           setSourceStatus("stripe", salesReady ? "Available" : "Prelaunch", salesReady ? "ok" : "pending");
-          setSourceStatus("apple_app", sources?.apple_app?.available ? "Available" : sources?.apple_app?.testing_available ? "Testing" : "Prelaunch", sources?.apple_app?.available ? "ok" : "pending");
+          setSourceStatus("apple_subscription", sources?.apple_subscription?.available ? "Available" : sources?.apple_subscription?.testing_available ? "Testing" : "Prelaunch", sources?.apple_subscription?.available ? "ok" : "pending");
           const google = sources?.google_play || sources?.google_app;
           setSourceStatus("google_play", google?.available ? "Available" : google?.testing_available ? "Testing" : "Prelaunch", google?.available ? "ok" : "pending");
           catalogStatus.textContent = salesReady ? "Web purchasing is available." : "Prelaunch · no purchase route is open.";

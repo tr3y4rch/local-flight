@@ -2,6 +2,8 @@ const { withAndroidManifest } = require("@expo/config-plugins");
 
 const BILLING_PERMISSION = "com.android.vending.BILLING";
 const LEGACY_LICENSE_PERMISSION = "com.android.vending.CHECK_LICENSE";
+// This native bridge exists only to restore the legacy Android non-consumable
+// for founder migration. The annual subscription is owned by expo-iap.
 const RELAY_ACCESS_PRODUCT_ID = "cc.beacontools.localflight.relay_access";
 const PRODUCT_ID_METADATA = "cc.beacontools.localflight.RELAY_ACCESS_PRODUCT_ID";
 const INTEGRITY_PROJECT_METADATA =

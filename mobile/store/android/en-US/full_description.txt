@@ -1,6 +1,6 @@
-Your airport board, wherever you are.
+Your airport board, anywhere.
 
-The Android app is free to download. Pair over Wi-Fi with Local Flight on macOS, Windows, Linux, or Raspberry Pi to see arrivals, departures, nearby traffic, movement history, and host controls.
+The Android app is free to download. Pair over Wi-Fi with Local Flight on Mac, Windows, Linux, or Raspberry Pi to see arrivals, departures, traffic, movement history, and host controls.
 
 COMPANION FOR YOUR LOCAL FLIGHT HOST
 
@@ -8,15 +8,15 @@ Choose “Connect to a Local Flight host” during setup. Companion mode connect
 
 NO HOST? USE STANDALONE.
 
-Choose “Use without a Local Flight host” for a simpler airport board. VATSIM virtual traffic works without buying Relay Access. Real airline data uses Beacon Relay and requires a one-time in-app purchase of Beacon Relay Access, with no subscription. Relay Access can be active on one phone using real-flight Standalone or one Local Flight desktop. Purchase or restore starts only after you choose the explicit real-flight setup action, and Mobile never asks for or displays an LFRA key.
+Choose “Use without a Local Flight host” for a simpler airport board. VATSIM virtual traffic works without buying Relay Access. Real airline schedules use the optional annual Beacon Relay Access subscription. Relay Access can be active on one phone using real-flight Standalone or one Local Flight desktop/Pi host. Restore checks existing annual or eligible founder access before offering a purchase, and Mobile never asks for or displays an LFRA key during setup.
 
-Companion and VATSIM are free to use and do not require or consume Relay Access. Remote Companion requires Relay Access on its desktop host; a phone purchase cannot replace access on an unlicensed host. Moving purchased access to a different main device always requires a named confirmation; it then stops direct Relay use on the previous main device. A Relay Access license bought elsewhere can be moved to this official Android app through an explicit, integrity-protected transfer without another Google Play purchase.
+Companion and VATSIM are free to use and do not require or consume Relay Access. Remote Companion requires Relay Access on its desktop host; a phone subscription cannot replace access on an unlicensed host. Moving access to a different main device always requires a named confirmation; it then stops direct Relay use on the previous main device. A Relay Access license bought elsewhere can be moved to this official Android app through an explicit, integrity-protected transfer without another Google Play purchase.
 
 BUILT FOR DAILY GLANCES
 
 • Arrivals and departures with airport-local times
 • Status, delay, terminal, and gate details when supplied by the selected source
-• A responsive radar-style view of nearby aircraft
+• A responsive radar-style view through Companion or VATSIM
 • Deduplicated movement history
 • Flight detail sheets using available movement data
 • Pinned-flight and airport-board home-screen widgets
@@ -26,7 +26,7 @@ BUILT FOR DAILY GLANCES
 
 FOR AVIATION ENTHUSIASTS
 
-Companion can reflect real-flight sources configured on your host or a VATSIM-focused virtual view. Standalone can show airline schedules or VATSIM traffic without running Local Flight elsewhere.
+Companion can reflect real-flight sources configured on your host or a VATSIM-focused virtual view. Standalone can show licensed airline schedules or free VATSIM traffic without running Local Flight elsewhere. Shared real-aircraft radar is not included in Relay Access.
 
 LOCAL-FIRST BY DESIGN
 
@@ -42,11 +42,11 @@ LOCAL-FIRST BY DESIGN
 
 OPTIONAL SUPPORT
 
-Three one-time Google Play support choices are available in More. They unlock nothing, add no subscription, and never create Relay Access. Google handles payment details; Local Flight receives only the minimal transaction evidence needed for verification.
+Three one-time Google Play support choices are available in More. They unlock nothing, do not extend the annual plan, and never create Relay Access. Google handles payment details; Local Flight receives only the minimal transaction evidence needed for verification.
 
 WHAT YOU NEED
 
-Companion requires a Local Flight desktop, Linux server, or Raspberry Pi host. Remote Companion additionally requires explicit pairing, an active Relay Access license on the host, and an online host. Standalone requires internet access; real-flight Standalone also requires Relay Access and intentionally refreshes less frequently than Companion.
+Companion requires a Local Flight desktop, Linux server, or Raspberry Pi host. Remote Companion additionally requires explicit pairing, active Relay Access on the host, and an online host. Standalone requires internet access; real-flight Standalone also requires annual or preserved founder access and intentionally refreshes less frequently than Companion.
 
 IMPORTANT
 

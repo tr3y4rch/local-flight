@@ -110,13 +110,6 @@ public final class LocalFlightPaidAppModule: Module {
       )
     }
 
-    AsyncFunction("purchaseGooglePlayRelayAccess") { () throws -> [String: Any] in
-      throw paidAppProofError(
-        PaidAppProofErrorCode.unsupportedBuild,
-        "Google Play purchasing is unavailable on iOS."
-      )
-    }
-
     AsyncFunction("requestGooglePlayIntegrityToken") {
         (_nonce: String, _installId: String, _activationGrant: String) throws -> [String: String] in
       throw paidAppProofError(

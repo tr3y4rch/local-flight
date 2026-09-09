@@ -1,8 +1,24 @@
 # Local Flight changelog
 
 This is the public, user-facing changelog. The current candidate overview is
-[Local Flight 0.6.1](docs/release-notes-0.6.1.md). Public downloads remain 0.6.0
-until the new packages are published.
+[Local Flight 0.7.0](docs/release-notes-0.7.0.md). Public downloads remain 0.6.0
+until rebuilt packages are published.
+
+## 0.7.0 - Release candidate
+
+- Replaces the unreleased one-time Relay Access proposal with one portable
+  annual entitlement at a CHF 8/year launch price.
+- Makes iOS and Android free downloads. Companion and VATSIM remain free;
+  real-flight Standalone uses the native annual subscription.
+- Includes hosted real-flight schedules and encrypted Remote Companion while
+  keeping shared real-aircraft radar disabled. BYOK and VATSIM radar remain.
+- Preserves verified lifetime purchases, complimentary grants, earlier paid
+  mobile ownership, and eligible active legacy installs as permanent access.
+- Adds provider-authoritative renewal, cancellation, grace, expiry, refund,
+  recovery, billing-management, and founder-migration foundations without
+  retaining raw payment evidence.
+- Keeps Stripe, Apple, and Google sales independently closed until their
+  sandbox, tax, delivery, backup, support, and store-review gates pass.
 
 ## 0.6.1 - Release candidate
 

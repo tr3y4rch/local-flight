@@ -54,13 +54,15 @@ for (const route of routes) {
       contentType: "application/json",
       body: JSON.stringify({
         ok: true,
+        catalog_contract_version: 2,
         product: {
-          product_code: "beacon_relay_lifetime_v1",
+          product_code: "beacon_relay_annual_v1",
+          billing_period: "P1Y",
           independent_receivers: 1,
           purchase_sources: {
             stripe: { available: false },
-            apple_app: { available: false, included_with_paid_app: true },
-            google_play: { available: false, included_with_paid_app: false, acquisition_model: "free_download_in_app_purchase", free_modes: ["companion", "vatsim"] },
+            apple_subscription: { available: false },
+            google_play: { available: false, acquisition_model: "free_download_annual_subscription", free_modes: ["companion", "vatsim"] },
           },
         },
         capabilities: { sales: false, schedule: false, radar: false, remote_companion: false },
@@ -114,10 +116,12 @@ test("mobile store links follow unavailable, testing, and available catalog stat
   const catalogUrl = "https://relay.beacontools.cc/v1/access/catalog";
   const product = (apple: Record<string, unknown>, google: Record<string, unknown>) => ({
     ok: true,
+    catalog_contract_version: 2,
     product: {
-      product_code: "beacon_relay_lifetime_v1",
+      product_code: "beacon_relay_annual_v1",
+      billing_period: "P1Y",
       independent_receivers: 1,
-      purchase_sources: { stripe: { available: false }, apple_app: apple, google_play: google },
+      purchase_sources: { stripe: { available: false }, apple_subscription: apple, google_play: google },
     },
     capabilities: { sales: false, schedule: false, radar: false, remote_companion: false },
   });
@@ -267,20 +271,23 @@ test("support bug report preserves the multipart endpoint contract", async ({ pa
 
 const relayCatalog = (available: boolean) => ({
   ok: true,
+  catalog_contract_version: 2,
   product: {
     name: "Beacon Relay Access",
-    product_code: "beacon_relay_lifetime_v1",
+    product_code: "beacon_relay_annual_v1",
+    billing_period: "P1Y",
     independent_receivers: 1,
+    sales_available: available,
     purchase_sources: {
       stripe: { available },
-      apple_app: { available, included_with_paid_app: true },
-      google_play: { available, included_with_paid_app: false, acquisition_model: "free_download_in_app_purchase", free_modes: ["companion", "vatsim"] },
+      apple_subscription: { available },
+      google_play: { available, acquisition_model: "free_download_annual_subscription", free_modes: ["companion", "vatsim"] },
     },
   },
   capabilities: {
     sales: available,
     schedule: available,
-    radar: available,
+    radar: false,
     remote_companion: available,
   },
 });

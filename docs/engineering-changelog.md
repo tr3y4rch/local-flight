@@ -5,6 +5,30 @@ contributors. It is intentionally not bundled or linked as end-user help.
 Private deployment records, service credentials, admin topology, artifact
 hashes, and personal build identifiers belong outside Git.
 
+## 0.7.0 annual Relay Access candidate
+
+- Replaced the unreleased one-time commercial proposal with one portable annual
+  Relay Access subscription for hosted real-flight schedules and encrypted
+  Remote Companion. Kept shared real-aircraft radar disabled while preserving
+  BYOK and VATSIM radar.
+- Added subscription-term state for active, grace, cancelled-through-period,
+  past-due, expired, refunded, revoked, and suspended access without changing
+  existing revocable device credentials or one-main-device movement.
+- Added recurring Stripe Checkout and billing portal support, StoreKit 2 annual
+  ownership and App Store Server Notifications V2, and Google Play
+  subscriptions v2 with acknowledgement and RTDN reconciliation. Every sales
+  channel remains independently feature-flagged and closed by default.
+- Added an idempotent founder snapshot and migration bridge for verified
+  lifetime purchases, complimentary grants, earlier paid mobile owners, and
+  eligible recently active legacy installs. Founder authority remains
+  permanent and is never silently converted into a subscription.
+- Made both mobile apps free downloads. New annual store purchases use
+  `expo-iap`; the custom native ownership bridge is restore-only for earlier
+  paid-iOS and Android non-consumable owners.
+- Updated desktop, mobile, relay, site, privacy, store-review, and validation
+  contracts for the 0.7.0 candidate while keeping published native downloads
+  at 0.6.0 until a complete replacement matrix passes release gates.
+
 ## 0.6.1 candidate alignment
 
 - Unified Beacon Tools email branding and equivalent plaintext/HTML content,

@@ -7,6 +7,7 @@ import hashlib
 import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,6 +41,7 @@ from relay.access.mobile_verifiers import (
     ApplePaidAppVerifier,
     GooglePlayIntegrityVerifier,
     GooglePlayProductVerifier,
+    GooglePlaySubscriptionVerifier,
     PaidAppVerificationError,
 )
 from relay.access.policy import ProviderAccessPolicy
@@ -78,6 +80,36 @@ def purchase(external_id: str = "pi_test_purchase_001", *, email: str = "pilot@e
     )
 
 
+def annual_purchase(
+    external_id: str = "sub_test_annual_001",
+    *,
+    effective_state: str = "active",
+    verified_at_ms: int = 1,
+) -> VerifiedPurchase:
+    now = datetime.now(timezone.utc)
+    return VerifiedPurchase(
+        provider="stripe_subscription",
+        external_id=external_id,
+        product_id="price_relay_annual_test",
+        environment="test",
+        state=effective_state,
+        evidence_hash=f"evidence-{effective_state}-{verified_at_ms}",
+        verified_at_ms=verified_at_ms,
+        identity_kind="stripe_subscription_id",
+        reconciliation_mode="server_authoritative",
+        reconciliation_handle=external_id,
+        entitlement_kind="subscription",
+        effective_state=effective_state,
+        current_period_start=(now - timedelta(days=1)).isoformat(),
+        current_period_end=(now + timedelta(days=365)).isoformat(),
+        grace_expires_at=(now + timedelta(days=7)).isoformat(),
+        auto_renews=effective_state != "cancelled_active",
+        provider_state=effective_state,
+        license_product_code="beacon_relay_annual_v1",
+        customer_reference="cus_test_encrypted_only",
+    )
+
+
 def test_stripe_checkout_uses_internal_product_and_stable_idempotency_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -97,6 +129,7 @@ def test_stripe_checkout_uses_internal_product_and_stable_idempotency_key(
         api_key="sk_test_local_only",
         webhook_secret="whsec_local_only",
         price_id="price_relay_test",
+        subscription_mode=True,
     )
     monkeypatch.setattr(adapter, "_stripe", lambda: fake_stripe)
 
@@ -110,16 +143,111 @@ def test_stripe_checkout_uses_internal_product_and_stable_idempotency_key(
     assert fake_stripe.api_key == "sk_test_local_only"
     assert calls == [
         {
-            "mode": "payment",
-            "customer_creation": "always",
+            "mode": "subscription",
             "line_items": [{"price": "price_relay_test", "quantity": 1}],
             "metadata": {"checkout_ref": "chk_internal_reference"},
-            "payment_intent_data": {"metadata": {"checkout_ref": "chk_internal_reference"}},
+            "subscription_data": {"metadata": {"checkout_ref": "chk_internal_reference"}},
+            "automatic_tax": {"enabled": True},
             "success_url": "https://beacontools.cc/local-flight/relay-access/success/",
             "cancel_url": "https://beacontools.cc/local-flight/relay-access/",
             "idempotency_key": "relay-checkout:chk_internal_reference",
         }
     ]
+
+
+def test_stripe_subscription_reads_current_basil_item_period(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = int(time.time())
+    monkeypatch.setenv("STRIPE_RELAY_ACCESS_PRICE_ID", "price_relay_annual_test")
+
+    verified = relay_main._stripe_subscription_purchase(
+        {
+            "id": "sub_basil_period",
+            "status": "active",
+            "livemode": False,
+            "customer": "cus_basil_period",
+            "cancel_at_period_end": False,
+            "items": {
+                "data": [
+                    {
+                        "price": {"id": "price_relay_annual_test"},
+                        "quantity": 1,
+                        "current_period_start": now,
+                        "current_period_end": now + 365 * 24 * 60 * 60,
+                    }
+                ]
+            },
+        },
+        event_created=now,
+        evidence_hash="basil-test-evidence",
+    )
+
+    assert verified.external_id == "sub_basil_period"
+    assert verified.current_period_start
+    assert verified.current_period_end
+
+
+def test_stripe_subscription_rejects_ambiguous_relay_access_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("STRIPE_RELAY_ACCESS_PRICE_ID", "price_relay_annual_test")
+    with pytest.raises(InvalidChallenge, match="exactly one"):
+        relay_main._stripe_subscription_purchase(
+            {
+                "id": "sub_ambiguous",
+                "status": "active",
+                "items": {
+                    "data": [
+                        {"price": {"id": "price_relay_annual_test"}},
+                        {"price": {"id": "price_relay_annual_test"}},
+                    ]
+                },
+            },
+            event_created=int(time.time()),
+            evidence_hash="ambiguous-test-evidence",
+        )
+
+
+def test_google_subscription_uses_root_of_replacement_lineage() -> None:
+    expires = (datetime.now(timezone.utc) + timedelta(days=365)).isoformat()
+    payloads = {
+        "token-current": {
+            "subscriptionState": "SUBSCRIPTION_STATE_ACTIVE",
+            "acknowledgementState": "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED",
+            "linkedPurchaseToken": "token-middle",
+            "lineItems": [
+                {
+                    "productId": "relay.annual",
+                    "expiryTime": expires,
+                    "autoRenewingPlan": {"autoRenewEnabled": True},
+                }
+            ],
+        },
+        "token-middle": {"linkedPurchaseToken": "token-root"},
+        "token-root": {},
+    }
+    lookups: list[str] = []
+
+    def lookup(_package_name: str, token: str) -> dict[str, object]:
+        lookups.append(token)
+        return payloads[token]
+
+    verified = GooglePlaySubscriptionVerifier(
+        package_name="cc.beacontools.localflight",
+        product_id="relay.annual",
+        lookup=lookup,
+        environment="test",
+    ).verify(
+        {
+            "google_play_purchase_token": "token-current",
+            "google_play_product_id": "relay.annual",
+        }
+    )
+
+    assert verified.external_id == "token-root"
+    assert verified.reconciliation_handle == "token-current"
+    assert lookups == ["token-current", "token-middle", "token-root"]
 
 
 def test_purchase_fulfillment_is_idempotent_and_key_is_valid(access_service: LicenseService) -> None:
@@ -132,6 +260,214 @@ def test_purchase_fulfillment_is_idempotent_and_key_is_valid(access_service: Lic
     assert first_key == second_key
     assert normalize_license_key(first_key).startswith("LFRA")
     assert first.key_last_four == normalize_license_key(first_key)[-4:]
+
+
+@pytest.mark.parametrize("effective_state", ["active", "grace", "cancelled_active"])
+def test_subscription_paid_through_states_authorize_saved_receiver(
+    access_service: LicenseService,
+    effective_state: str,
+) -> None:
+    license_record, key, _created = access_service.fulfill_purchase(annual_purchase())
+    activated = access_service.activate(
+        install_id="10101010-1010-4010-8010-101010101010",
+        device_kind="desktop",
+        device_name="Annual receiver",
+        license_key=key,
+    )
+    assert activated.credential is not None
+
+    access_service.reconcile_subscription(
+        annual_purchase(effective_state=effective_state, verified_at_ms=2)
+    )
+
+    status = access_service.status(
+        activated.credential.credential,
+        install_id="10101010-1010-4010-8010-101010101010",
+    )
+    assert status["license_ref"] == license_record.license_id
+    assert status["access_state"] == effective_state
+    assert status["entitlement_kind"] == "subscription"
+    assert status["renewal_state"] == (
+        "ends_at_period_end" if effective_state == "cancelled_active" else "renews"
+    )
+
+
+@pytest.mark.parametrize(
+    ("effective_state", "reason_code"),
+    [
+        ("past_due", "license_past_due"),
+        ("expired", "license_expired"),
+        ("suspended", "purchase_suspended"),
+        ("refunded", "purchase_refunded"),
+        ("revoked", "purchase_revoked"),
+    ],
+)
+def test_subscription_inactive_states_block_but_keep_receiver_recoverable(
+    access_service: LicenseService,
+    effective_state: str,
+    reason_code: str,
+) -> None:
+    license_record, key, _created = access_service.fulfill_purchase(annual_purchase())
+    install_id = "20202020-2020-4020-8020-202020202020"
+    activated = access_service.activate(
+        install_id=install_id,
+        device_kind="desktop",
+        device_name="Annual receiver",
+        license_key=key,
+    )
+    assert activated.credential is not None
+    credential = activated.credential.credential
+
+    access_service.reconcile_subscription(
+        annual_purchase(effective_state=effective_state, verified_at_ms=2)
+    )
+    with pytest.raises(LicenseInactive) as exc_info:
+        access_service.resolve_credential(credential, install_id=install_id)
+    assert exc_info.value.access_state == effective_state
+    assert exc_info.value.credential_state == "active"
+    assert exc_info.value.reason_code == reason_code
+
+    restored = access_service.reconcile_subscription(
+        VerifiedPurchase(
+            **{
+                **annual_purchase(effective_state="active", verified_at_ms=3).__dict__,
+                "provider_state": "invoice_paid",
+            }
+        )
+    )
+    assert restored.license_id == license_record.license_id
+    assert access_service.status(credential, install_id=install_id)["access_state"] == "active"
+
+
+@pytest.mark.parametrize("terminal_state", ["refunded", "revoked"])
+def test_generic_stripe_refresh_cannot_clear_terminal_subscription_state(
+    access_service: LicenseService,
+    terminal_state: str,
+) -> None:
+    license_record, _key, _created = access_service.fulfill_purchase(annual_purchase())
+    access_service.reconcile_subscription(
+        annual_purchase(effective_state=terminal_state, verified_at_ms=2)
+    )
+
+    replayed = access_service.reconcile_subscription(
+        annual_purchase(effective_state="active", verified_at_ms=3)
+    )
+
+    assert replayed.license_id == license_record.license_id
+    assert replayed.effective_state == terminal_state
+
+
+def test_older_subscription_proof_cannot_overwrite_newer_authoritative_state(
+    access_service: LicenseService,
+) -> None:
+    license_record, _key, _created = access_service.fulfill_purchase(
+        annual_purchase(effective_state="active", verified_at_ms=100)
+    )
+    suspended = access_service.reconcile_subscription(
+        annual_purchase(effective_state="past_due", verified_at_ms=200)
+    )
+    assert suspended.effective_state == "past_due"
+
+    replayed, _same_key, created = access_service.fulfill_purchase(
+        annual_purchase(effective_state="active", verified_at_ms=100)
+    )
+
+    assert created is False
+    assert replayed.license_id == license_record.license_id
+    assert replayed.effective_state == "past_due"
+
+
+@pytest.mark.parametrize(
+    "effective_state",
+    ["active", "grace", "cancelled_active", "past_due", "expired", "suspended"],
+)
+def test_stripe_billing_reference_remains_available_for_subscription_recovery(
+    access_service: LicenseService,
+    effective_state: str,
+) -> None:
+    _license, key, _created = access_service.fulfill_purchase(annual_purchase())
+    install_id = "30303030-3030-4030-8030-303030303030"
+    activated = access_service.activate(
+        install_id=install_id,
+        device_kind="desktop",
+        device_name="Billing recovery receiver",
+        license_key=key,
+    )
+    assert activated.credential is not None
+    credential = activated.credential.credential
+
+    access_service.reconcile_subscription(
+        annual_purchase(effective_state=effective_state, verified_at_ms=2)
+    )
+
+    assert access_service.subscription_customer_reference(
+        credential,
+        install_id=install_id,
+    ) == "cus_test_encrypted_only"
+    with pytest.raises(LicenseInactive):
+        access_service.subscription_customer_reference(
+            credential,
+            install_id="40404040-4040-4040-8040-404040404040",
+        )
+
+
+@pytest.mark.parametrize("effective_state", ["refunded", "revoked"])
+def test_terminal_subscription_state_blocks_billing_reference(
+    access_service: LicenseService,
+    effective_state: str,
+) -> None:
+    _license, key, _created = access_service.fulfill_purchase(annual_purchase())
+    install_id = "50505050-5050-4050-8050-505050505050"
+    activated = access_service.activate(
+        install_id=install_id,
+        device_kind="desktop",
+        device_name="Terminal entitlement receiver",
+        license_key=key,
+    )
+    assert activated.credential is not None
+    access_service.reconcile_subscription(
+        annual_purchase(effective_state=effective_state, verified_at_ms=2)
+    )
+
+    with pytest.raises(LicenseInactive) as exc_info:
+        access_service.subscription_customer_reference(
+            activated.credential.credential,
+            install_id=install_id,
+        )
+    assert exc_info.value.access_state == effective_state
+
+
+@pytest.mark.parametrize(
+    ("apple_status", "auto_renews", "expected"),
+    [
+        (1, True, "active"),
+        (1, False, "cancelled_active"),
+        (2, True, "expired"),
+        (3, True, "past_due"),
+        (4, True, "grace"),
+        (5, True, "revoked"),
+    ],
+)
+def test_apple_subscription_status_maps_to_relay_entitlement_state(
+    apple_status: int,
+    auto_renews: bool,
+    expected: str,
+) -> None:
+    from relay.access.mobile_verifiers import AppleSubscriptionVerifier
+
+    assert AppleSubscriptionVerifier._effective_state_from_status(
+        apple_status,
+        fallback="active",
+        auto_renews=auto_renews,
+    ) == expected
+
+
+def test_apple_subscription_ownership_type_normalization_rejects_family_sharing() -> None:
+    from appstoreserverlibrary.models.InAppOwnershipType import InAppOwnershipType
+    from relay.access.mobile_verifiers import AppleSubscriptionVerifier
+
+    assert AppleSubscriptionVerifier._ownership_type(InAppOwnershipType.PURCHASED) == "PURCHASED"
+    assert AppleSubscriptionVerifier._ownership_type(InAppOwnershipType.FAMILY_SHARED) == "FAMILY_SHARED"
 
 
 def test_canonical_catalog_maps_every_paid_source_to_one_product(access_service: LicenseService) -> None:
@@ -992,11 +1328,17 @@ def _test_apple_root_certificates_json() -> str:
 
 
 def _configure_mobile_platform(monkeypatch: pytest.MonkeyPatch, platform: str) -> None:
+    monkeypatch.setenv("RELAY_ACCESS_SALES_ENABLED", "1")
     if platform == "ios":
+        monkeypatch.setenv("RELAY_ACCESS_APPLE_SALES_ENABLED", "1")
         monkeypatch.setenv("RELAY_ACCESS_IOS_STATE", "available")
         monkeypatch.setenv("RELAY_ACCESS_IOS_STORE_URL", "https://apps.apple.com/app/local-flight/id123456789")
         monkeypatch.setenv("APPLE_IAP_BUNDLE_ID", "cc.beacontools.localflight")
         monkeypatch.setenv("APPLE_APP_ID", "123456789")
+        monkeypatch.setenv(
+            "APPLE_RELAY_ACCESS_SUBSCRIPTION_ID",
+            "cc.beacontools.localflight.relay_access_annual",
+        )
         monkeypatch.setenv("APPLE_ROOT_CERTIFICATES_B64_JSON", _test_apple_root_certificates_json())
         monkeypatch.setattr(
             relay_main,
@@ -1004,6 +1346,7 @@ def _configure_mobile_platform(monkeypatch: pytest.MonkeyPatch, platform: str) -
             lambda: SimpleNamespace(configured=lambda: True),
         )
         return
+    monkeypatch.setenv("RELAY_ACCESS_GOOGLE_SALES_ENABLED", "1")
     monkeypatch.setenv("RELAY_ACCESS_ANDROID_STATE", "available")
     monkeypatch.setenv(
         "RELAY_ACCESS_ANDROID_STORE_URL",
@@ -1012,6 +1355,10 @@ def _configure_mobile_platform(monkeypatch: pytest.MonkeyPatch, platform: str) -
     monkeypatch.setenv("GOOGLE_PLAY_PACKAGE_NAME", "cc.beacontools.localflight")
     monkeypatch.setenv("GOOGLE_PLAY_PURCHASE_ENVIRONMENT", "production")
     monkeypatch.setenv("GOOGLE_RELAY_ACCESS_PRODUCT_ID", GOOGLE_RELAY_PRODUCT)
+    monkeypatch.setenv(
+        "GOOGLE_RELAY_ACCESS_SUBSCRIPTION_ID",
+        "cc.beacontools.localflight.relay_access_annual",
+    )
     monkeypatch.setenv("GOOGLE_RTDN_AUDIENCE", "https://relay.beacontools.cc/v1/access/google/rtdn")
     monkeypatch.setenv("GOOGLE_RTDN_SERVICE_ACCOUNT_EMAIL", "rtdn@example.test")
     monkeypatch.setattr(
@@ -1300,7 +1647,7 @@ def test_production_access_requires_external_distinct_secrets(monkeypatch: pytes
 
 def test_unknown_access_mode_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RELAY_ACCESS_MODE", "licenced")
-    with pytest.raises(AccessConfigurationError, match="legacy or licensed"):
+    with pytest.raises(AccessConfigurationError, match="legacy, migration, or licensed"):
         relay_main._access_mode()
 
 
@@ -1411,6 +1758,214 @@ def _use_relay_access_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("RELAY_ACCESS_BACKUP_KEY_ID", "test-backup-v1")
     monkeypatch.setenv("RELAY_ACCESS_BACKUP_DIRECTORY", str(tmp_path / "access-backups"))
     relay_main._ensure_schema()
+
+
+def _store_legacy_install(
+    *,
+    token: str,
+    install_id: str,
+    created_at: datetime,
+    last_seen: datetime,
+    revoked: bool = False,
+) -> None:
+    conn = relay_main._connect()
+    try:
+        relay_main._store_activation_token(
+            conn,
+            token=token,
+            label="Founder migration test",
+            schedule_limit=100,
+            radar_limit=100,
+            created_by="test",
+            bound_install_id=install_id,
+            access_plan="community",
+        )
+        conn.execute(
+            """
+            UPDATE activation_tokens
+            SET created_at=?, last_seen=?, revoked_at=?
+            WHERE token_hash=?
+            """,
+            (
+                created_at.isoformat(),
+                last_seen.isoformat(),
+                last_seen.isoformat() if revoked else None,
+                relay_main._token_hash(token),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_founder_snapshot_is_recent_idempotent_private_and_cutoff_immutable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_relay_access_db(tmp_path, monkeypatch)
+    service = relay_main._license_service()
+    cutoff = datetime.now(timezone.utc) + timedelta(minutes=1)
+    created = cutoff - timedelta(days=180)
+    recent_install = "41414141-4141-4141-8141-414141414141"
+    old_install = "42424242-4242-4242-8242-424242424242"
+    revoked_install = "43434343-4343-4343-8343-434343434343"
+    _store_legacy_install(
+        token="lfm_recent_founder_test",
+        install_id=recent_install,
+        created_at=created,
+        last_seen=cutoff - timedelta(days=1),
+    )
+    _store_legacy_install(
+        token="lfm_old_founder_test",
+        install_id=old_install,
+        created_at=created,
+        last_seen=cutoff - timedelta(days=91),
+    )
+    _store_legacy_install(
+        token="lfm_revoked_founder_test",
+        install_id=revoked_install,
+        created_at=created,
+        last_seen=cutoff - timedelta(days=1),
+        revoked=True,
+    )
+
+    dry_run = service.founder_snapshot(cutoff_at=cutoff.isoformat(), execute=False)
+    assert dry_run["eligible_count"] == 1
+    assert dry_run["created_count"] == 0
+    assert recent_install not in json.dumps(dry_run)
+
+    first = service.founder_snapshot(cutoff_at=cutoff.isoformat(), execute=True)
+    second = service.founder_snapshot(cutoff_at=cutoff.isoformat(), execute=True)
+    assert first["created_count"] == 1
+    assert first["existing_count"] == 0
+    assert second["created_count"] == 0
+    assert second["existing_count"] == 1
+    with pytest.raises(InvalidChallenge, match="immutable"):
+        service.founder_snapshot(
+            cutoff_at=(cutoff + timedelta(seconds=1)).isoformat(),
+            execute=True,
+        )
+
+    conn = relay_main._connect()
+    try:
+        row = conn.execute("SELECT * FROM founder_entitlements").fetchone()
+        assert row is not None
+        assert row["install_ref_hash"] != recent_install
+        assert row["legacy_token_hash"] == relay_main._token_hash("lfm_recent_founder_test")
+        founder_record = json.dumps(dict(row))
+        database_dump = "\n".join(conn.iterdump())
+    finally:
+        conn.close()
+    assert recent_install not in founder_record
+    assert "lfm_recent_founder_test" not in database_dump
+
+
+def test_founder_claim_survives_expired_legacy_bridge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_relay_access_db(tmp_path, monkeypatch)
+    cutoff = datetime.now(timezone.utc) + timedelta(minutes=1)
+    monkeypatch.setenv("RELAY_ACCESS_FOUNDER_CUTOFF_AT", cutoff.isoformat())
+    monkeypatch.setenv("RELAY_ACCESS_MODE", "migration")
+    service = relay_main._license_service()
+    install_id = "51515151-5151-4151-8151-515151515151"
+    legacy_token = "lfm_expired_bridge_founder_test"
+    _store_legacy_install(
+        token=legacy_token,
+        install_id=install_id,
+        created_at=cutoff - timedelta(days=180),
+        last_seen=cutoff - timedelta(days=1),
+    )
+    snapshot = service.founder_snapshot(cutoff_at=cutoff.isoformat(), execute=True)
+    assert snapshot["created_count"] == 1
+
+    conn = relay_main._connect()
+    try:
+        conn.execute(
+            "UPDATE founder_entitlements SET bridge_expires_at=?",
+            ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    bridge = service.founder_bridge_status(
+        install_id=install_id,
+        legacy_token_hash=relay_main._token_hash(legacy_token),
+    )
+    assert bridge["bridge_active"] is False
+    with pytest.raises(HTTPException) as exc_info:
+        relay_main._resolve_access(
+            install_id=install_id,
+            activation_token=legacy_token,
+            service="aviationstack",
+        )
+    assert exc_info.value.status_code == 426
+    assert exc_info.value.detail["code"] == "founder_upgrade_required"
+
+    client = TestClient(relay_main.app)
+    prepared = client.post(
+        "/v1/access/founder/claim",
+        headers={"Authorization": f"Bearer {legacy_token}"},
+        json={"install_id": install_id, "device_name": "Founder Pi"},
+    )
+    assert prepared.status_code == 200, prepared.text
+    assert prepared.json()["founder"] is True
+    committed = _commit_public_activation(client, prepared, install_id)
+    credential = committed.json()["credential"]
+    resolved = relay_main._resolve_access(
+        install_id=install_id,
+        activation_token=credential,
+        service="aviationstack",
+    )
+    assert resolved["plan"] == "licensed"
+    assert service.status(credential, install_id=install_id)["founder"] is True
+
+
+def test_licensed_shared_radar_is_closed_while_vatsim_radar_remains_free(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_relay_access_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ACCESS_RADAR_ENABLED", "0")
+    service = relay_main._license_service()
+    _license, key, _created = service.fulfill_purchase(
+        VerifiedPurchase(
+            provider="stripe",
+            external_id="shared-radar-disabled-test",
+            product_id="price_legacy_test",
+            environment="production",
+        )
+    )
+    install_id = "61616161-6161-4161-8161-616161616161"
+    activated = service.activate(
+        install_id=install_id,
+        device_kind="desktop",
+        device_name="Radar policy host",
+        license_key=key,
+    )
+    assert activated.credential is not None
+
+    with pytest.raises(HTTPException) as exc_info:
+        relay_main._resolve_access(
+            install_id=install_id,
+            activation_token=activated.credential.credential,
+            service="radar",
+        )
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == {
+        "code": "shared_radar_unavailable",
+        "message": "Shared real-aircraft radar is not included. Use VATSIM or a provider key on your Local Flight host.",
+        "retryable": False,
+    }
+
+    vatsim = relay_main._resolve_access(
+        install_id=install_id,
+        activation_token="",
+        service="vatsim_radar",
+    )
+    assert vatsim["plan"] == "vatsim"
 
 
 def _commit_public_activation(client: TestClient, prepared, install_id: str):
@@ -1819,8 +2374,11 @@ def test_public_catalog_exposes_one_source_neutral_product(tmp_path: Path, monke
     assert response.headers["cache-control"] == "no-store"
     body = response.json()
     assert body["schema_version"] == ACCESS_SCHEMA_VERSION
-    assert body["product"]["product_code"] == "beacon_relay_lifetime_v1"
+    assert body["catalog_contract_version"] == 2
+    assert body["product"]["product_code"] == "beacon_relay_annual_v1"
     assert body["product"]["name"] == "Beacon Relay Access"
+    assert body["product"]["license_kind"] == "annual_subscription"
+    assert body["product"]["billing_period"] == "P1Y"
     assert body["product"]["portable"] is True
     assert body["product"]["verification_environment"] == "production"
     assert body["product"]["seat_rule"] == "one_independent_receiver"
@@ -1828,12 +2386,12 @@ def test_public_catalog_exposes_one_source_neutral_product(tmp_path: Path, monke
     assert body["product"]["desktop_routes"] == ["relay", "byok", "vatsim"]
     assert set(body["product"]["purchase_sources"]) == {
         "stripe",
-        "apple_app",
+        "apple_subscription",
         "google_play",
         "google_app",
     }
     assert body["product"]["purchase_sources"]["google_play"]["acquisition_model"] == (
-        "free_download_in_app_purchase"
+        "free_download_annual_subscription"
     )
     assert body["product"]["purchase_sources"]["google_play"]["free_modes"] == [
         "companion",
@@ -1842,11 +2400,14 @@ def test_public_catalog_exposes_one_source_neutral_product(tmp_path: Path, monke
     assert body["product"]["platform_rules"]["android"] == {
         "download": "free",
         "free_modes": ["companion", "vatsim"],
-        "relay_access_purchase": "one_time_non_consumable",
+        "relay_access_purchase": "annual_auto_renewing",
         "activation_grants_supported": True,
     }
-    assert body["product"]["purchase_sources"]["apple_app"]["state"] == "unavailable"
-    assert body["product"]["purchase_sources"]["apple_app"]["reconciliation_ready"] is False
+    assert body["product"]["purchase_sources"]["apple_subscription"]["state"] == "unavailable"
+    assert body["product"]["purchase_sources"]["apple_subscription"]["reconciliation_ready"] is False
+    assert body["product"]["pricing"]["display_label"] == "CHF 8/year"
+    assert body["product"]["pricing"]["localized_price_owner"] == "checkout_or_store"
+    assert body["product"]["legacy_products"]["stripe_lifetime"] == "beacon_relay_lifetime_v1"
     cors = client.options(
         "/v1/access/catalog",
         headers={
@@ -1888,7 +2449,7 @@ def test_mobile_catalog_and_challenge_fail_closed_for_platform_configuration(
     elif broken_setting == "package":
         monkeypatch.delenv("GOOGLE_PLAY_PACKAGE_NAME", raising=False)
     elif broken_setting == "product_id":
-        monkeypatch.delenv("GOOGLE_RELAY_ACCESS_PRODUCT_ID", raising=False)
+        monkeypatch.delenv("GOOGLE_RELAY_ACCESS_SUBSCRIPTION_ID", raising=False)
     elif broken_setting == "developer_api":
         monkeypatch.setattr(
             relay_main,
@@ -1899,7 +2460,7 @@ def test_mobile_catalog_and_challenge_fail_closed_for_platform_configuration(
         monkeypatch.setenv("GOOGLE_PLAY_PURCHASE_ENVIRONMENT", "staging")
 
     client = TestClient(relay_main.app)
-    source = "apple_app" if platform == "ios" else "google_play"
+    source = "apple_subscription" if platform == "ios" else "google_play"
     catalog = client.get("/v1/access/catalog").json()["product"]["purchase_sources"][source]
     assert catalog["available"] is False
     assert catalog["verification_ready"] is False
@@ -1912,18 +2473,20 @@ def test_mobile_catalog_and_challenge_fail_closed_for_platform_configuration(
             "intent": "inspect",
         },
     )
-    assert challenge.status_code == 503
-    assert challenge.json()["detail"]["code"] == "access_not_configured"
+    expected_status = 200 if broken_setting == "product_id" else 503
+    assert challenge.status_code == expected_status
+    if expected_status == 503:
+        assert challenge.json()["detail"]["code"] == "access_not_configured"
     conn = relay_main._connect()
     try:
         assert conn.execute(
             "SELECT COUNT(*) FROM access_challenges WHERE purpose='mobile_attestation'"
-        ).fetchone()[0] == 0
+        ).fetchone()[0] == (1 if expected_status == 200 else 0)
     finally:
         conn.close()
 
 
-@pytest.mark.parametrize(("platform", "source"), [("ios", "apple_app"), ("android", "google_play")])
+@pytest.mark.parametrize(("platform", "source"), [("ios", "apple_subscription"), ("android", "google_play")])
 def test_mobile_platform_ready_catalog_matches_challenge_availability(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1953,7 +2516,7 @@ def test_mobile_platform_ready_catalog_matches_challenge_availability(
     assert challenge.json()["platform"] == platform
 
 
-@pytest.mark.parametrize(("platform", "source"), [("ios", "apple_app"), ("android", "google_play")])
+@pytest.mark.parametrize(("platform", "source"), [("ios", "apple_subscription"), ("android", "google_play")])
 def test_mobile_public_acquisition_requires_official_store_link_and_reconciliation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2000,7 +2563,7 @@ def test_mobile_public_acquisition_requires_official_store_link_and_reconciliati
     assert challenge.status_code == 200
 
 
-@pytest.mark.parametrize(("platform", "source"), [("ios", "apple_app"), ("android", "google_play")])
+@pytest.mark.parametrize(("platform", "source"), [("ios", "apple_subscription"), ("android", "google_play")])
 def test_mobile_catalog_requires_delivery_for_public_acquisition_but_not_restore(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

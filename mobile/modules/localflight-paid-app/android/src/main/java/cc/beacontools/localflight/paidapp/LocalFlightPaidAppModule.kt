@@ -1,6 +1,5 @@
 package cc.beacontools.localflight.paidapp
 
-import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Handler
@@ -8,13 +7,10 @@ import android.os.Looper
 import android.util.Base64
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
-import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
 import com.android.billingclient.api.PendingPurchasesParams
-import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
-import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
 import com.google.android.play.core.integrity.IntegrityManagerFactory
 import com.google.android.play.core.integrity.StandardIntegrityException
@@ -46,7 +42,6 @@ private object PaidAppConfiguration {
 }
 
 private const val BILLING_TIMEOUT_MS = 20_000L
-private const val PURCHASE_TIMEOUT_MS = 5 * 60_000L
 private const val INTEGRITY_TIMEOUT_MS = 60_000L
 
 private data class StoreConfiguration(
@@ -98,28 +93,6 @@ public class LocalFlightPaidAppModule : Module() {
         return@AsyncFunction
       }
       queryRelayPurchase(context, promise)
-    }
-
-    AsyncFunction("purchaseGooglePlayRelayAccess") { promise: Promise ->
-      val context = applicationContextOrReject(promise) ?: return@AsyncFunction
-      val activity = appContext.currentActivity
-      if (activity == null) {
-        promise.reject(
-          PaidAppProofErrorCode.UNSUPPORTED_BUILD,
-          "Google Play purchasing requires an active Android screen.",
-          null
-        )
-        return@AsyncFunction
-      }
-      if (!billingRequestInFlight.compareAndSet(false, true)) {
-        promise.reject(
-          PaidAppProofErrorCode.STORE_UNAVAILABLE,
-          "Another Google Play request is already in progress.",
-          null
-        )
-        return@AsyncFunction
-      }
-      purchaseRelayAccess(context, activity, promise)
     }
 
     AsyncFunction("requestGooglePlayIntegrityToken") {
@@ -244,94 +217,6 @@ public class LocalFlightPaidAppModule : Module() {
     }
   }
 
-  private fun purchaseRelayAccess(context: Context, activity: Activity, promise: Promise) {
-    val completed = AtomicBoolean(false)
-    val handler = Handler(Looper.getMainLooper())
-    val timeoutToken = Any()
-    val productId = readConfiguration(context).productId
-    lateinit var client: BillingClient
-
-    fun finish(block: () -> Unit) {
-      if (!completed.compareAndSet(false, true)) return
-      handler.removeCallbacksAndMessages(timeoutToken)
-      billingRequestInFlight.set(false)
-      client.endConnection()
-      block()
-    }
-
-    fun handlePurchases(result: BillingResult, purchases: List<Purchase>?) {
-      if (result.responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) {
-        queryRelayPurchaseOnConnected(client, productId) { retryResult, purchase ->
-          if (retryResult.responseCode != BillingClient.BillingResponseCode.OK) {
-            finish { rejectBillingResult(retryResult, promise) }
-          } else {
-            finishWithPurchase(purchase, promise, ::finish)
-          }
-        }
-        return
-      }
-      if (result.responseCode != BillingClient.BillingResponseCode.OK) {
-        finish { rejectBillingResult(result, promise) }
-        return
-      }
-      val purchase = selectRelayPurchase(productId, purchases.orEmpty())
-      if (purchase == null) {
-        finish {
-          promise.reject(
-            PaidAppProofErrorCode.OWNERSHIP_UNVERIFIED,
-            "Google Play did not return the Relay Access purchase.",
-            null
-          )
-        }
-        return
-      }
-      finishWithPurchase(purchase, promise, ::finish)
-    }
-
-    client = createBillingClient(context, PurchasesUpdatedListener(::handlePurchases))
-    scheduleTimeout(handler, timeoutToken, PURCHASE_TIMEOUT_MS) {
-      finish {
-        promise.reject(
-          PaidAppProofErrorCode.STORE_TIMEOUT,
-          "Google Play purchasing timed out.",
-          null
-        )
-      }
-    }
-    startBillingConnection(
-      client,
-      isFinished = { completed.get() },
-      finish = ::finish,
-      promise = promise
-    ) {
-      queryRelayPurchaseOnConnected(client, productId) { queryResult, currentPurchase ->
-        if (completed.get()) return@queryRelayPurchaseOnConnected
-        if (queryResult.responseCode != BillingClient.BillingResponseCode.OK) {
-          finish { rejectBillingResult(queryResult, promise) }
-          return@queryRelayPurchaseOnConnected
-        }
-        when (currentPurchase.state) {
-          "purchased" -> finish { promise.resolve(currentPurchase.asMap()) }
-          "pending" -> finish {
-            promise.reject(
-              PaidAppProofErrorCode.PURCHASE_PENDING,
-              "The Google Play purchase is still pending.",
-              null
-            )
-          }
-          else -> queryProductAndLaunch(
-            client,
-            productId,
-            activity,
-            promise,
-            { completed.get() },
-            ::finish
-          )
-        }
-      }
-    }
-  }
-
   private fun startBillingConnection(
     client: BillingClient,
     isFinished: () -> Boolean,
@@ -386,84 +271,6 @@ public class LocalFlightPaidAppModule : Module() {
       purchaseToken = if (state == "not_owned") "" else selected.purchaseToken,
       acknowledged = selected.isAcknowledged
     )
-  }
-
-  private fun queryProductAndLaunch(
-    client: BillingClient,
-    productId: String,
-    activity: Activity,
-    promise: Promise,
-    isFinished: () -> Boolean,
-    finish: (() -> Unit) -> Unit
-  ) {
-    val product = QueryProductDetailsParams.Product.newBuilder()
-      .setProductId(productId)
-      .setProductType(BillingClient.ProductType.INAPP)
-      .build()
-    val params = QueryProductDetailsParams.newBuilder()
-      .setProductList(listOf(product))
-      .build()
-    client.queryProductDetailsAsync(params) { result, detailsResult ->
-      if (isFinished()) return@queryProductDetailsAsync
-      if (result.responseCode != BillingClient.BillingResponseCode.OK) {
-        finish { rejectBillingResult(result, promise) }
-        return@queryProductDetailsAsync
-      }
-      val details = detailsResult.productDetailsList.firstOrNull { it.productId == productId }
-      if (details == null) {
-        finish {
-          promise.reject(
-            PaidAppProofErrorCode.UNSUPPORTED_BUILD,
-            "Relay Access is not configured for this Google Play build.",
-            null
-          )
-        }
-        return@queryProductDetailsAsync
-      }
-      Handler(Looper.getMainLooper()).post {
-        if (isFinished()) return@post
-        val productParamsBuilder = BillingFlowParams.ProductDetailsParams.newBuilder()
-          .setProductDetails(details)
-        selectedOfferToken(details)?.let(productParamsBuilder::setOfferToken)
-        val flowParams = BillingFlowParams.newBuilder()
-          .setProductDetailsParamsList(listOf(productParamsBuilder.build()))
-          .build()
-        val launchResult = client.launchBillingFlow(activity, flowParams)
-        if (launchResult.responseCode != BillingClient.BillingResponseCode.OK) {
-          finish { rejectBillingResult(launchResult, promise) }
-        }
-      }
-    }
-  }
-
-  private fun selectedOfferToken(details: ProductDetails): String? =
-    details.oneTimePurchaseOfferDetailsList
-      ?.firstOrNull()
-      ?.offerToken
-      ?.takeIf { it.isNotBlank() }
-
-  private fun finishWithPurchase(
-    purchase: RelayPurchase,
-    promise: Promise,
-    finish: (() -> Unit) -> Unit
-  ) {
-    when (purchase.state) {
-      "purchased" -> finish { promise.resolve(purchase.asMap()) }
-      "pending" -> finish {
-        promise.reject(
-          PaidAppProofErrorCode.PURCHASE_PENDING,
-          "The Google Play purchase is still pending.",
-          null
-        )
-      }
-      else -> finish {
-        promise.reject(
-          PaidAppProofErrorCode.OWNERSHIP_UNVERIFIED,
-          "Google Play could not confirm the Relay Access purchase.",
-          null
-        )
-      }
-    }
   }
 
   private fun rejectBillingResult(result: BillingResult, promise: Promise) {
