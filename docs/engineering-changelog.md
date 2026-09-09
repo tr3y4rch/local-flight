@@ -7,6 +7,13 @@ hashes, and personal build identifiers belong outside Git.
 
 ## 0.6.1 candidate alignment
 
+- Unified Beacon Tools email branding and equivalent plaintext/HTML content,
+  with event-specific license delivery, recovery, and security explanations.
+  Preserved separate customer/form identities and privacy routing, added readable
+  UTC expiry dates and support actions, and hardened email header/link validation.
+- Preserved contact SMTP acceptance across connection teardown failures to avoid
+  inviting duplicate submissions; added sender-routing and delivery regressions.
+
 - Added a scoped license-support workspace with accurate SMTP attempt evidence,
   explicit delivery retries, encrypted support notes, and sanitized diagnostics.
 - Added independently authorized complimentary/test grants with verified

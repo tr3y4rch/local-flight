@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from email.utils import parseaddr
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -490,7 +491,7 @@ def create_operator_router(b) -> APIRouter:
                 if not b._license_mail_ready(mailer):
                     raise InvalidChallenge("SMTP is not configured")
                 return service.operator_smtp_test(
-                    email=mailer.reply_to or mailer.sender,
+                    email=parseaddr(mailer.reply_to or mailer.sender)[1],
                     reason=body.reason,
                     request_id=body.request_id,
                 )

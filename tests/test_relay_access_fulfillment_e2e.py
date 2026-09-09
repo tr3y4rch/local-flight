@@ -251,7 +251,7 @@ def _protect_mobile_license(
         json={"email": email, "purpose": "protect_and_transfer"},
     )
     assert requested.status_code == 202
-    magic = _email_messages(harness.smtp, "Your Beacon Relay Access link")[-1]
+    magic = _email_messages(harness.smtp, "Local Flight — verify your email before transferring Relay Access")[-1]
     magic_body = _email_part(magic, "text/plain")
     magic_url = next(line for line in magic_body.splitlines() if "#token=" in line)
     assert "?token=" not in magic_url
@@ -264,7 +264,7 @@ def _protect_mobile_license(
     assert exchanged.headers["cache-control"] == "no-store"
     key = exchanged.json()["license_key"]
     assert key.startswith("LFRA-")
-    delivered = _email_messages(harness.smtp, "Your Beacon Relay Access license")[-1]
+    delivered = _email_messages(harness.smtp, "Local Flight — your Relay Access license is ready")[-1]
     assert delivered["From"] == "licenses@beacontools.test"
     assert delivered["To"] == email
     assert delivered["Reply-To"] == "support@beacontools.test"
@@ -272,7 +272,8 @@ def _protect_mobile_license(
     assert key in _email_part(delivered, "text/html")
     html_body = _email_part(delivered, "text/html").lower()
     assert "payment receipt" in html_body
-    assert "separately from stripe, apple, or google" in html_body
+    assert "stripe, apple, or google" in html_body
+    assert "receipt comes separately from that provider" in html_body
     return key, magic_token
 
 
@@ -405,7 +406,7 @@ def test_stripe_ios_entitlement_and_google_product_create_portable_distinct_lice
     stripe_key = revealed.json()["license_key"]
     assert stripe_key.startswith("LFRA-")
     assert f"License key: {stripe_key}" in _email_part(
-        _email_messages(harness.smtp, "Your Beacon Relay Access license")[-1],
+        _email_messages(harness.smtp, "Local Flight — your Relay Access license is ready")[-1],
         "text/plain",
     )
     repeated_result = harness.client.post(

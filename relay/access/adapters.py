@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import smtplib
 import base64
-import html
 import json
 from dataclasses import dataclass
 from email.message import EmailMessage
-from email.utils import make_msgid
+from email.utils import formatdate, make_msgid
 from typing import Any, Protocol
 from urllib.parse import quote
 
 from .models import AccessConfigurationError, VerifiedPurchase
+from .email_templates import (EmailContent, license_email, magic_email, moved_email, operator_email, valid_mailbox)
 
 
 class PurchaseVerifier(Protocol):
@@ -18,7 +18,7 @@ class PurchaseVerifier(Protocol):
 
 
 class LicenseMailer(Protocol):
-    def send_license(self, *, email: str, license_key: str, recovery_url: str) -> None: ...
+    def send_license(self, *, email: str, license_key: str, recovery_url: str, purpose: str = "delivery") -> None: ...
 
     def send_magic_link(self, *, email: str, magic_url: str, purpose: str) -> None: ...
 
@@ -322,8 +322,8 @@ class RecordingLicenseMailer:
     def configured(self) -> bool:
         return True
 
-    def send_license(self, *, email: str, license_key: str, recovery_url: str) -> None:
-        self.messages.append({"kind": "license", "email": email, "license_key": license_key, "url": recovery_url})
+    def send_license(self, *, email: str, license_key: str, recovery_url: str, purpose: str = "delivery") -> None:
+        self.messages.append({"kind": "license", "email": email, "license_key": license_key, "url": recovery_url, "purpose": purpose})
 
     def send_magic_link(self, *, email: str, magic_url: str, purpose: str) -> None:
         self.messages.append({"kind": "magic_link", "email": email, "url": magic_url, "purpose": purpose})
@@ -368,49 +368,21 @@ class SmtpLicenseMailer:
     def configured(self) -> bool:
         return bool(
             self.host
-            and self.sender
-            and "@" in self.sender
-            and "\n" not in self.sender
-            and "\r" not in self.sender
+            and valid_mailbox(self.sender)
+            and (not self.reply_to or valid_mailbox(self.reply_to))
             and self.port > 0
         )
 
     def secure_transport(self) -> bool:
         return self.security in {"starttls", "tls", "ssl", "smtps"}
 
-    @staticmethod
-    def _html_message(*, heading: str, paragraphs: list[str], action_url: str = "", action_label: str = "") -> str:
-        body = "".join(
-            f'<p style="margin:0 0 16px;color:#c7d7e5;line-height:1.6">{paragraph}</p>'
-            for paragraph in paragraphs
-        )
-        action = ""
-        if action_url and action_label:
-            action = (
-                '<p style="margin:24px 0">'
-                f'<a href="{html.escape(action_url, quote=True)}" '
-                'style="display:inline-block;padding:12px 18px;border-radius:10px;'
-                'background:#65bff3;color:#06131d;text-decoration:none;font-weight:700">'
-                f'{html.escape(action_label)}</a></p>'
-            )
-        return (
-            '<!doctype html><html><body style="margin:0;background:#07131d;padding:24px;'
-            'font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif">'
-            '<div style="max-width:620px;margin:0 auto;border:1px solid #214057;border-radius:18px;'
-            'background:#0d202d;padding:28px">'
-            '<p style="margin:0 0 10px;color:#65bff3;font-size:12px;font-weight:700;'
-            'letter-spacing:.12em">BEACON RELAY ACCESS</p>'
-            f'<h1 style="margin:0 0 20px;color:#f4f8fb;font-size:26px">{html.escape(heading)}</h1>'
-            f'{body}{action}'
-            '<p style="margin:24px 0 0;color:#7890a3;font-size:12px;line-height:1.5">'
-            'Local Flight never receives payment-card details. Payment receipts come separately '
-            'from Stripe, Apple, or Google.</p></div></body></html>'
-        )
-
     def _send(self, *, email: str, subject: str, text: str, html_text: str = "") -> None:
         if not self.configured():
             raise AccessConfigurationError("Relay Access email is not configured")
+        if not valid_mailbox(email):
+            raise AccessConfigurationError("Email recipient is invalid")
         message = EmailMessage()
+        message["Date"] = formatdate(localtime=False)
         message["From"] = self.sender
         message["To"] = email
         message["Subject"] = subject
@@ -448,92 +420,17 @@ class SmtpLicenseMailer:
             category = "authentication_failed" if isinstance(exc,smtplib.SMTPAuthenticationError) else "recipient_rejected" if isinstance(exc,smtplib.SMTPRecipientsRefused) else "smtp_rejected" if known_rejection else "smtp_timeout" if isinstance(exc,TimeoutError) else "smtp_connection_failed"
             raise MailTransportError(stage=stage,detail_code=category,uncertain=stage=="transmit" and not known_rejection,smtp_code=int(code) if isinstance(code,int) else None) from None
 
-    def send_operator_message(self, *, email: str, purpose: str, action_url: str = "", expires_at: str = "") -> None:
-        headings = {"operator:invitation":"Your Relay Access invitation", "operator:email_change":"Confirm your Relay Access email change",
-                    "operator:email_changed":"Your Relay Access email has changed", "operator:smtp_test":"Relay Access SMTP diagnostic"}
-        if purpose not in headings:
-            raise AccessConfigurationError("Operator email type is not supported")
-        description = {
-            "operator:invitation":"An operator has offered you Relay Access for one main device. Confirm your email to accept. This is not a purchase or payment receipt.",
-            "operator:email_change":"Confirm only if you requested this change. Both mailboxes must approve within 30 minutes. Completion replaces the license key and disconnects the current main device.",
-            "operator:email_changed":"Both addresses confirmed the change. The old key and receiver no longer work. A replacement key has been queued to the new verified address. Contact support if this was unexpected.",
-            "operator:smtp_test":"This is a non-secret operator mail test. It creates no license and contains no access credentials. SMTP acceptance does not prove inbox delivery.",
-        }[purpose]
-        duration = ("Access expires at " + expires_at + ".") if expires_at else ("Access has no scheduled expiry." if purpose=="operator:invitation" else "")
-        self._send(email=email,subject=headings[purpose],text="\n\n".join(filter(None,[description,duration,action_url,"Ignore this message if you did not request it."])),
-                   html_text=self._html_message(heading=headings[purpose],paragraphs=[html.escape(description),html.escape(duration)],action_url=action_url,action_label="Review and confirm"))
+    def _send_content(self, email: str, content: EmailContent) -> None:
+        self._send(email=email, subject=content.subject, text=content.text, html_text=content.html)
 
-    def send_license(self, *, email: str, license_key: str, recovery_url: str) -> None:
-        escaped_key = html.escape(license_key)
-        self._send(
-            email=email,
-            subject="Your Beacon Relay Access license",
-            text=(
-                "Your Beacon Relay Access license is ready.\n\n"
-                f"License key: {license_key}\n\n"
-                "Enter this key in Local Flight's Beacon Relay setup. The key controls one "
-                "main device at a time: one Local Flight desktop or one phone in Standalone "
-                "mode. Keep it private.\n\n"
-                f"Recovery and license management: {recovery_url}\n\n"
-                "This is your Local Flight access-delivery email. Any payment receipt comes "
-                "separately from Stripe, Apple, or Google.\n"
-            ),
-            html_text=self._html_message(
-                heading="Your Relay Access license is ready",
-                paragraphs=[
-                    "Your portable license key is:",
-                    f'<code style="display:block;padding:14px;border-radius:10px;background:#07131d;'
-                    f'color:#f4f8fb;font-size:16px;word-break:break-all">{escaped_key}</code>',
-                    "Enter this key in Local Flight's Beacon Relay setup. It controls one main "
-                    "device at a time. Keep it private.",
-                ],
-                action_url=recovery_url,
-                action_label="Manage or recover Relay Access",
-            ),
-        )
+    def send_operator_message(self, *, email: str, purpose: str, action_url: str = "", expires_at: str = "") -> None:
+        self._send_content(email, operator_email(purpose=purpose, action_url=action_url, expires_at=expires_at))
+
+    def send_license(self, *, email: str, license_key: str, recovery_url: str, purpose: str = "delivery") -> None:
+        self._send_content(email, license_email(license_key=license_key, recovery_url=recovery_url, purpose=purpose))
 
     def send_magic_link(self, *, email: str, magic_url: str, purpose: str) -> None:
-        purpose_label = {
-            "recovery": "recover or manage Relay Access",
-            "protect_and_deliver": "protect Relay Access and receive its portable key",
-            "protect_and_transfer": "protect Relay Access before moving it",
-        }.get((purpose or "").strip().lower(), "manage Relay Access")
-        self._send(
-            email=email,
-            subject="Your Beacon Relay Access link",
-            text=(
-                f"Use this one-time link to {purpose_label}. It expires in 15 minutes.\n\n"
-                f"{magic_url}\n\n"
-                "If you did not request this link, you can ignore this message.\n"
-            ),
-            html_text=self._html_message(
-                heading="Your private Relay Access link",
-                paragraphs=[
-                    f"Use this one-time link to {html.escape(purpose_label)}. It expires in 15 minutes.",
-                    "If you did not request this link, you can ignore this message.",
-                ],
-                action_url=magic_url,
-                action_label="Open Relay Access management",
-            ),
-        )
+        self._send_content(email, magic_email(magic_url=magic_url, purpose=purpose))
 
     def send_receiver_moved(self, *, email: str, device_name: str) -> None:
-        safe_device_name = html.escape(device_name)
-        self._send(
-            email=email,
-            subject="Beacon Relay Access moved",
-            text=(
-                "Your Beacon Relay Access was moved to a new main device.\n\n"
-                f"New device: {device_name}\n\n"
-                "The previous device can no longer use Beacon Relay directly. If this was not you, "
-                "use your recovery link or contact Beacon Tools support.\n"
-            ),
-            html_text=self._html_message(
-                heading="Relay Access moved",
-                paragraphs=[
-                    f"Your main device is now <strong style=\"color:#f4f8fb\">{safe_device_name}</strong>.",
-                    "The previous device can no longer use Beacon Relay directly. If this was not "
-                    "you, recover the license or contact Beacon Tools support.",
-                ],
-            ),
-        )
+        self._send_content(email, moved_email(device_name=device_name))

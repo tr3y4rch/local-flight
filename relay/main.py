@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta, timezone
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
@@ -63,6 +64,7 @@ from relay.access.adapters import (
     StripeAdapter,
 )
 from relay.access.backup import AccessBackupManager
+from relay.access.email_templates import contact_email, valid_mailbox
 from relay.access.mobile_verifiers import (
     ApplePaidAppVerifier,
     GooglePlayIntegrityVerifier,
@@ -3496,39 +3498,49 @@ def _send_contact_email(body: SiteContactIn, *, network_tag: str) -> None:
     else:
         use_starttls = not use_ssl
 
-    category_label = body.category.replace("_", " ").title()
+    if not valid_mailbox(sender) or not valid_mailbox(recipient, multiple=True):
+        raise HTTPException(status_code=503, detail="Contact mailbox is not configured safely")
+    if body.reply_email.strip() and not valid_mailbox(body.reply_email.strip()):
+        raise HTTPException(status_code=422, detail="reply_email is not valid")
+    content = contact_email(
+        category=body.category, subject=_collapse(body.subject, limit=120),
+        name=_redact_sensitive(body.name.strip()), reply_email=body.reply_email.strip(),
+        context=_redact_sensitive(body.website_context.strip()),
+        message=_redact_sensitive(body.message.strip())[:4000], network_tag=network_tag,
+    )
     message = EmailMessage()
-    message["Subject"] = f"[Beacon Tools] {category_label}: {_collapse(body.subject, limit=120)}"
+    message["Subject"] = content.subject
+    message["Date"] = formatdate(localtime=False)
+    message["Message-ID"] = make_msgid()
     message["From"] = sender
     message["To"] = recipient
     if body.reply_email.strip():
         message["Reply-To"] = body.reply_email.strip()
-    lines = [
-        "Beacon Tools public contact form",
-        "",
-        f"Category: {category_label}",
-        f"Name: {_redact_sensitive(body.name.strip()) or 'not provided'}",
-        f"Reply email: {_redact_sensitive(body.reply_email.strip()) or 'not provided'}",
-        f"Page/context: {_redact_sensitive(body.website_context.strip()) or 'not provided'}",
-        f"Network tag: {network_tag}",
-        "",
-        "Message:",
-        _redact_sensitive(body.message.strip())[:4000],
-    ]
-    message.set_content("\n".join(lines))
+    message.set_content(content.text)
+    message.add_alternative(content.html, subtype="html")
 
     smtp_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+    accepted = False
     try:
         with smtp_cls(host, port, timeout=12) as smtp:
             if use_starttls:
                 smtp.starttls()
             if username:
                 smtp.login(username, password)
-            smtp.send_message(message)
+            refused = smtp.send_message(message)
+            if refused:
+                raise smtplib.SMTPRecipientsRefused(refused)
+            accepted = True
     except smtplib.SMTPAuthenticationError as exc:
+        if accepted:
+            return
         print(f"Contact SMTP authentication failed: {exc.__class__.__name__}")
         raise HTTPException(status_code=502, detail="Contact mailbox authentication failed") from exc
     except (smtplib.SMTPException, OSError) as exc:
+        # SMTP acceptance survives a failed QUIT/connection close. Preserve the
+        # successful form result so a retry is deduplicated instead of resent.
+        if accepted:
+            return
         safe_error = _collapse(_redact_sensitive(str(exc)), limit=180)
         print(f"Contact SMTP delivery failed: {exc.__class__.__name__}: {safe_error}")
         raise HTTPException(status_code=502, detail="Contact mailbox could not send the message") from exc
@@ -11294,6 +11306,7 @@ def _deliver_pending_license_emails(*, limit: int = 10) -> int:
                 email=str(item["email"]),
                 license_key=str(item["license_key"]),
                 recovery_url=_access_site_url("local-flight/relay-access/manage/"),
+                purpose=str(item.get("purpose") or "delivery"),
             )
             transport_accepted = True
             service.finish_mail_attempt(attempt["attempt_id"], outcome="accepted", stage="accepted")

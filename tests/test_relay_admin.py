@@ -1950,7 +1950,7 @@ def test_site_contact_sends_mailbox_message_and_routes_privacy(tmp_path: Path, m
                     "to": message["To"],
                     "reply_to": message["Reply-To"],
                     "subject": message["Subject"],
-                    "body": message.get_content(),
+                    "body": message.get_body(preferencelist=("plain",)).get_content(),
                 }
             )
 
