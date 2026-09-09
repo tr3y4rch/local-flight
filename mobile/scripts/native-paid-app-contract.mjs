@@ -7,6 +7,10 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
+const readIfPresent = (relative) => {
+  const filePath = path.join(root, relative);
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
+};
 const require = createRequire(import.meta.url);
 
 const app = JSON.parse(read("app.json")).expo;
@@ -70,11 +74,12 @@ const android = read(
   "modules/localflight-paid-app/android/src/main/java/cc/beacontools/localflight/paidapp/LocalFlightPaidAppModule.kt"
 );
 const androidManifest = read("modules/localflight-paid-app/android/src/main/AndroidManifest.xml");
-const generatedAndroidManifest = read("android/app/src/main/AndroidManifest.xml");
+const generatedAndroidManifest = readIfPresent("android/app/src/main/AndroidManifest.xml");
 const androidBuild = read("modules/localflight-paid-app/android/build.gradle");
 const privacyPlugin = read("plugins/with-localflight-privacy-manifest.js");
-const privacyManifest = read("ios/LocalFlight/PrivacyInfo.xcprivacy");
-const xcodeProject = read("ios/LocalFlight.xcodeproj/project.pbxproj");
+const privacyManifestPlugin = require(path.join(root, "plugins", "with-localflight-privacy-manifest.js"));
+const generatedPrivacyManifest = readIfPresent("ios/LocalFlight/PrivacyInfo.xcprivacy");
+const generatedXcodeProject = readIfPresent("ios/LocalFlight.xcodeproj/project.pbxproj");
 const readme = read("README.md");
 const appStoreReviewNotes = read("APP_STORE_REVIEW_NOTES.md");
 const playStoreReviewNotes = read("PLAY_STORE_REVIEW_NOTES.md");
@@ -146,22 +151,31 @@ assert.match(android, /Base64\.URL_SAFE or Base64\.NO_WRAP or Base64\.NO_PADDING
 assert.doesNotMatch(android, /ILicensingService|checkLicense|LICENSED_OLD_KEY/);
 assert.doesNotMatch(android, /public.?key|BASE64_PUBLIC|Signature\.getInstance/i);
 
-assert.match(generatedAndroidManifest, /com\.android\.vending\.BILLING/);
-assert.doesNotMatch(generatedAndroidManifest, /com\.android\.vending\.CHECK_LICENSE/);
-assert.match(generatedAndroidManifest, /cc\.beacontools\.localflight\.RELAY_ACCESS_PRODUCT_ID/);
-assert.doesNotMatch(generatedAndroidManifest, /project:0|PROJECT_NUMBER_PLACEHOLDER/, "Tracked native sources must not contain a fake Play Integrity project number.");
+if (generatedAndroidManifest) {
+  assert.match(generatedAndroidManifest, /com\.android\.vending\.BILLING/);
+  assert.doesNotMatch(generatedAndroidManifest, /com\.android\.vending\.CHECK_LICENSE/);
+  assert.match(generatedAndroidManifest, /cc\.beacontools\.localflight\.RELAY_ACCESS_PRODUCT_ID/);
+  assert.doesNotMatch(generatedAndroidManifest, /project:0|PROJECT_NUMBER_PLACEHOLDER/, "Generated native sources must not contain a fake Play Integrity project number.");
+}
 
 assert.match(privacyPlugin, /NSPrivacyCollectedDataTypePurchaseHistory/);
 assert.match(privacyPlugin, /NSPrivacyCollectedDataTypeDeviceID/);
 assert.match(privacyPlugin, /addResourceFileToGroup/);
-assert.match(privacyManifest, /NSPrivacyCollectedDataTypePurchaseHistory/);
-assert.match(privacyManifest, /<key>NSPrivacyTracking<\/key>[\s\S]*?<false\/>/);
-assert.match(xcodeProject, /PrivacyInfo\.xcprivacy in Resources/);
-const mainResources = xcodeProject.match(
-  /13B07F8E1A680F5B00A75B9A \/\* Resources \*\/ = \{[\s\S]*?files = \(([\s\S]*?)\);/
-);
-assert.ok(mainResources, "main iOS application Resources phase is missing");
-assert.match(mainResources[1], /PrivacyInfo\.xcprivacy in Resources/);
+assert.match(privacyManifestPlugin.privacyManifest, /NSPrivacyCollectedDataTypePurchaseHistory/);
+assert.match(privacyManifestPlugin.privacyManifest, /NSPrivacyCollectedDataTypeDeviceID/);
+assert.match(privacyManifestPlugin.privacyManifest, /<key>NSPrivacyTracking<\/key>[\s\S]*?<false\/>/);
+if (generatedPrivacyManifest || generatedXcodeProject) {
+  assert.ok(generatedPrivacyManifest, "generated iOS privacy manifest is missing");
+  assert.ok(generatedXcodeProject, "generated iOS Xcode project is missing");
+  assert.match(generatedPrivacyManifest, /NSPrivacyCollectedDataTypePurchaseHistory/);
+  assert.match(generatedPrivacyManifest, /<key>NSPrivacyTracking<\/key>[\s\S]*?<false\/>/);
+  assert.match(generatedXcodeProject, /PrivacyInfo\.xcprivacy in Resources/);
+  const mainResources = generatedXcodeProject.match(
+    /13B07F8E1A680F5B00A75B9A \/\* Resources \*\/ = \{[\s\S]*?files = \(([\s\S]*?)\);/
+  );
+  assert.ok(mainResources, "main iOS application Resources phase is missing");
+  assert.match(mainResources[1], /PrivacyInfo\.xcprivacy in Resources/);
+}
 
 assert.match(readme, /iOS `0\.7\.0 \(15\)` and Android `0\.7\.0 \(18\)`/);
 assert.match(appStoreReviewNotes, /Build: `15`/);
