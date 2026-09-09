@@ -6,7 +6,7 @@ There is no Local Flight account, advertising profile, analytics tracker, or sig
 
 This policy explains what stays on your device, when Local Flight connects online, what limited information the service handles, and what you can reset or delete. Technical identifiers are tied to an installation rather than a person, and automatic diagnostics stay off unless the saved diagnostics choice allows them.
 
-Last updated: September 6, 2026.
+Last updated: September 9, 2026.
 
 Beacon Tools is responsible for the hosted Local Flight relay, website forms, and related support processing. General/support questions and public bug reports start at [beacontools.cc/support](https://beacontools.cc/support). Privacy, diagnostics, and data-request questions can go through [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices) or [privacy@beacontools.cc](mailto:privacy@beacontools.cc). The public privacy URL is [beacontools.cc/privacy](https://beacontools.cc/privacy).
 
@@ -92,7 +92,7 @@ The service keeps only the information needed to connect an installation, share 
 - references and coarse status for approved paired phones, when Remote Companion is enabled
 - one-way network tags used to prevent abuse without storing raw addresses in the application database
 - short-lived records of the requested airport and board window so a recent shared result can be reused
-- short-lived shared schedule records and freshness information
+- short-lived shared schedule records, provider source, source-fetch time, coverage boundaries, and freshness information. Provider-derived cache records carry a policy expiry and are retained for no more than seven days by default; a shorter configured or provider limit still applies.
 - a small coarse install profile sent with eligible periodic heartbeats or relay activity: app version, OS family/version/architecture, requested and effective GUI mode, source mode (`real` or `virtual`), diagnostics mode, companion count, Matrix count, and Matrix-online count. Standalone activity can also include the selected airport/timezone and coarse device type. This profile supports compatibility, reliability, and capacity planning without creating a user account.
 - if the operator explicitly enables the optional surface/map overlay path: short-lived airport-surface and map-geometry cache entries derived from OpenStreetMap/Overpass so many installs looking at the same airport do not repeatedly query public map infrastructure
 - for Relay Access: a random holder and license ID, normalized-email HMAC, encrypted recovery/security-notification address, product and purchase source, status, key-secret version and master-key HMAC/masked reference, one active receiver, device-credential HMAC/masked reference, and activation/revocation timestamps
@@ -114,7 +114,7 @@ The relay does **not** store:
 
 Beacon Relay traffic has per-install quotas plus network/global safety caps. Duplicate reports are suppressed before routing to keep triage useful and avoid repeated reports of the same event.
 
-The relay controls how often a shared airport snapshot can trigger a new upstream schedule fetch. Beacon Relay schedule choices are hourly-or-slower, and the relay can ask clients to wait when shared limits are reached. This keeps the service fairly available when many people watch the same busy airport.
+The relay controls how often a shared airport snapshot can trigger a new upstream schedule fetch. Normal demand can trigger at most one shared upstream refresh for an airport every 15 minutes, subject to coverage, provider availability, and spending limits. Client settings may be slower and cannot shorten that server timer. This keeps the service fairly available when many people watch the same busy airport.
 
 Mobile Standalone uses the same hosted relay but with stricter product limits: real airline-schedule refresh is 1 hour minimum, real radar refresh is 3 minutes minimum while Radar is open, and radar ranges are limited to `1`, `3`, `5`, and `10` NM. VATSIM uses sanitized virtual-data endpoints and needs no Relay Access credential.
 
@@ -326,9 +326,9 @@ When Local Flight fetches data, it may communicate with:
 
 | Service | What is sent | Their privacy policy |
 |---|---|---|
-| AeroDataBox through API.Market or RapidAPI | BYOK/direct path: API key, airport IATA code, and requested board window. Relay-backed path: the hosted relay makes the upstream request with its own provider key and shared cache. | [api.market privacy](https://api.market/privacy_policy), [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
+| AeroDataBox through a direct subscription, API.Market, or RapidAPI | BYOK/direct path: API key, airport IATA code, and requested board window. Relay-backed path: the hosted relay makes the upstream request with its own provider key and shared cache. | [aerodatabox.com/privacy](https://aerodatabox.com/privacy), [api.market privacy](https://api.market/privacy_policy), [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
 | AviationStack | BYOK/direct path: API key, airport IATA code, date/window request details. Relay-backed path: the hosted relay makes the upstream request with its own provider key and shared cache. | [aviationstack.com/privacy](https://aviationstack.com/privacy-policy) |
-| ADS-B Exchange via RapidAPI | Direct path: API key and radar search coordinates. Relay-backed path: the hosted relay makes the upstream request when relay access is available. | [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
+| ADS-B Exchange / JETNET | Direct path: API key and radar search coordinates. Beacon-managed provider requests remain disabled unless the applicable provider agreement expressly permits them. | [jetnet.com/privacy-policy](https://www.jetnet.com/legal/privacy-policy), [rapidapi.com/privacy](https://rapidapi.com/privacy/) |
 | OpenSky Network | Radar search coordinates | [opensky-network.org/about/privacy](https://opensky-network.org/about/privacy) |
 | VATSIM | Virtual network data for the configured airport/source mode | [vatsim.net/privacy-policy](https://vatsim.net/privacy-policy) |
 | aviationweather.gov | ICAO code for METAR weather. Local Flight decodes the returned METAR locally into weather mood/icon/temperature fields; no extra weather provider is contacted for that UI. VATSIM mode can use VATSIM ATIS/METAR first and falls back here when unavailable. | Public government API |
@@ -344,6 +344,7 @@ When Local Flight fetches data, it may communicate with:
 | Google Play | On Android, Google distributes the free app and processes the optional non-consumable Relay Access product and optional consumable support purchases. Local Flight sends purchase tokens for server-side verification and uses a Play Integrity token only for a grant-based transfer; it receives no card details. | [policies.google.com/privacy](https://policies.google.com/privacy) |
 
 Local Flight does not embed tracking or advertising SDKs from any of these services.
+Provider data and API access are governed separately from the Local Flight MIT license. See [Third-Party Notices](THIRD_PARTY_NOTICES.md) for data-source and terms links.
 
 ---
 

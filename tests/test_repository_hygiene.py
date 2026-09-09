@@ -89,6 +89,8 @@ def test_pi_source_release_is_runtime_scoped() -> None:
     for path in (
         Path("pyproject.toml"),
         Path("README.md"),
+        Path("PRIVACY.md"),
+        Path("THIRD_PARTY_NOTICES.md"),
         Path("docs/install.md"),
         Path("installers/pi/install.sh"),
         Path("src/localflight/ui/server.py"),

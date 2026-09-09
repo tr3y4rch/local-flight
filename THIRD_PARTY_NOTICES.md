@@ -2,7 +2,11 @@
 
 Local Flight bundles a small number of open-source font files so the native,
 LAN browser, kiosk, and mobile design language can stay consistent without
-loading fonts from a CDN at runtime.
+loading fonts from a CDN at runtime. It can also display information obtained
+from external data services. The Local Flight MIT license covers the software,
+not provider data, API access, or provider trademarks. Those remain subject to
+the provider's terms and the subscription or marketplace plan used to obtain
+them.
 
 ## Bundled Fonts
 
@@ -36,6 +40,56 @@ loading fonts from a CDN at runtime.
 The bundled font files are not modified. If either family is modified later,
 review the SIL Open Font License reserved-font-name requirements before
 redistributing the changed files.
+
+## Aviation Data Services
+
+These services are not bundled with Local Flight. They are contacted only when
+the corresponding data route or feature is configured. Beacon-managed access
+uses Beacon's provider credentials and shared cache; Bring Your Own Keys (BYOK)
+uses the credentials and provider agreement of the person operating that Local
+Flight installation. Beacon-managed AeroDataBox and AviationStack schedule use
+is backed by paid commercial subscriptions. This notice does not transfer or
+expand any provider-data rights to Local Flight users.
+
+### AeroDataBox
+
+- Used for: primary real-world airport schedules and flight-board fields
+- Access: direct subscription, API.Market, or RapidAPI, depending on configuration
+- Terms: https://aerodatabox.com/terms
+- Privacy: https://aerodatabox.com/privacy
+
+### AviationStack
+
+- Used for: optional missing-field enrichment and schedule fallback
+- Access: APILayer/AviationStack subscription
+- Terms: https://www.ideracorp.com/Legal/APILayer/Marketplace-Terms-of-Use
+- Privacy: https://aviationstack.com/privacy-policy
+
+### ADS-B Exchange / JETNET
+
+- Used for: optional live nearby-aircraft radar data
+- Access: BYOK, or Beacon-managed access only when the applicable provider agreement expressly permits it
+- Terms: https://www.jetnet.com/legal/terms-of-use
+
+### OpenSky Network
+
+- Used for: optional radar fallback where the configured use is permitted
+- Terms: https://opensky-network.org/about/terms-of-use
+- Privacy: https://opensky-network.org/about/privacy
+
+### VATSIM
+
+- Used for: public virtual-network traffic, flight plans, and weather in VATSIM mode
+- Privacy: https://vatsim.net/privacy-policy
+
+### Aviation Weather Center
+
+- Used for: public METAR weather from aviationweather.gov
+- Source: https://aviationweather.gov/data/api/
+
+All aviation information is presented for informational display only. It is not
+an official aviation source and must not be used for navigation, dispatch,
+air-traffic control, flight operations, or safety decisions.
 
 ## Public Data Sources
 

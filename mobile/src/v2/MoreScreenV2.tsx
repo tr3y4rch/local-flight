@@ -185,6 +185,14 @@ function HelpPanel({ styles }: { styles: ReturnType<typeof makeStyles> }) {
           <Text style={styles.linkText}>Privacy</Text>
           <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
         </Pressable>
+        <Pressable style={styles.linkButton} onPress={() => open("https://beacontools.cc/local-flight/relay-access/terms/")} {...accessibleButton({ label: "Open Beacon Relay Access terms" })}>
+          <Text style={styles.linkText}>Relay Access terms</Text>
+          <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
+        </Pressable>
+        <Pressable style={styles.linkButton} onPress={() => open("https://github.com/tr3y4rch/local-flight/blob/main/THIRD_PARTY_NOTICES.md")} {...accessibleButton({ label: "Open Local Flight third-party notices" })}>
+          <Text style={styles.linkText}>Third-party notices</Text>
+          <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
+        </Pressable>
         <Pressable style={styles.linkButton} onPress={() => open("https://beacontools.cc/network")} {...accessibleButton({ label: "Open Local Flight network explanation" })}>
           <Text style={styles.linkText}>How connections work</Text>
           <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
