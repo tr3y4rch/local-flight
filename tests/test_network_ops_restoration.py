@@ -84,7 +84,7 @@ def test_operator_browser_navigation_actions_and_mobile(
         page.locator("#actionDialogConfirm").click()
         page.get_by_text("No active retention holds.", exact=True).wait_for()
         page.locator('button[data-view="access"]').click()
-        page.locator('button[data-op-view="licenses"]').click()
+        page.get_by_role("button", name="Licenses", exact=True).click()
         page.locator('#operatorSearch input[name="q"]').fill("fake-email@example.test")
         with page.expect_response("**/admin/api/operator/licenses/search"):
             page.locator('#operatorSearch button[type="submit"]').click()

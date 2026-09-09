@@ -302,6 +302,52 @@ def test_concurrent_claim_produces_one_license(service):
         assert sorted(pool.map(lambda _: claim(), range(2))) == [False, True]
 
 
+def test_concurrent_email_approvals_rotate_exactly_once(service):
+    _, license_id, _ = claimed(service)
+    service.operator_license_action(
+        license_id,
+        action="start_email_change",
+        email="concurrent@example.test",
+        reason="Concurrent mailbox approvals",
+        request_id="fake-concurrent-change",
+    )
+    tokens = [p["token"] for p in notice_payloads(service, "operator:email_change")]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(service.confirm_operator_email_change, tokens))
+    assert sorted(o["status"] for o in outcomes) == [
+        "awaiting_other_address",
+        "completed",
+    ]
+    with service._operator_connection() as conn:
+        assert service._license_row(conn, license_id)["key_version"] == 2
+    for token in tokens:
+        with pytest.raises(InvalidChallenge):
+            service.confirm_operator_email_change(token)
+
+
+def test_production_complimentary_authority_is_not_a_purchase(service):
+    service.deployment_environment = "production"
+    grant = service.issue_operator_grant(
+        kind="complimentary",
+        email="complimentary@example.test",
+        reason="Production grant fixture",
+        request_id="fake-production-comp",
+        expires_at=None,
+    )
+    token = notice_payloads(service, "operator:invitation")[0]["token"]
+    license_id = service.claim_operator_invitation(token)["license_id"]
+    authority = service.authority(license_id)
+    assert (
+        authority["source"] == "operator_complimentary"
+        and authority["environment"] == "production"
+    )
+    assert (
+        authority["expires_at"] is None and authority["grant_id"] == grant["grant_id"]
+    )
+    with service._operator_connection() as conn:
+        assert conn.execute("SELECT count(*) FROM purchase_records").fetchone()[0] == 0
+
+
 def test_new_key_references_are_checked(service):
     issue(service)
     assert service.verify_keyring_references()["encryption"] == ["v1"]
