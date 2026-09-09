@@ -406,7 +406,7 @@ DOC_PAGES = {
     "third-party": {
         "title": "Third-Party Notices",
         "filename": "THIRD_PARTY_NOTICES.md",
-        "summary": "Bundled font licenses and source attribution for local app assets.",
+        "summary": "Bundled licenses plus aviation and map data-source notices.",
     },
 }
 

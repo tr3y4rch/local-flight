@@ -69,7 +69,9 @@ PI_RELEASE_ROOT_FILES = {
     ".env.example",
     "CHANGELOG.md",
     "LICENSE",
+    "PRIVACY.md",
     "README.md",
+    "THIRD_PARTY_NOTICES.md",
     "pyproject.toml",
 }
 PI_RELEASE_ASSET_FILES = {

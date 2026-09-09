@@ -7253,6 +7253,7 @@ def test_operator_power_stays_out_of_public_docs_and_examples() -> None:
     public_docs = [
         root / "README.md",
         root / "PRIVACY.md",
+        root / "THIRD_PARTY_NOTICES.md",
         root / "docs" / "install.md",
         root / "docs" / "display-modes.md",
     ]

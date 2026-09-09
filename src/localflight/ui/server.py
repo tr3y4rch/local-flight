@@ -472,6 +472,7 @@ def _activation_request_status_url(relay_url: str) -> str:
 BEACON_TOOLS_URL = "https://beacontools.cc"
 LOCAL_FLIGHT_WEB_URL = f"{BEACON_TOOLS_URL}/local-flight"
 PRIVACY_WEB_URL = f"{BEACON_TOOLS_URL}/privacy"
+THIRD_PARTY_WEB_URL = "https://github.com/tr3y4rch/local-flight/blob/main/THIRD_PARTY_NOTICES.md"
 
 _DOC_PAGES: Dict[str, Dict[str, str]] = {
     "readme": {
@@ -519,8 +520,8 @@ _DOC_PAGES: Dict[str, Dict[str, str]] = {
     "third-party": {
         "title": "Third-Party Notices",
         "filename": "THIRD_PARTY_NOTICES.md",
-        "summary": "Bundled font licenses and source attribution for local app assets.",
-        "external_url": f"{LOCAL_FLIGHT_WEB_URL}#third-party",
+        "summary": "Bundled licenses plus aviation and map data-source notices.",
+        "external_url": THIRD_PARTY_WEB_URL,
         "external_label": "Open online",
     },
 }
