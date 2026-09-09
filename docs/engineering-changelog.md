@@ -37,6 +37,28 @@ hashes, and personal build identifiers belong outside Git.
 - Added an authenticated console revision header and browser/API regression
   coverage so deployments can verify the expected operator shell.
 
+### Schedule rollout preparation
+
+- Included the shared schedule modules in the relay container and added a
+  regression check that initializes the copied image contents in isolation.
+- Integrated the existing Relay Access recovery and deployment-readiness fixes
+  so a schedule rollout preserves the deployed recovery behavior.
+- Updated the site's Astro and image/SVG dependency lock to clear the release
+  dependency audit; application and relay dependency audits remain separate gates.
+
+### AeroDataBox shared schedule hardening
+
+- Added opt-in airport-level schedule coordination with persistent leases,
+  generation fencing, bounded cold waits, stale serving, and background enrichment.
+- Centralized complete AeroDataBox interval planning, validation and unit
+  reservations; preserved conservative subscription capabilities and existing caps.
+- Added credential pacing/pauses, bounded retries, independent AviationStack
+  enrichment allowances, field provenance and expiry.
+- Preserved provider freshness through local/mobile snapshots and history;
+  added managed-data retention and removed provider caches from access backups.
+- Kept managed/BYOK routing explicit and public schedule contracts compatible.
+  See `docs/schedule-relay-hardening.md` for rollout defaults and validation.
+
 ### Universal Relay Access
 
 - Added a canonical fulfillment orchestrator that maps verified Stripe,
