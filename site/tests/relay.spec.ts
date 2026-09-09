@@ -16,7 +16,7 @@ for (const theme of ["dark", "light"] as const) {
     await expect(page.locator("img")).toHaveCount(0);
     await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
     await expect(page.getByRole("link", { name: /Understand Relay Access/ })).toHaveAttribute("href", "https://beacontools.cc/local-flight/relay-access/");
-    await expect(page.getByRole("status")).toContainText("purchases in prelaunch");
+    await expect(page.getByRole("status")).toContainText("see Relay Access for current availability");
     await expect(page.getByText("The application is free. Hosting has continuing costs.")).toBeVisible();
     await expect(page.getByText("Beacon Tools cannot read the request or response.")).toBeVisible();
 

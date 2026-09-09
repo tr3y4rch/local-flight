@@ -292,7 +292,9 @@ const relayCatalog = (available: boolean) => ({
   },
 });
 
-test("Relay Access prelaunch remains closed even when a catalog reports technical readiness", async ({ page }, testInfo) => {
+// Checkout must stay closed whenever the relay cannot serve the hosted
+// capability being sold, independently of the published availability flag.
+test("Relay Access checkout stays closed when the relay cannot serve what it sells", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop");
   await page.route("https://relay.beacontools.cc/v1/access/catalog", (route) => route.fulfill({
     contentType: "application/json",

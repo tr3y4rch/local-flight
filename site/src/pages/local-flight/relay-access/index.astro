@@ -157,7 +157,17 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
           const product = data?.product;
           if (!response.ok || !data?.ok || data?.catalog_contract_version !== 2 || product?.product_code !== "beacon_relay_annual_v1" || product?.billing_period !== "P1Y" || product?.independent_receivers !== 1) return;
           const sources = product?.purchase_sources;
-          const salesReady = publicState === "live" && data?.capabilities?.sales === true && product?.sales_available === true && sources?.stripe?.available === true;
+          // Never offer checkout unless the relay confirms it can actually serve
+          // what the subscription pays for. Selling hosted schedules or Remote
+          // Companion while the relay reports them unavailable would take money
+          // for a capability the buyer could not use.
+          const capabilities = data?.capabilities;
+          const salesReady = publicState === "live"
+            && capabilities?.sales === true
+            && capabilities?.schedule === true
+            && capabilities?.remote_companion === true
+            && product?.sales_available === true
+            && sources?.stripe?.available === true;
           button.disabled = !salesReady;
           button.textContent = salesReady ? "Continue to Stripe Checkout" : "Purchases are not open yet";
           setSourceStatus("stripe", salesReady ? "Available" : "Prelaunch", salesReady ? "ok" : "pending");
