@@ -800,7 +800,7 @@ def test_admin_dashboard_handles_live_lane_without_snapshot(tmp_path: Path, monk
     schedules = client.get("/admin/api/schedules", headers={"host": "network.beacontools.cc"}, auth=("admin", "correct-horse")).json()
 
     assert admin.status_code == 200
-    assert "Presence is coarse" in admin.text
+    assert "presence remains intentionally coarse" in admin.text
     assert any(row["airport_iata"] == "ZRH" for row in schedules["client_interests"])
     assert schedules["filtered_estimate"] == 0
 
@@ -2477,7 +2477,7 @@ def test_admin_dashboard_surfaces_report_gateway_events(tmp_path: Path, monkeypa
     assert second.status_code == 200
     assert second.json()["deduped"] is True
     assert admin.status_code == 200
-    assert "Sanitized report gateway events" in admin.text
+    assert "Report gateway" in admin.text
     statuses = {row["status"] for row in reports["rows"]}
     assert {"filed", "deduped"}.issubset(statuses)
     assert reports["facets"]["status"]["filed"] == 1
@@ -4706,12 +4706,14 @@ def test_admin_html_is_lazy_query_driven_shell(tmp_path: Path, monkeypatch) -> N
     text = response.text
 
     assert response.status_code == 200
-    assert "Presence is coarse" in text
+    assert "Network Ops" in text
+    assert "Command center" in text
     assert "statusRailEl" in text
-    assert "Heartbeat pipeline" in text
-    assert "Missing heartbeat" in text
-    assert "detail-block" in text
+    assert "One-time credential" in text
+    assert "detail-section" in text
     assert '"/admin/api/fleet"' in text
-    assert "quickViewDefs" in text
+    assert '"/admin/api/retention"' in text
+    assert '"/admin/api/access"' in text
+    assert "quickViewDefs" not in text
     assert "data-filter" in text
     assert "Provider State" not in text

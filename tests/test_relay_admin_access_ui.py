@@ -10,10 +10,10 @@ ADMIN_CSS = (ROOT / "relay" / "admin" / "admin.css").read_text(encoding="utf-8")
 
 
 def test_relay_access_is_a_first_class_admin_view() -> None:
-    assert 'id="access" aria-label="Relay Access"' in ADMIN_HTML
-    assert '["access", "Relay Access"]' in ADMIN_JS
+    assert 'id="workspace" aria-labelledby="viewTitle"' in ADMIN_HTML
+    assert 'id: "access", group: "Operate"' in ADMIN_JS
     assert 'access: "/admin/api/access"' in ADMIN_JS
-    assert 'panel("access", "Relay Access"' in ADMIN_JS
+    assert 'workspaceHead("Relay Access"' in ADMIN_JS
     assert "renderAccess(payload)" in ADMIN_JS
 
 
@@ -31,7 +31,7 @@ def test_relay_access_operator_actions_use_the_license_action_contract() -> None
         "rotate_key",
     ):
         assert f'data-access-action="{action}"' in ADMIN_JS
-        assert f"{action}: `" in ADMIN_JS
+        assert f'{action}: "' in ADMIN_JS
     assert "record_repurchase" not in ADMIN_JS
     assert "data-event-action" in ADMIN_JS
     assert "retry_reconciliation" in ADMIN_JS
@@ -42,10 +42,10 @@ def test_relay_access_ui_keeps_operator_identifiers_masked_and_never_receives_ke
     assert "function licenseKeyRef(" in ADMIN_JS
     assert "maskedRef(row.install_ref)" in ADMIN_JS
     assert "maskedRef(row.evidence_ref)" in ADMIN_JS
-    assert 'data-kind="access_license" data-index=' in ADMIN_JS
+    assert 'kind: "access_license", sortable: false' in ADMIN_JS
     assert "delete drawer.dataset.row" in ADMIN_JS
-    assert "sent only to the protected holder email" in ADMIN_JS
-    assert "no raw key was returned to admin" in ADMIN_JS
+    assert "replacement key only to the protected holder email" in ADMIN_JS
+    assert "no raw key was returned" in ADMIN_JS
     assert "payload.license_key" not in ADMIN_JS
     assert "one-time-license-key" not in ADMIN_JS
     assert "drawerBody.replaceChildren()" in ADMIN_JS

@@ -25,6 +25,18 @@ hashes, and personal build identifiers belong outside Git.
 
 ## 0.6.0 engineering line
 
+### Operator console restoration
+
+- Restored the responsive Network Operations workspace, filters, cursor history,
+  scoped inspectors, guarded actions, and one-time activation-token dialogs.
+- Integrated the current Relay Access license, recovery, delivery, reconciliation,
+  and backup controls into the same workspace while preserving its authentication,
+  CSRF, masking, and purchase-authority rules.
+- Restored retention status, runs, scoped holds, and install-data erasure, including
+  compatibility with databases without historical terms-acceptance records.
+- Added an authenticated console revision header and browser/API regression
+  coverage so deployments can verify the expected operator shell.
+
 ### Schedule rollout preparation
 
 - Included the shared schedule modules in the relay container and added a
@@ -46,7 +58,6 @@ hashes, and personal build identifiers belong outside Git.
   added managed-data retention and removed provider caches from access backups.
 - Kept managed/BYOK routing explicit and public schedule contracts compatible.
   See `docs/schedule-relay-hardening.md` for rollout defaults and validation.
-
 
 ### Universal Relay Access
 
