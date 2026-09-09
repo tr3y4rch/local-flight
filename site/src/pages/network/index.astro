@@ -6,28 +6,18 @@ import SafetyNotice from "../../components/SafetyNotice.astro";
 
 <SiteLayout
   title="How Local Flight Connects"
-  description="See what Local Flight keeps on your home network, when it uses the internet, what each optional service sends, and how Companion, Remote Companion, and Standalone differ."
+  description="See what stays on your home network, what each Local Flight mode sends online, whether Relay Access is needed, and where movement history is stored."
   active="network"
 >
-  <header class="terminal-hero">
+  <header class="terminal-hero terminal-hero--compact terminal-hero--text">
     <div class="terminal-frame terminal-grid hero-grid">
-      <div class="hero-copy">
+      <div class="hero-copy hero-copy--wide">
         <div class="eyebrow">How It Connects / Local and online paths</div>
-        <h1 class="hero-title">Most of Local Flight <span class="accent-word">stays on your network.</span></h1>
-        <p class="hero-lede">Your screens talk to the computer running Local Flight over your home or local network (LAN). The internet is used only for the flight data you choose, phone-only Standalone mode, optional encrypted access away from home, or a report you submit.</p>
+        <h1 class="hero-title">Most of Local Flight stays on your network.</h1>
+        <p class="hero-lede">The app, browsers, phones, and displays around your home talk to the computer running Local Flight. An internet connection is used only for the flight-data source you choose, phone-only Standalone, optional encrypted access away from home, or a report you submit.</p>
         <div class="hero-actions">
-          <a class="action-button action-button--primary" href="#paths">See every connection <span aria-hidden="true">↓</span></a>
-          <a class="action-link" href="/privacy/">Read the privacy policy</a>
-        </div>
-      </div>
-      <div class="hero-visual">
-        <div class="network-terminal" aria-label="Local Flight connection summary" data-reveal>
-          <div class="network-terminal-head"><span>PATH</span><span>DESTINATION</span><span>STATE</span></div>
-          <div><b>AT HOME</b><span>Your computer and screens</span><i>LOCAL</i></div>
-          <div><b>FLIGHT DATA</b><span>Your chosen source</span><i>CHOICE</i></div>
-          <div><b>AWAY</b><span>Encrypted paired messages</span><i>OPTIONAL</i></div>
-          <div><b>REPORTS</b><span>Only when sent or enabled</span><i>CONSENT</i></div>
-          <p>Illustrative connection table · no live network inspection</p>
+          <a class="action-button action-button--primary" href="#paths">Compare every mode <span aria-hidden="true">↓</span></a>
+          <a class="action-link" href="/privacy/">Read the privacy design</a>
         </div>
       </div>
     </div>
@@ -35,63 +25,58 @@ import SafetyNotice from "../../components/SafetyNotice.astro";
 
   <section class="section" id="paths">
     <div class="terminal-frame">
-      <SectionHeading index="01 / CONNECTIONS" title="Follow only the paths your setup uses." description="Each path below says what connects and what leaves your device. Local screens stay local; optional online services enter only for the feature you select." />
-      <div class="connection-diagram" data-reveal>
-        <div class="connection-lane">
-          <strong>Use Local Flight around the house</strong><span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Computer running Local Flight</strong><span>Windows · macOS · Linux · Raspberry Pi</span></div>
-          <span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Your local screens</strong><span>Desktop app · browser · LED matrix · Companion. Nothing leaves your network for this connection.</span></div>
-        </div>
-        <div class="connection-lane">
-          <strong>Get real-world flight data</strong><span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Your own aviation-data API keys</strong><span>The keys remain saved on the computer running Local Flight.</span></div>
-          <span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Your selected provider</strong><span>Only the provider receives its key and the airport or aircraft request needed for the feature.</span></div>
-        </div>
-        <div class="connection-lane connection-lane--optional">
-          <strong>Use the Beacon Tools shared service</strong><span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Your Local Flight setup</strong><span>Sends a random service ID and the airport request needed for the shared board.</span></div>
-          <span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Beacon Relay</strong><span>Checks Relay Access, reuses recent shared airport data, and applies update and fair-use limits.</span></div>
-        </div>
-        <div class="connection-lane connection-lane--optional">
-          <strong>Reach your setup while away</strong><span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Remote Companion</strong><span>The encryption key stays on your paired phone and Local Flight computer.</span></div>
-          <span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Beacon Relay</strong><span>Passes along encrypted messages and routing details. Beacon Tools cannot read the message.</span></div>
-        </div>
-        <div class="connection-lane connection-lane--optional">
-          <strong>Use only a phone</strong><span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Standalone</strong><span>Your airport choice and recent movement history remain on the phone.</span></div>
-          <span class="connection-arrow" aria-hidden="true"></span>
-          <div class="connection-stop"><strong>Beacon Relay</strong><span>Receives a random service ID, a revocable device credential, and the requests needed for board, radar, weather, and map data.</span></div>
-        </div>
+      <SectionHeading index="01 / CONNECTION MAP" title="Your Local Flight computer remains the centre of a home setup." description="Local screens connect directly. The selected flight-data path sits on the other side of the app, and optional Remote Companion passes only encrypted messages while you are away." />
+      <div class="network-flow" data-reveal aria-label="Local Flight connections from a selected data source through the Local Flight computer to local and remote screens">
+        <div class="network-flow-source"><span>CHOOSE ONE DATA PATH</span><strong>Beacon Relay</strong><strong>Your own provider keys</strong><strong>VATSIM</strong></div>
+        <i aria-hidden="true"></i>
+        <div class="network-flow-host"><span>RUNS ON YOUR HARDWARE</span><strong>Local Flight computer</strong><p>Settings, cached boards, history, logs, and display control stay here.</p></div>
+        <i aria-hidden="true"></i>
+        <div class="network-flow-screens"><span>YOUR SCREENS</span><strong>Desktop · LAN browser · kiosk</strong><strong>LED matrix · Companion</strong><p>These connections remain on your home or local network (LAN).</p></div>
+        <div class="network-flow-remote"><span>OPTIONAL AWAY-FROM-HOME PATH</span><strong>Remote Companion</strong><p>End-to-end encrypted through Beacon Relay. The key stays on the paired phone and computer; Beacon Tools cannot read the message.</p></div>
+        <small>Connection model · not live network activity</small>
       </div>
+    </div>
+  </section>
+
+  <section class="section section--raised section--ruled">
+    <div class="terminal-frame">
+      <SectionHeading index="02 / MODE COMPARISON" title="See what connects, what leaves, and where history stays." description="Only the row for the mode you use applies. Relay Access is separate from the free Local Flight application." />
+      <div class="mode-matrix" data-reveal>
+        <div class="mode-matrix-row mode-matrix-head" aria-hidden="true"><span>Mode</span><span>What connects</span><span>What leaves the device</span><span>Relay Access</span><span>History</span></div>
+        <article class="mode-matrix-row"><strong>Desktop, LAN, matrix, Companion</strong><p>Local screens connect to your Local Flight computer.</p><p>Nothing for the screen connection itself.</p><span>No</span><p>On the Local Flight computer.</p></article>
+        <article class="mode-matrix-row"><strong>Beacon Relay</strong><p>The Local Flight computer connects to Beacon Relay.</p><p>Random service ID, device credential, airport and feature request.</p><span>Yes</span><p>On the Local Flight computer.</p></article>
+        <article class="mode-matrix-row"><strong>Bring Your Own Keys</strong><p>The Local Flight computer connects to your chosen provider.</p><p>The provider key and airport or aircraft request needed for the feature.</p><span>No</span><p>On the Local Flight computer.</p></article>
+        <article class="mode-matrix-row"><strong>Desktop VATSIM</strong><p>The Local Flight computer reads public VATSIM traffic.</p><p>Only the public data request; Local Flight avoids pilot and controller identity fields.</p><span>No</span><p>On the Local Flight computer.</p></article>
+        <article class="mode-matrix-row"><strong>Mobile VATSIM</strong><p>The phone reads public virtual-network data.</p><p>Only the public data request.</p><span>No</span><p>On the phone.</p></article>
+        <article class="mode-matrix-row"><strong>Real-flight Standalone</strong><p>The phone connects directly to Beacon Relay.</p><p>Random service ID, device credential, airport and feature request.</p><span>Yes</span><p>On the phone.</p></article>
+        <article class="mode-matrix-row"><strong>Remote Companion</strong><p>The phone and licensed desktop host exchange messages through Beacon Relay.</p><p>Routing details and unreadable encrypted messages.</p><span>Uses host</span><p>On the Local Flight computer.</p></article>
+      </div>
+      <p class="hero-footnote"><a href="/local-flight/relay-access/#why-paid">Why Beacon Relay is a paid hosted option</a>. Bring Your Own Keys and VATSIM remain available without Relay Access.</p>
     </div>
   </section>
 
   <section class="section section--quiet section--ruled">
     <div class="terminal-frame">
-      <SectionHeading index="02 / UPDATE TIMING" title="Why Local Flight may keep showing an older board." description="Aviation-data services have update limits and can be temporarily unavailable. Local Flight keeps a known board visible when it is safer and more useful than an empty screen, and shows when the data was last updated." />
+      <SectionHeading index="03 / UPDATE TIMING" title="Why Local Flight may keep showing an older board." description="Aviation-data services have update limits and can be temporarily unavailable. Local Flight keeps a known board visible when it is more useful than an empty screen and shows when the data was last updated." />
       <div class="cadence-line" data-reveal>
-        <article class="cadence-item"><strong>30 min</strong><h3>Beacon Relay board</h3><p>A Beacon Relay setup requests a new schedule board no more often than every 30 minutes.</p></article>
-        <article class="cadence-item"><strong>About 1 h</strong><h3>Standalone Board</h3><p>Airline schedules usually refresh about once an hour. Shared information may still be cached or delayed.</p></article>
-        <article class="cadence-item"><strong>About 3 min</strong><h3>Standalone Radar</h3><p>Nearby traffic can refresh about every 3 minutes while Radar is open.</p></article>
+        <article class="cadence-item"><strong>30 min</strong><h3>Desktop Beacon Relay board</h3><p>A Beacon Relay setup requests a new schedule board no more often than every 30 minutes.</p></article>
+        <article class="cadence-item"><strong>About 1 h</strong><h3>Standalone board</h3><p>Real-flight Standalone requests new shared airline-schedule data about once an hour.</p></article>
+        <article class="cadence-item"><strong>About 3 min</strong><h3>Standalone radar</h3><p>Nearby traffic can refresh about every three minutes while Radar is open.</p></article>
       </div>
-      <p class="hero-footnote" style="margin-top: 28px">Between schedule checks, Standalone re-evaluates its saved real-world board locally without requesting new airline data. VATSIM Standalone targets about one-minute board and Radar checks. If a provider has a temporary problem, Local Flight may keep the last known board visible—check the freshness time shown in the app.</p>
+      <p class="hero-footnote">Between schedule checks, Standalone re-evaluates its saved board locally without requesting new airline data. VATSIM Standalone targets about one-minute board and Radar checks. Provider delays can keep an older board visible with its freshness time.</p>
     </div>
   </section>
 
   <section class="section">
     <div class="terminal-frame">
-      <SectionHeading index="03 / TROUBLESHOOTING" title="Start with the mode shown in the app." description="The mode name tells you whether to check your home network, the computer running Local Flight, or the phone’s internet connection." />
+      <SectionHeading index="04 / TROUBLESHOOTING" title="Start with the mode shown in the app." description="The mode name tells you whether to check your home network, the computer running Local Flight, or the phone’s internet connection." />
       <ol class="troubleshooting-list" data-reveal>
         <li><span class="step">01 / HOME</span><strong>Companion on Wi-Fi</strong><p>Keep the phone and Local Flight computer on the same trusted network, confirm Local Flight is running, and scan the pairing code in Settings or enter the local address with port <code>:8000</code>.</p></li>
-        <li><span class="step">02 / AWAY</span><strong>Remote Companion</strong><p>Leave the licensed Local Flight computer online and connected to Beacon Relay. Companion screens do not use another main-device place. If access was revoked, return to the same home or local network and pair again.</p></li>
-        <li><span class="step">03 / DIRECT</span><strong>Standalone</strong><p>Check the phone’s internet connection and wait a few minutes. A recent board may remain visible while a provider is unavailable.</p></li>
-        <li><span class="step">04 / SUPPORT</span><strong>Need another pair of eyes?</strong><p>Use <a href="/support/">Support</a> and include the mode, airport, approximate time, and whether the phone and Local Flight computer were online. Include diagnostics only if you choose.</p></li>
+        <li><span class="step">02 / AWAY</span><strong>Remote Companion</strong><p>Leave the licensed Local Flight computer online and connected to Beacon Relay. If access was revoked, return to the same home or local network and pair again.</p></li>
+        <li><span class="step">03 / PHONE</span><strong>Standalone</strong><p>Check the phone’s internet connection and wait a few minutes. A recent board may remain visible while a provider is unavailable.</p></li>
+        <li><span class="step">04 / SUPPORT</span><strong>Ask for help</strong><p>Include the mode, airport, approximate time, and whether the phone and computer were online. Include diagnostics only if you choose.</p></li>
       </ol>
+      <div class="inline-actions editorial-actions"><a class="action-button" href="/support/">Open Support</a></div>
     </div>
   </section>
 

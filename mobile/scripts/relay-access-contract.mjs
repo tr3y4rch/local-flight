@@ -132,7 +132,7 @@ assert.doesNotMatch(mobileSources, /enter (?:a )?license key|paste (?:a |your )?
 const ordinaryUi = [screens, more, content].join("\n");
 assert.doesNotMatch(ordinaryUi, /receiver seat|independent receiver|license entitlement/i);
 assert.doesNotMatch(ordinaryUi, /Stripe checkout|Get Relay Access/i);
-assert.match(read("src/iap/SupportPurchaseContent.tsx"), /These tips do not include Relay Access/);
+assert.match(read("src/iap/SupportPurchaseContent.tsx"), /Tips unlock nothing and do not include Relay Access/);
 
 const summaryWriter = settings.slice(
   settings.indexOf("export async function saveMobileRelayAccessSummary"),

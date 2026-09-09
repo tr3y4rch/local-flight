@@ -3,72 +3,114 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#080c12">
-<title>Local Flight Network Admin</title>
+<meta name="localflight-admin-version" content="network-ops-v2">
+<meta name="theme-color" content="#08111c">
+<title>Local Flight Network Operations</title>
 <style>
 __ADMIN_CSS__
 </style>
 </head>
 <body>
-<div class="shell">
-  <header class="topbar" role="banner">
-    <div class="brand" aria-label="Local Flight Network Admin">
-      <span class="mark" aria-hidden="true">LF</span>
-      <span class="brand-text">
-        <strong>Network Admin</strong>
-        <span>Operator relay console</span>
+<a class="skip-link" href="#workspace">Skip to workspace</a>
+
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar" aria-label="Network operations navigation">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><span>LF</span></span>
+      <span class="brand-copy">
+        <strong>Network Ops</strong>
+        <small>Local Flight relay</small>
       </span>
+      <button class="icon-button sidebar-close" id="sidebarClose" type="button" aria-label="Close navigation">&times;</button>
     </div>
-    <nav class="nav" id="nav" aria-label="Primary"></nav>
-    <button id="signOutBtn" class="signout-btn" type="button" title="Sign out of admin console">Sign out</button>
-  </header>
 
-  <section class="hero" aria-labelledby="heroTitle">
-    <div>
-      <h1 id="heroTitle">Relay Operations</h1>
-      <p>Operator console for fleet, traffic, schedules, activations, Relay Access licenses, reports, providers, and maintenance. Presence is coarse — derived from heartbeat (~30 min cadence) and relay activity, not a live online signal.</p>
+    <div class="environment-card">
+      <span class="status-dot status-good" aria-hidden="true"></span>
+      <span><strong>Operator surface</strong><small>Authenticated &amp; redacted</small></span>
     </div>
-    <div class="chips">
-      <span class="chip" id="userChip"></span>
-      <span class="chip">Single admin</span>
-      <span class="chip">Redacted JSON</span>
-      <span class="chip">Coarse presence</span>
+
+    <nav id="nav" class="primary-nav" aria-label="Operator sections"></nav>
+
+    <div class="sidebar-footer">
+      <div class="operator-card">
+        <span class="operator-avatar" aria-hidden="true">OP</span>
+        <span><small>Signed in as</small><strong id="userName">operator</strong></span>
+      </div>
+      <button class="sidebar-signout" id="signOutBtn" type="button">Sign out</button>
     </div>
-  </section>
+  </aside>
 
-  <div class="status-rail" id="statusRailEl" aria-label="Relay health"></div>
-  <div class="quick" id="quickViews" aria-label="Saved views"></div>
+  <button class="sidebar-scrim" id="sidebarScrim" type="button" aria-hidden="true" tabindex="-1"></button>
 
-  <main>
-    <div class="layer">Monitor</div>
-    <section class="panel" id="overview" aria-label="Overview"></section>
-    <section class="panel" id="fleet" aria-label="Fleet"></section>
-    <section class="panel" id="traffic" aria-label="Traffic"></section>
+  <div class="content-shell">
+    <header class="topbar">
+      <div class="topbar-title">
+        <button class="icon-button menu-button" id="menuButton" type="button" aria-label="Open navigation">&#9776;</button>
+        <div>
+          <span class="section-kicker" id="viewKicker">Monitor</span>
+          <h1 id="viewTitle">Command center</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span class="sync-status" id="syncStatus" role="status"><span class="status-dot" aria-hidden="true"></span><span>Connecting</span></span>
+        <button class="button button-quiet" id="refreshBtn" type="button">Refresh</button>
+      </div>
+    </header>
 
-    <div class="layer">Investigate</div>
-    <section class="panel" id="schedules" aria-label="Schedules"></section>
-    <section class="panel" id="surfaces" aria-label="Surfaces"></section>
-    <section class="panel" id="reports" aria-label="Reports"></section>
+    <main id="mainContent">
+      <section class="health-strip" id="statusRailEl" aria-label="Relay status">
+        <div class="health-placeholder"></div><div class="health-placeholder"></div><div class="health-placeholder"></div><div class="health-placeholder"></div>
+      </section>
 
-    <div class="layer">Operate</div>
-    <section class="panel" id="activations" aria-label="Activations"></section>
-    <section class="panel" id="access" aria-label="Relay Access"></section>
-    <section class="panel" id="providers" aria-label="Providers"></section>
-
-    <div class="layer danger-layer">Danger Zone</div>
-    <section class="panel danger-panel" id="maintenance" aria-label="Maintenance"></section>
-  </main>
+      <section class="workspace" id="workspace" aria-labelledby="viewTitle">
+        <div class="loading-state" role="status"><span class="spinner" aria-hidden="true"></span><strong>Loading operator data</strong><span>Reading the current relay state&hellip;</span></div>
+      </section>
+    </main>
+  </div>
 </div>
 
-<div id="notices" class="toast-rail" role="status" aria-live="polite" aria-atomic="false"></div>
+<div class="toast-rail" id="notices" aria-live="polite" aria-atomic="false"></div>
 
-<aside class="drawer" id="drawer" aria-labelledby="drawerTitle">
-  <div class="drawer-head">
-    <strong id="drawerTitle">Details</strong>
-    <button id="drawerClose" type="button" aria-label="Close inspector">Close</button>
-  </div>
+<button class="drawer-scrim" id="drawerScrim" type="button" aria-hidden="true" tabindex="-1"></button>
+<aside class="drawer" id="drawer" aria-labelledby="drawerTitle" aria-hidden="true" inert>
+  <header class="drawer-head">
+    <div><span class="section-kicker">Inspector</span><h2 id="drawerTitle">Details</h2></div>
+    <button class="icon-button" id="drawerClose" type="button" aria-label="Close inspector">&times;</button>
+  </header>
   <div class="drawer-body" id="drawerBody"></div>
 </aside>
+
+<dialog class="action-dialog" id="actionDialog" aria-labelledby="actionDialogTitle">
+  <form method="dialog" id="actionDialogForm">
+    <div class="dialog-icon" id="actionDialogIcon" aria-hidden="true">!</div>
+    <div class="dialog-copy">
+      <span class="section-kicker" id="actionDialogKicker">Confirm action</span>
+      <h2 id="actionDialogTitle">Confirm action</h2>
+      <p id="actionDialogCopy"></p>
+    </div>
+    <div class="dialog-fields" id="actionDialogFields"></div>
+    <div class="dialog-actions">
+      <button class="button button-quiet" id="actionDialogCancel" type="button">Cancel</button>
+      <button class="button button-primary" id="actionDialogConfirm" type="submit">Continue</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="secret-dialog" id="secretDialog" aria-labelledby="secretDialogTitle">
+  <div class="secret-dialog-body">
+    <div class="secret-icon" aria-hidden="true">1&times;</div>
+    <span class="section-kicker">One-time credential</span>
+    <h2 id="secretDialogTitle">Copy activation token</h2>
+    <p id="secretDialogCopy">This value will not be shown again after this dialog closes.</p>
+    <code id="secretValue"></code>
+    <div class="dialog-actions">
+      <button class="button button-quiet" id="copySecretBtn" type="button">Copy token</button>
+      <button class="button button-primary" id="closeSecretBtn" type="button">I saved it</button>
+    </div>
+  </div>
+</dialog>
+
+<noscript><div class="noscript">Network Operations requires JavaScript to load the redacted admin APIs.</div></noscript>
 
 <script>
 __ADMIN_JS__

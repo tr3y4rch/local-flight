@@ -1,4 +1,6 @@
 import type { Metar } from "../api/types";
+import { weatherCategory, weatherSummaryForDisplay, weatherTemperature } from "../domain/weatherPresentation";
+import type { MobileWeatherDisplayMode } from "../storage/settings";
 
 export type AirportHeroViewModel = {
   airportName: string;
@@ -26,8 +28,8 @@ export function airportHeroViewModel(input: {
   connectionLabel?: string;
   freshnessLabel: string;
   metar: Metar | null;
+  weatherDisplayMode: MobileWeatherDisplayMode;
 }): AirportHeroViewModel {
-  const temperature = input.metar?.temperature_c ?? input.metar?.temp_c;
   return {
     airportName: clean(input.airportName) || clean(input.airportCode) || "Your airport",
     airportCode: clean(input.airportCode),
@@ -36,16 +38,8 @@ export function airportHeroViewModel(input: {
     localTime: clean(input.localTime) || "--:--",
     connectionLabel: clean(input.connectionLabel) || "Offline",
     freshnessLabel: clean(input.freshnessLabel) || "Waiting for an update",
-    temperature: typeof temperature === "number" ? `${Math.round(temperature)}°` : "--°",
-    weatherSummary:
-      clean(input.metar?.weather_summary) ||
-      clean(input.metar?.decoded_summary) ||
-      clean(input.metar?.weather_label) ||
-      "Weather unavailable",
-    weatherCategory:
-      clean(input.metar?.flight_cat) ||
-      clean(input.metar?.flight_category) ||
-      clean(input.metar?.category) ||
-      "--"
+    temperature: weatherTemperature(input.metar),
+    weatherSummary: weatherSummaryForDisplay(input.metar, input.weatherDisplayMode),
+    weatherCategory: weatherCategory(input.metar)
   };
 }

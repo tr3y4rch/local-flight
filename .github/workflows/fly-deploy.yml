@@ -185,7 +185,7 @@ jobs:
             --env RELAY_PUBLIC_HOST=localhost \
             --env RELAY_ADMIN_HOST=localhost \
             --env RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT=staging \
-            --env RELAY_ACCESS_SITE_URL=https://beacontools.cc \
+            --env RELAY_ACCESS_SITE_URL=https://staging.beacontools.cc \
             --env RELAY_ACCESS_HASH_SECRET=ci-only-fake-hash-secret-00000001 \
             --env RELAY_ACCESS_KEY_SECRET=ci-only-fake-key-secret-000000002 \
             --env RELAY_ACCESS_ENCRYPTION_SECRET=ci-only-fake-encryption-secret-03 \
@@ -198,8 +198,14 @@ jobs:
           --host-header localhost
           --expected-revision "$GITHUB_SHA"
           --require-license-core
+          --expected-environment staging
           --attempts 30
           --delay 2
+
+      - name: Verify the operator shell and read routes
+        env:
+          RELAY_ADMIN_PASSWORD: ci-only-fake-password
+        run: python3 scripts/check_network_admin_deployment.py http://127.0.0.1:18080 --host-header localhost
 
       - name: Smoke-test oversized public bug-report rejection
         run: |
@@ -216,7 +222,7 @@ jobs:
           status="$(curl --silent --show-error \
             --output "$response_file" \
             --write-out "%{http_code}" \
-            --header "Origin: https://beacontools.cc" \
+            --header "Origin: https://staging.beacontools.cc" \
             --form-string "title=CI request-size smoke" \
             --form "description=<${description_file};type=text/plain" \
             --form-string "surface=relay" \
@@ -302,5 +308,6 @@ jobs:
           python scripts/check_relay_access_deployment.py
           https://relay.beacontools.cc
           --expected-revision "$GITHUB_SHA"
+          --expected-environment production
           --attempts 30
           --delay 5

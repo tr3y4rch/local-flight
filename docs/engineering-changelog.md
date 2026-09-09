@@ -5,7 +5,37 @@ contributors. It is intentionally not bundled or linked as end-user help.
 Private deployment records, service credentials, admin topology, artifact
 hashes, and personal build identifiers belong outside Git.
 
+## 0.6.1 candidate alignment
+
+- Reconciled schedule and licensing recovery work with website polish and the
+  compatible mobile/desktop fixes, preserving the two-step receiver transfer.
+- Separated candidate metadata from published download metadata. Kept native
+  downloads at 0.6.0 while reserving the next mobile testing counters.
+- Restored weather presentation styles, sheet/loading behavior, scroll-aware
+  navigation, and provider-independent schedule fallback coverage.
+- Kept new support purchases readiness-gated without blocking unfinished
+  transaction verification. Rate-limit responses never trigger relay fallback.
+- Extended source contracts for release-state separation and recovery behavior.
+- Isolated staging recovery origins and browser CORS from production; the site
+  build selects its matching relay rather than using production for sandbox flows.
+- Added installed-dependency/lockfile checks and bounded connection-reset retries
+  in the deployment smoke check. Refreshed matching Linux visual baselines.
+  Automated contracts do not certify physical devices, store processing, email
+  delivery, sandbox payments, or production readiness.
+
 ## 0.6.0 engineering line
+
+### Operator console restoration
+
+- Restored the responsive Network Operations workspace, filters, cursor history,
+  scoped inspectors, guarded actions, and one-time activation-token dialogs.
+- Integrated the current Relay Access license, recovery, delivery, reconciliation,
+  and backup controls into the same workspace while preserving its authentication,
+  CSRF, masking, and purchase-authority rules.
+- Restored retention status, runs, scoped holds, and install-data erasure, including
+  compatibility with databases without historical terms-acceptance records.
+- Added an authenticated console revision header and browser/API regression
+  coverage so deployments can verify the expected operator shell.
 
 ### Schedule rollout preparation
 
@@ -28,7 +58,6 @@ hashes, and personal build identifiers belong outside Git.
   added managed-data retention and removed provider caches from access backups.
 - Kept managed/BYOK routing explicit and public schedule contracts compatible.
   See `docs/schedule-relay-hardening.md` for rollout defaults and validation.
-
 
 ### Universal Relay Access
 

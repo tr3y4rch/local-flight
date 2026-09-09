@@ -1,6 +1,6 @@
 {
   "name": "beacon-tools-site",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,7 +12,7 @@
     "preview": "astro preview",
     "check": "astro check",
     "build": "astro build",
-    "test:contract": "node tests/site-contract.mjs",
+    "test:contract": "node tests/deployment-contract.mjs && node tests/site-contract.mjs",
     "test:e2e": "playwright test",
     "test:e2e:update": "playwright test --update-snapshots",
     "test:desktop-wizard": "playwright test --config playwright.desktop.config.ts",

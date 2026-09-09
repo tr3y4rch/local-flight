@@ -13,8 +13,8 @@ from localflight.version import user_agent
 
 TERRAIN_SCHEMA_VERSION = "terrain-context-v2"
 TERRAIN_PROVIDER = "aws-terrain-tiles"
-TERRAIN_ATTRIBUTION = "Terrain Tiles on AWS"
-TERRAIN_LICENSE_URL = "https://registry.opendata.aws/terrain-tiles/"
+TERRAIN_ATTRIBUTION = "Terrain Tiles on AWS · regional source credits"
+TERRAIN_LICENSE_URL = "https://beacontools.cc/data-sources/#terrain"
 TERRARIUM_TILE_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
 DEFAULT_TERRAIN_ZOOM = 10
 DEFAULT_TERRAIN_TIMEOUT_S = 3.0

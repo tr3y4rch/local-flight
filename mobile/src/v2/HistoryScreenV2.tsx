@@ -4,7 +4,7 @@ import {
   Modal,
   Pressable,
   RefreshControl,
-  SafeAreaView,
+  ScrollView,
   StyleSheet,
   TextInput,
   View
@@ -18,6 +18,7 @@ import type {
 } from "../api/types";
 import { accessibleButton, tapTargetHitSlop } from "../accessibility/mobileA11y";
 import { MotionPressable } from "../components/MotionPressable";
+import { InsetModalScaffold, insetModalPresentationProps } from "../components/InsetModalScaffold";
 import { V2Text as Text } from "../components/V2Text";
 import type { HistoryWindow } from "../domain/types";
 import { LocalFlightIcon } from "../theme/icons";
@@ -153,27 +154,33 @@ function FilterSheet({
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
+      {...insetModalPresentationProps}
     >
-      <SafeAreaView style={styles.sheetSafe}>
-        <View style={styles.sheetHeader}>
-          <Pressable style={styles.sheetHeaderButton} onPress={onClose} {...accessibleButton({ label: "Cancel history filters" })}>
-            <Text style={styles.sheetCancel}>Cancel</Text>
-          </Pressable>
-          <Text style={styles.sheetTitle}>Filter history</Text>
-          <Pressable
-            style={styles.sheetHeaderButton}
-            onPress={() => {
-              hapticLight();
-              props.onApplyFilters(draft);
-              onClose();
-            }}
-            {...accessibleButton({ label: "Apply history filters" })}
-          >
-            <Text style={styles.sheetDone}>Apply</Text>
-          </Pressable>
-        </View>
+      <InsetModalScaffold backgroundColor={appearance.bg}>
+        {(insets) => <>
+          <View style={styles.sheetHeader}>
+            <Pressable style={styles.sheetHeaderButton} onPress={onClose} {...accessibleButton({ label: "Cancel history filters" })}>
+              <Text style={styles.sheetCancel}>Cancel</Text>
+            </Pressable>
+            <Text style={styles.sheetTitle}>Filter history</Text>
+            <Pressable
+              style={styles.sheetHeaderButton}
+              onPress={() => {
+                hapticLight();
+                props.onApplyFilters(draft);
+                onClose();
+              }}
+              {...accessibleButton({ label: "Apply history filters" })}
+            >
+              <Text style={styles.sheetDone}>Apply</Text>
+            </Pressable>
+          </View>
 
-        <View style={styles.sheetBody}>
+          <ScrollView
+            contentContainerStyle={[styles.sheetBody, { paddingBottom: insets.bottom + 28 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
           <Text style={styles.fieldLabel}>Direction</Text>
           <View style={styles.choiceRow}>
             {([
@@ -242,8 +249,9 @@ function FilterSheet({
             maxLength={3}
             returnKeyType="search"
           />
-        </View>
-      </SafeAreaView>
+          </ScrollView>
+        </>}
+      </InsetModalScaffold>
     </Modal>
   );
 }
@@ -461,7 +469,7 @@ function makeStyles(a: MobileAppearance, layoutClass: LayoutWidthClass) {
     emptyTitle: { color: a.text, fontSize: 18, fontWeight: "700", marginTop: 13 },
     emptyBody: { color: a.textMuted, fontSize: 14, lineHeight: 20, textAlign: "center", marginTop: 5, maxWidth: 380 },
     sheetSafe: { flex: 1, backgroundColor: a.bg },
-    sheetHeader: { height: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: a.line, paddingHorizontal: 10 },
+    sheetHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: a.line, paddingHorizontal: 10, paddingVertical: 7 },
     sheetHeaderButton: { minWidth: 66, minHeight: 44, justifyContent: "center", paddingHorizontal: 8 },
     sheetCancel: { color: a.textMuted, fontSize: 16 },
     sheetTitle: { color: a.text, fontSize: 16, fontWeight: "700" },

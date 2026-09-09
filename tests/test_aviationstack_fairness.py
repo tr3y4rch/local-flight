@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import localflight.scheduler.jobs as jobs
+import localflight.sources.web.aerodatabox_client as aerodatabox_client
 import localflight.sources.web.aviationstack_client as aviationstack_client
 import localflight.ui.api as ui_api
 from localflight.core.models import (
@@ -630,3 +631,100 @@ def test_shared_relay_schedule_records_feed_normalize_pipeline_without_provider_
     assert len(flights) == 1
     assert flights[0].callsign == "SWR100"
     assert flights[0].gate == "E45"
+
+
+def test_byok_auto_schedule_works_with_aerodatabox_only(monkeypatch) -> None:
+    calls: list[str] = []
+    now = datetime.now(timezone.utc)
+    monkeypatch.setenv("LOCALFLIGHT_REAL_SCHEDULE_PROVIDER", "auto")
+    monkeypatch.setattr(aviationstack_client, "_relay_uses_shared_schedule", lambda source=None, data_route=None: False)
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: False)
+    monkeypatch.setattr(aerodatabox_client, "has_enabled_key", lambda: True)
+    monkeypatch.setattr(
+        aerodatabox_client,
+        "fetch_schedule_records",
+        lambda **kwargs: (calls.append("aerodatabox") or [{"provider": "aerodatabox"}], {"units_spent": 2}),
+    )
+    monkeypatch.setattr(
+        jobs,
+        "_fetch_aviationstack_records_windowed",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("absent AviationStack must not be called")),
+    )
+    monkeypatch.setattr(jobs, "normalize_flights", lambda records, **kwargs: [_flight("SWR100", now)])
+
+    flights = jobs._fetch_real_schedule(AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"))
+
+    assert calls == ["aerodatabox"]
+    assert [flight.callsign for flight in flights] == ["SWR100"]
+
+
+def test_byok_auto_schedule_works_with_aviationstack_only(monkeypatch) -> None:
+    calls: list[str] = []
+    now = datetime.now(timezone.utc)
+    monkeypatch.setenv("LOCALFLIGHT_REAL_SCHEDULE_PROVIDER", "auto")
+    monkeypatch.setattr(aviationstack_client, "_relay_uses_shared_schedule", lambda source=None, data_route=None: False)
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: True)
+    monkeypatch.setattr(aerodatabox_client, "has_enabled_key", lambda: False)
+    monkeypatch.setattr(
+        jobs,
+        "_fetch_aviationstack_records_windowed",
+        lambda *args, **kwargs: (calls.append("aviationstack") or [{"provider": "aviationstack"}], {}),
+    )
+    monkeypatch.setattr(jobs, "normalize_flights", lambda records, **kwargs: [_flight("SWR200", now)])
+
+    flights = jobs._fetch_real_schedule(AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"))
+
+    assert calls == ["aviationstack"]
+    assert [flight.callsign for flight in flights] == ["SWR200"]
+
+
+def test_byok_auto_schedule_fails_over_when_aerodatabox_is_unavailable(monkeypatch) -> None:
+    calls: list[str] = []
+    now = datetime.now(timezone.utc)
+    monkeypatch.setenv("LOCALFLIGHT_REAL_SCHEDULE_PROVIDER", "auto")
+    monkeypatch.setattr(aviationstack_client, "_relay_uses_shared_schedule", lambda source=None, data_route=None: False)
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: True)
+    monkeypatch.setattr(aerodatabox_client, "has_enabled_key", lambda: True)
+
+    def fail_aerodatabox(**kwargs):
+        calls.append("aerodatabox")
+        raise aerodatabox_client.AeroDataBoxError("temporary provider outage")
+
+    monkeypatch.setattr(aerodatabox_client, "fetch_schedule_records", fail_aerodatabox)
+    monkeypatch.setattr(
+        jobs,
+        "_fetch_aviationstack_records_windowed",
+        lambda *args, **kwargs: (calls.append("aviationstack") or [{"provider": "aviationstack"}], {}),
+    )
+    monkeypatch.setattr(jobs, "normalize_flights", lambda records, **kwargs: [_flight("SWR300", now)])
+
+    flights = jobs._fetch_real_schedule(AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"))
+
+    assert calls == ["aerodatabox", "aviationstack"]
+    assert [flight.callsign for flight in flights] == ["SWR300"]
+
+
+def test_byok_auto_keeps_aerodatabox_when_aviationstack_fill_is_unavailable(monkeypatch) -> None:
+    calls: list[str] = []
+    now = datetime.now(timezone.utc)
+    monkeypatch.setenv("LOCALFLIGHT_REAL_SCHEDULE_PROVIDER", "auto")
+    monkeypatch.setattr(aviationstack_client, "_relay_uses_shared_schedule", lambda source=None, data_route=None: False)
+    monkeypatch.setattr(aviationstack_client, "_has_enabled_byok_key", lambda: True)
+    monkeypatch.setattr(aerodatabox_client, "has_enabled_key", lambda: True)
+    monkeypatch.setattr(
+        aerodatabox_client,
+        "fetch_schedule_records",
+        lambda **kwargs: (calls.append("aerodatabox") or [{"provider": "aerodatabox"}], {"units_spent": 2}),
+    )
+
+    def fail_fill(*args, **kwargs):
+        calls.append("aviationstack")
+        raise aviationstack_client.AviationstackError("temporary fill outage")
+
+    monkeypatch.setattr(jobs, "_fetch_aviationstack_records_windowed", fail_fill)
+    monkeypatch.setattr(jobs, "normalize_flights", lambda records, **kwargs: [_flight("SWR400", now)])
+
+    flights = jobs._fetch_real_schedule(AppConfig(airport_iata="ZRH", airport_icao="LSZH", source="real"))
+
+    assert calls == ["aerodatabox", "aviationstack"]
+    assert [flight.callsign for flight in flights] == ["SWR400"]

@@ -165,19 +165,19 @@ export const englishCopy = {
     appearance: "Appearance",
     appearanceSystem: {
       label: "Use device setting",
-      description: "Follow this device’s light or dark appearance."
+      description: "Match this device’s light or dark appearance."
     },
     appearanceLight: {
       label: "Light",
-      description: "Always use the warm cloud appearance."
+      description: "Keep Local Flight bright and easy to read."
     },
     appearanceDark: {
       label: "Dark",
-      description: "Always use the midnight appearance."
+      description: "Keep Local Flight dark in every environment."
     },
     highContrast: {
       label: "High contrast",
-      description: "Use stronger separators and maximum text contrast."
+      description: "Strengthen text, controls, and separators."
     }
   },
   platform: {

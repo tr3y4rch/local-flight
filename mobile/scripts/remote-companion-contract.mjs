@@ -140,8 +140,13 @@ assert.match(
 );
 assert.match(
   appShellSource,
-  /try \{\s+if \(includeDashboard\) \{[\s\S]*?isCurrentDashboardRequest\(\)[\s\S]*?return;[\s\S]*?finally \{\s+if \(!background\)/,
-  "Dashboard failure must return through the refresh cleanup block."
+  /dashboardError = exc;[\s\S]*?if \(!isCurrentTargetRequest\(\)\) return;[\s\S]*?if \(target === "fids"\) \{\s+await fetchFidsData/,
+  "Dashboard metadata failure must not suppress the requested Board or FIDS route."
+);
+assert.match(
+  appShellSource,
+  /message: "Flight information loaded\. Some airport details could not be updated\."/,
+  "A successful Board with failed metadata should surface only a secondary safe notice."
 );
 assert.match(
   appShellSource,

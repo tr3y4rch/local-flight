@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Animated, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import * as ScreenOrientation from "expo-screen-orientation";
 import {
   CommonActions,
@@ -22,8 +22,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ClientNotice } from "../api/types";
-import { accessibleButton, useReducedMotionPreference } from "../accessibility/mobileA11y";
-import { V2_MOTION } from "../components/MotionPressable";
+import { accessibleButton } from "../accessibility/mobileA11y";
 import { V2Text as Text } from "../components/V2Text";
 import { useMobileSession, type MobileSection } from "../session/MobileSessionProvider";
 import { LocalFlightIcon, type LocalFlightIconName } from "../theme/icons";
@@ -142,24 +141,6 @@ function NoticeStack() {
 
 function FeatureFrame({ children, nativeScrollRoot = false }: { children: ReactNode; nativeScrollRoot?: boolean }) {
   const { appearance } = useMobileTheme();
-  const reduceMotion = useReducedMotionPreference();
-  const opacity = useRef(new Animated.Value(1)).current;
-  const shift = useRef(new Animated.Value(0)).current;
-  useFocusEffect(useCallback(() => {
-    if (reduceMotion) {
-      opacity.setValue(1);
-      shift.setValue(0);
-      return undefined;
-    }
-    opacity.setValue(0);
-    shift.setValue(8);
-    const animation = Animated.parallel([
-      Animated.timing(opacity, { toValue: 1, duration: V2_MOTION.pageRevealMs, useNativeDriver: true }),
-      Animated.timing(shift, { toValue: 0, duration: V2_MOTION.pageRevealMs, useNativeDriver: true })
-    ]);
-    animation.start();
-    return () => animation.stop();
-  }, [opacity, reduceMotion, shift]));
   if (nativeScrollRoot) {
     return (
       <>
@@ -173,7 +154,7 @@ function FeatureFrame({ children, nativeScrollRoot = false }: { children: ReactN
   return (
     <View style={[navigationStyles.featureFrame, { backgroundColor: appearance.bg }]}>
       <NoticeStack />
-      <Animated.View style={[navigationStyles.featureContent, { opacity, transform: [{ translateY: shift }] }]}>{children}</Animated.View>
+      <View style={navigationStyles.featureContent}>{children}</View>
     </View>
   );
 }
@@ -196,10 +177,10 @@ function BoardRoute({ nativeScrollRoot = false }: { nativeScrollRoot?: boolean }
   );
 }
 
-function RadarRoute({ dismissRequestKey }: { dismissRequestKey: number }) {
+function RadarRoute({ dismissRequestKey, nativeScrollRoot = false }: { dismissRequestKey: number; nativeScrollRoot?: boolean }) {
   useSectionFocus("radar");
   const { radar } = useMobileSession();
-  return <FeatureFrame><RadarScreenV2 {...radar} dismissRequestKey={dismissRequestKey} /></FeatureFrame>;
+  return <FeatureFrame nativeScrollRoot={nativeScrollRoot}><RadarScreenV2 {...radar} dismissRequestKey={dismissRequestKey} /></FeatureFrame>;
 }
 
 function HistoryRoute({ dismissRequestKey, nativeScrollRoot = false }: { dismissRequestKey: number; nativeScrollRoot?: boolean }) {
@@ -211,15 +192,17 @@ function HistoryRoute({ dismissRequestKey, nativeScrollRoot = false }: { dismiss
 function MoreRoute({
   more,
   route,
-  dismissRequestKey
+  dismissRequestKey,
+  nativeScrollRoot = false
 }: {
   more: MoreScreenV2Props;
   route: RouteProp<MobileTabParamList, "More">;
   dismissRequestKey: number;
+  nativeScrollRoot?: boolean;
 }) {
   useSectionFocus("more");
   return (
-    <FeatureFrame>
+    <FeatureFrame nativeScrollRoot={nativeScrollRoot}>
       <MoreScreenV2
         {...more}
         requestedPanel={route.params?.panel}
@@ -283,6 +266,7 @@ function DisplayRoute({
       localTime={board.localTime}
       updatedLabel={board.updatedLabel}
       metar={board.metar}
+      weatherDisplayMode={board.weatherDisplayMode}
       pinnedCallsign={board.pinnedCallsign}
       pageSeconds={board.displayPageSeconds}
       entryReason={route.params?.entry || "deep-link"}
@@ -344,9 +328,7 @@ function LiquidGlassTabs({
         tabBarIcon: ({ focused }) => nativeTabIcon(route.name, focused),
         tabBarActiveTintColor: appearance.blue,
         tabBarControllerMode: "tabBar",
-        tabBarMinimizeBehavior: route.name === "Board" || route.name === "History"
-          ? "onScrollDown"
-          : "none",
+        tabBarMinimizeBehavior: "onScrollDown",
         // The native implementation follows the first descendant scroll view
         // and preserves rows behind the translucent Liquid Glass tab bar.
         overrideScrollViewContentInsetAdjustmentBehavior: true
@@ -356,10 +338,10 @@ function LiquidGlassTabs({
       }}
     >
       <NativeTabs.Screen name="Board">{() => <BoardRoute nativeScrollRoot />}</NativeTabs.Screen>
-      <NativeTabs.Screen name="Radar">{() => <RadarRoute dismissRequestKey={dismissRequestKey} />}</NativeTabs.Screen>
+      <NativeTabs.Screen name="Radar">{() => <RadarRoute dismissRequestKey={dismissRequestKey} nativeScrollRoot />}</NativeTabs.Screen>
       <NativeTabs.Screen name="History">{() => <HistoryRoute dismissRequestKey={dismissRequestKey} nativeScrollRoot />}</NativeTabs.Screen>
       <NativeTabs.Screen name="More">
-        {({ route }) => <MoreRoute more={more} route={route} dismissRequestKey={dismissRequestKey} />}
+        {({ route }) => <MoreRoute more={more} route={route} dismissRequestKey={dismissRequestKey} nativeScrollRoot />}
       </NativeTabs.Screen>
     </NativeTabs.Navigator>
   );
@@ -377,11 +359,13 @@ function AdaptiveTabs({
   const { appearance } = useMobileTheme();
   const layout = useResponsiveLayout();
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
   if (nativeNavigation.usesNativeLiquidGlassTabs) {
     return <LiquidGlassTabs more={more} dismissRequestKey={dismissRequestKey} />;
   }
   const rail = !layout.isCompact;
   const compactRail = layout.sizeClass === "medium";
+  const compactTabVisualHeight = window.height < 650 ? 62 : 66;
   return (
     <Tabs.Navigator
       initialRouteName="Board"
@@ -406,16 +390,16 @@ function AdaptiveTabs({
               paddingVertical: 12
             }
           : {
-              minHeight: 66 + insets.bottom,
+              height: compactTabVisualHeight + insets.bottom,
               backgroundColor: appearance.shell,
               borderTopWidth: StyleSheet.hairlineWidth,
               borderTopColor: appearance.line,
               paddingTop: 6,
-              paddingBottom: Math.max(6, insets.bottom)
+              paddingBottom: insets.bottom
             },
         tabBarItemStyle: rail
           ? { minHeight: 54, borderRadius: 16, marginVertical: 3 }
-          : { minHeight: 54, borderRadius: 15, marginHorizontal: 3 },
+          : { height: compactTabVisualHeight - 8, minHeight: 48, borderRadius: 15, marginHorizontal: 3 },
         tabBarLabelStyle: {
           fontSize: rail && !compactRail ? 14 : 11,
           fontWeight: "600"

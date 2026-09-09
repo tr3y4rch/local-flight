@@ -5841,6 +5841,12 @@ def test_matrix_preview_download_payload_uses_defined_animation_state() -> None:
     assert "MATRIX_PANEL_PRESETS" in template
     assert 'const MATRIX_SUPPORTED_ANIMATIONS = ["split_flap", "typewriter", "cascade", "slide_left", "slide_right", "static"]' in template
     assert "MATRIX_SUPPORTED_ANIMATIONS.includes(ANIMATION_MODE)" in template
+    assert "function saveGeneratedMainPy(content)" in template
+    assert "document.body.appendChild(link)" in template
+    assert "window.setTimeout(() =>" in template
+    assert template.index("link.remove()") < template.index("URL.revokeObjectURL(url)")
+    assert "saveGeneratedMainPy(content);" in template
+    assert "a.click();\n      URL.revokeObjectURL(url);" not in template
     assert "preset.options.animation_mode" in template
     assert "row.matrix_flight_label" in template
     assert "row.matrix_operator_label" in template
@@ -6845,9 +6851,9 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     )
 
     assert app["ios"]["bundleIdentifier"] == "cc.beacontools.localflight"
-    assert app["ios"]["buildNumber"] == "13"
+    assert app["ios"]["buildNumber"] == "14"
     assert app["android"]["package"] == "cc.beacontools.localflight"
-    assert app["android"]["versionCode"] == 16
+    assert app["android"]["versionCode"] == 17
     assert "./plugins/with-localflight-ios-widget" in app["plugins"]
     assert "./plugins/with-localflight-android-widget" in app["plugins"]
     assert app["ios"]["entitlements"]["com.apple.security.application-groups"] == [
@@ -6884,7 +6890,7 @@ def test_mobile_store_identity_and_verified_consumable_support_contract() -> Non
     assert "cc.beacontools.localflight.support.large" in relay
     assert "cc.beacontools.localflight.tip." not in relay
     assert "Purchases and In-App Payments (IAP)" in privacy
-    assert "Purchases and in-app payments (IAP)" in site_privacy
+    assert "Support purchases are tips, not Relay Access." in site_privacy
     assert "Apple transaction ID or Google purchase token" in site_privacy
     assert "keyed one-way hash and short reference" in site_privacy
     assert "does not retain the raw Apple transaction ID" in site_privacy
@@ -6932,7 +6938,12 @@ def test_support_site_uses_forms_instead_of_exposed_general_email() -> None:
 
     assert 'data-support-form="contact"' in support
     assert 'data-support-form="bug"' in support
-    assert "https://relay.beacontools.cc" in support
+    assert 'data-relay-origin={relayOrigin}' in support
+    assert "form.dataset.relayOrigin" in support
+    assert "https://relay.beacontools.cc" not in support
+    deployment = (root / "site" / "deployment.mjs").read_text(encoding="utf-8")
+    assert "https://relay.beacontools.cc" in deployment
+    assert "https://relay-staging.beacontools.cc" in deployment
     assert "/v1/site/contact" in support
     assert "/v1/site/bug-report" in support
     assert 'name="logs" type="file"' in support
@@ -7283,6 +7294,8 @@ def test_release_installers_keep_pi_headless_default_and_windows_native() -> Non
     assert "localflight-native-kiosk.service" in pi_install
     assert "LOCALFLIGHT_NATIVE_UI_ONLY=1" in pi_install
     assert "LOCALFLIGHT_NATIVE_FULLSCREEN=1" in pi_install
+    assert "next=%%2Fdisplay" in pi_install
+    assert re.search(r"(?<!%)%2Fdisplay", pi_install) is None
     assert "grep -Eq" in pi_helper
     assert "has_native_kiosk" in pi_helper
     assert "import PySide6" not in pi_helper

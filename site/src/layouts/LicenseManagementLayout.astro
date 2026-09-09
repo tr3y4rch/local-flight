@@ -46,9 +46,9 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site) : Astro.u
       <div class="management-header-inner">
         <div class="management-brand" aria-label="Beacon Tools license management">
           <img src="/assets/beacon-tools-mark-96.png" alt="" width="48" height="48" />
-          <span><strong>Beacon Tools</strong><small>Relay license management</small></span>
+          <span><strong>Beacon Tools</strong><small>Relay Access controls</small></span>
         </div>
-        <span class="management-isolation">PRIVATE RECOVERY SESSION</span>
+        <span class="management-isolation">PRIVATE ACCESS SESSION</span>
         <button class="theme-toggle" type="button" aria-label="Switch to light theme" data-theme-toggle>
           <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
           <span class="theme-icon theme-icon-moon" aria-hidden="true">◐</span>
@@ -59,7 +59,7 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site) : Astro.u
     <main id="main-content"><slot /></main>
     <footer class="management-footer">
       <div>
-        <span>License recovery and device transfer only.</span>
+        <span>Recovery and device changes only.</span>
         <nav aria-label="License management help">
           <a href="/privacy/">Privacy</a>
           <a href="/local-flight/relay-access/terms/">License terms</a>

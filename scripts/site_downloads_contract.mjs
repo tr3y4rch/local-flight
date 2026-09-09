@@ -93,6 +93,43 @@ assert.equal(workerModule.buildReleaseManifest({
   html_url: "https://github.com/tr3y4rch/local-flight/releases/tag/v0.2.7",
 }), null, "Packages older than the current public release line must not be promoted.");
 
+const htmlAsset = await workerModule.default.fetch(
+  new Request("https://beacontools.cc/privacy/"),
+  {
+    ASSETS: {
+      fetch: async () => new Response("<!doctype html><title>Privacy</title>", {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      }),
+    },
+  },
+  {},
+);
+assert.match(
+  htmlAsset.headers.get("Cache-Control") || "",
+  /(?:^|,\s*)no-transform(?:,|$)/,
+  "HTML responses must prevent edge-injected analytics scripts.",
+);
+
+const imageAsset = await workerModule.default.fetch(
+  new Request("https://beacontools.cc/assets/logo.svg"),
+  {
+    ASSETS: {
+      fetch: async () => new Response("<svg/>", {
+        headers: {
+          "Content-Type": "image/svg+xml",
+          "Cache-Control": "public, max-age=31536000",
+        },
+      }),
+    },
+  },
+  {},
+);
+assert.equal(
+  imageAsset.headers.get("Cache-Control"),
+  "public, max-age=31536000",
+  "Non-HTML asset caching must remain unchanged.",
+);
+
 const builtPagePath = path.join(root, "site/dist/local-flight/index.html");
 assert.ok(
   fs.existsSync(builtPagePath),

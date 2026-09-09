@@ -12,7 +12,7 @@ import {
   View
 } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { LaunchOverlay } from "../components/LaunchOverlay";
 import {
@@ -58,6 +58,7 @@ import {
 } from "../api/client";
 import { completeRemoteCompanionPairing, testRemoteCompanionProbe } from "../api/remoteCompanion";
 import {
+  getLastStandaloneRelayDiagnostic,
   getStandaloneRadarGround,
   getStandaloneBoard,
   getStandaloneRadar,
@@ -355,7 +356,6 @@ export function AppShell() {
   const { appearance, themeMode, skin, hydrated: themeHydrated, setThemeMode, setSkin } = useMobileTheme();
   const supportPurchases = useSupportPurchases();
   const layout = useResponsiveLayout();
-  const insets = useSafeAreaInsets();
   const nativeNavigation = runtimeNativeNavigationCapabilities(
     layout.sizeClass,
     MOBILE_V2_ROLLOUT_ENABLED && MOBILE_V2_NATIVE_NAVIGATION_ENABLED
@@ -383,6 +383,7 @@ export function AppShell() {
   const [utcTime, setUtcTime] = useState(formatUtc());
   const [localTime, setLocalTime] = useState(formatAirportLocalTime("UTC"));
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>(EMPTY_SNAPSHOT);
+  const [metadataNotice, setMetadataNotice] = useState<ClientNotice | null>(null);
   const [airportDetail, setAirportDetail] = useState<AirportResolved | null>(null);
   const [rows, setRows] = useState<FidsRow[]>([]);
   const [historyData, setHistoryData] = useState<HistoryResponse | null>(null);
@@ -1264,24 +1265,19 @@ export function AppShell() {
           setError(null);
         }
 
+        let dashboardError: unknown = null;
         try {
           if (includeDashboard) {
             try {
               await fetchDashboard(normalized, dashboardGeneration);
+              if (isCurrentDashboardRequest()) setMetadataNotice(null);
               if (!isStandalone && isCurrentDashboardRequest()) {
                 setCompanionTransport(getLastCompanionTransport());
               }
             } catch (exc) {
               noteRelayAccessError(exc);
               if (isCurrentDashboardRequest()) {
-                setConnected(false);
-                if (isCurrentForegroundRefresh()) {
-                  setRefreshErrorByTarget((previous) => ({ ...previous, [target]: errorMessage(exc) }));
-                }
-                if (target === "fids") {
-                  setLaunchDataOutcome((current) => current === "pending" ? "offline" : current);
-                }
-                return;
+                dashboardError = exc;
               }
               if (!isCurrentTargetRequest()) return;
             }
@@ -1303,11 +1299,26 @@ export function AppShell() {
             if (includeBoardSnapshot && target !== "fids") {
               await fetchFidsData(normalized, nextView);
             }
+            if (isCurrentTargetRequest()) {
+              setConnected(true);
+              if (dashboardError) {
+                setMetadataNotice({
+                  code: "mobile.metadata_partial",
+                  tone: "info",
+                  message: "Flight information loaded. Some airport details could not be updated.",
+                  next_step: "Local Flight kept the current Board and will check those details again later."
+                });
+              }
+              if (isCurrentForegroundRefresh()) {
+                setRefreshErrorByTarget((previous) => ({ ...previous, [target]: null }));
+              }
+            }
             if (!isStandalone) {
               setCompanionTransport(getLastCompanionTransport());
             }
           } catch (exc) {
             noteRelayAccessError(exc);
+            if (dashboardError && isCurrentTargetRequest()) setConnected(false);
             if (isCurrentForegroundRefresh()) {
               setRefreshErrorByTarget((previous) => ({ ...previous, [target]: errorMessage(exc) }));
             }
@@ -1451,7 +1462,7 @@ export function AppShell() {
         : `Pairing QR loaded. Connecting this mobile app to ${pairing.serverUrl}.`
     );
     void connect(pairing.serverUrl, pairing.expectedServerFingerprint, pairing.remoteCompanionInvite || null);
-  }, [connect]);
+  }, [connect, isStandalone, mobileDiagnosticsMode, mobileSetupComplete, serverUrl]);
 
   const chooseRadarDrawingLayers = useCallback(async (next: MobileRadarDrawingLayers) => {
     const normalized = { ...next };
@@ -2324,13 +2335,18 @@ export function AppShell() {
     ? (screen === "radar" ? standaloneRadarIntervalMs : standaloneBoardIntervalMs)
     : (screen === "radar" ? radarSyncIntervalMs : companionSyncMs(cfg?.refresh_seconds));
   const widgetAutomaticLabel = widgetBackgroundState === "active"
-    ? "automatic refresh on"
+    ? "background updates are on"
     : widgetBackgroundState === "restricted"
-      ? "automatic refresh limited by device"
+      ? "background updates are limited by this device"
       : widgetBackgroundState === "off"
-        ? "automatic refresh off"
-        : "checking automatic refresh";
-  const widgetSnapshotLabel = `Snapshot ${widgetSnapshotStatus.state} · ${widgetSnapshotStatus.detail} · ${widgetAutomaticLabel}`;
+        ? "background updates are off"
+        : "checking background updates";
+  const widgetDataLabel = widgetSnapshotStatus.state === "ready"
+    ? "Widget data is ready"
+    : widgetSnapshotStatus.state === "stale"
+      ? "Widgets are showing the latest saved update"
+      : "Widget data is being prepared";
+  const widgetSnapshotLabel = `${widgetDataLabel} · ${widgetAutomaticLabel}`;
   const enrichDetailsFromLan = !isStandalone && Boolean(serverUrl);
   const openFidsDetail = useCallback((callsign: string, row?: FidsRow) => {
     const normalizedCallsign = callsign || row?.callsign || row?.flight_number || row?.flight_display || row?.id || "";
@@ -2598,15 +2614,14 @@ export function AppShell() {
     };
   }, [companionIdentity, connected, isStandalone, serverUrl]);
 
-  // UIKit owns the compact iPhone tab-bar inset on the Liquid Glass path. The
-  // V2 lists opt into automatic adjustment there; every fallback retains the
-  // explicit safe-area padding used by the adaptive React Navigation bar.
-  const screenContentPadding = nativeNavigation.usesNativeLiquidGlassTabs
-    ? 20
-    : Math.max(20, insets.bottom + 14);
+  // Both UIKit and the adaptive React Navigation bar reserve their own screen
+  // space. Screen lists add ordinary breathing room only; the tab bar is the
+  // single owner of the Android gesture/three-button bottom inset.
+  const screenContentPadding = 20;
   const effectiveRadarDrawingLayers = radarDrawingLayers;
   const statusBarStyle = themeMode === "light" ? "dark-content" : "light-content";
   const visibleNotices = [
+    ...(metadataNotice ? [metadataNotice] : []),
     ...(snapshot.notices || []),
     ...(screen === "radar" ? (radarData?.notices || []) : [])
   ].filter((notice, index, all) => all.findIndex((item) => item.code === notice.code) === index).slice(0, 2);
@@ -2685,6 +2700,7 @@ export function AppShell() {
             pairingUrl={pairingUrl}
             pairingNonce={pairingNonce}
             pairingExpectedServerFingerprint={pairingExpectedServerFingerprint}
+            pairingRelayUrl={pairingRemoteInvite?.relayUrl || ""}
             initialDiagnosticsMode={mobileDiagnosticsMode}
             initialRelayActivationGrant={pendingRelayActivationGrant}
             onPairingLoaded={(pairing) => {
@@ -2753,6 +2769,13 @@ export function AppShell() {
       ? "Connected remotely"
       : "Offline";
   const freshnessLabel = boardFreshnessLabel(state?.last_success_utc, !isLive || Boolean(boardError));
+  const radarFreshnessLabel = radarData?.generated_at
+    ? boardFreshnessLabel(radarData.generated_at, Boolean(radarError))
+    : radarData
+      ? "Latest traffic loaded"
+      : refreshingByTarget.radar
+        ? "Loading radar"
+        : "Waiting for radar";
   const handleV2SectionFocus = (section: MobileSection) => {
     const target: Screen = section === "board"
       ? "fids"
@@ -2778,6 +2801,7 @@ export function AppShell() {
       updatedLabel: freshnessLabel,
       connectionLabel,
       metar: snapshot.metar,
+      weatherDisplayMode,
       pinnedCallsign,
       refreshing: Boolean(refreshingByTarget.fids),
       error: boardError,
@@ -2804,13 +2828,14 @@ export function AppShell() {
       groundData: radarGroundData,
       groundError: radarGroundError,
       metar: snapshot.metar,
+      weatherDisplayMode,
       radiusNm: radarRadius,
       radiusOptions: isStandalone ? [1, 3, 5, 10] : [1, 2, 3, 5, 10, 20, 40],
       drawingLayers: effectiveRadarDrawingLayers,
       standalone: isStandalone,
       refreshing: Boolean(refreshingByTarget.radar),
       error: radarError,
-      updatedLabel: freshnessLabel,
+      updatedLabel: radarFreshnessLabel,
       layoutClass: layout.sizeClass,
       contentPaddingBottom: screenContentPadding,
       nativeNavigation: nativeNavigation.usesNativeLiquidGlassTabs,
@@ -2893,6 +2918,19 @@ export function AppShell() {
             widgetPreview,
             widgetPreferences,
             widgetSnapshotLabel,
+            relayDiagnosticLabel: (() => {
+              if (!isStandalone) {
+                return "Not used while this device is connected to a Local Flight host.";
+              }
+              const diagnostic = isStandalone ? getLastStandaloneRelayDiagnostic() : null;
+              if (!diagnostic) return "No Standalone relay request recorded yet.";
+              const outcome = diagnostic.httpClass === "2xx"
+                ? "The last Standalone connection succeeded."
+                : diagnostic.httpClass === "network" || diagnostic.httpClass === "5xx"
+                  ? "The last Standalone connection could not reach the service."
+                  : "The last Standalone request needs attention.";
+              return `${outcome} ${diagnostic.attemptCount === 1 ? "One attempt was made." : `${diagnostic.attemptCount} attempts were made.`}${diagnostic.recoveredByOfficialFallback ? " A backup service address restored the connection." : ""}`;
+            })(),
             liveActivitySupported,
             weatherDisplayMode,
             autoDisplayOnRotate,
@@ -4928,6 +4966,21 @@ function createStyles() {
     color: palette.textMuted,
     fontSize: 11,
     lineHeight: 15
+  },
+  radarAttributionRow: {
+    marginHorizontal: 16,
+    marginTop: -6,
+    marginBottom: 10,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 8
+  },
+  radarAttributionText: {
+    color: palette.textDim,
+    fontSize: 10,
+    lineHeight: 16,
+    textDecorationLine: "underline"
   },
   radarLayerChips: {
     flexDirection: "row",

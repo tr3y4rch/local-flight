@@ -7,7 +7,8 @@ const siteRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const dist = path.join(siteRoot, "dist");
 const projectSource = fs.readFileSync(path.join(siteRoot, "..", "pyproject.toml"), "utf8");
 const projectVersion = projectSource.match(/^version = "([^"]+)"$/m)?.[1];
-assert.ok(projectVersion, "pyproject.toml must declare the public release version");
+assert.ok(projectVersion, "pyproject.toml must declare the candidate version");
+const publishedVersion = "0.6.0";
 const routes = [
   "index.html",
   "local-flight/index.html",
@@ -91,7 +92,8 @@ for (const route of publicRoutes) {
   assert.match(html, /data-menu-toggle/);
   assert.match(html, /data-clock="utc"/);
   assert.match(html, /data-clock="local"/);
-  assert.match(html, new RegExp(`data-site-release="${projectVersion}"`));
+  assert.match(html, new RegExp(`data-site-release="${publishedVersion}"`));
+  assert.match(text, /Free, open-source Local Flight software\. Optional paid Beacon Relay access\. No advertising or behavioral tracking\./);
 }
 
 const managementHtml = builtPages.get(managementRoute);
@@ -101,50 +103,74 @@ assert.match(managementHtml, /name="referrer" content="no-referrer"/);
 assert.doesNotMatch(managementHtml, /href="\/local-flight\/relay-access\/"|apps\.apple\.com|play\.google\.com|stripe\.com/);
 
 assert.doesNotMatch(allSiteText, /Community Relay/i, "Current public pages must use Beacon Relay");
-assert.match(pageText["index.html"], /Your flight board\. Every screen, one ecosystem\./);
-assert.match(pageText["index.html"], /Desktop free and open source · Android Companion \+ VATSIM free · One Relay license per purchase · No subscription/);
-assert.match(pageText["index.html"], /Stripe, a verified Apple app entitlement, and the Android in-app product all create the same kind of portable Beacon Relay license/);
+assert.doesNotMatch(allSiteText, /\becosystem\b|buy where it fits|the same rights|what travels with the license|message desk/i);
+assert.match(pageText["index.html"], /Airport-style flight boards for screens you own\./);
+assert.match(pageText["index.html"], /Local Flight is free, open-source software/);
+assert.match(pageText["index.html"], /Local Flight grew from wanting airport-style information on ordinary screens/);
+assert.match(pageText["index.html"], /I did not want advertising, tracking, or cookie strategies to become the business model/);
+assert.match(pageText["index.html"], /Why Beacon Relay is paid\./);
+assert.match(pageText["index.html"], /provider-authorized aviation data, servers, payment and license delivery, abuse protection, and ongoing maintenance/);
+assert.match(pageText["index.html"], /Relay Access purchases are being prepared\. No payment can be started yet\./);
+assert.match(pageText["index.html"], /No required Beacon profile/);
+assert.match(pageText["index.html"], /no advertising, behavioral analytics, cross-site tracking, or sale of usage data/i);
+assert.match(builtPages.get("index.html"), /fids-0\.5\.1/);
 assert.match(pageText["local-flight/index.html"], /Build your own airport-style flight board\./);
-assert.match(pageText["local-flight/index.html"], new RegExp(`Current version: ${projectVersion.replaceAll(".", "\\.")}\\.`));
+assert.match(pageText["local-flight/index.html"], new RegExp(`Current version: ${publishedVersion.replaceAll(".", "\\.")}\\.`));
 assert.match(
   builtPages.get("local-flight/index.html"),
-  new RegExp(`href="https://github\\.com/tr3y4rch/local-flight/releases/tag/v${projectVersion.replaceAll(".", "\\.")}"`),
+  new RegExp(`href="https://github\\.com/tr3y4rch/local-flight/releases/tag/v${publishedVersion.replaceAll(".", "\\.")}"`),
   "The product page must link to the same release it displays",
 );
 assert.match(pageText["local-flight/index.html"], /airport-style arrivals and departures board \(FIDS\)/);
 assert.match(pageText["local-flight/index.html"], /live aircraft position data \(ADS-B\)/);
 assert.match(pageText["local-flight/index.html"], /Beacon Relay.*Bring Your Own Keys.*VATSIM/);
-assert.match(pageText["local-flight/index.html"], /Only Beacon Relay needs a Relay Access license/);
+assert.match(pageText["local-flight/index.html"], /Only Beacon Relay needs paid Relay Access/);
+assert.match(pageText["local-flight/index.html"], /appropriately licensed aviation-data provider account/);
 assert.match(pageText["local-flight/mobile/index.html"], /Take your flight board with you\./);
-assert.match(pageText["local-flight/mobile/index.html"], /Two store models\. The same portable Relay license\./);
-assert.match(pageText["local-flight/mobile/index.html"], /paid iOS app includes Relay Access/);
-assert.match(pageText["local-flight/mobile/index.html"], /Android is a free download with an optional one-time Relay purchase/);
-assert.match(pageText["local-flight/mobile/index.html"], /Companion and VATSIM work without buying Relay Access/);
-assert.match(pageText["local-flight/mobile/index.html"], /Checking current mobile availability\./);
-assert.match(pageText["local-flight/mobile/index.html"], /Ask about mobile availability/);
+assert.match(pageText["local-flight/mobile/index.html"], /Compare Companion and Standalone/);
+assert.match(pageText["local-flight/mobile/index.html"], /iOS Paid app Included in the app/);
+assert.match(pageText["local-flight/mobile/index.html"], /Android Free app Free to use Uses an optional one-time Relay purchase/);
+assert.match(pageText["local-flight/mobile/index.html"], /The mobile apps are currently in testing\./);
+assert.match(pageText["local-flight/mobile/index.html"], /Ask about mobile testing/);
 assert.match(builtPages.get("local-flight/mobile/index.html"), /\/v1\/access\/catalog/);
 assert.match(builtPages.get("local-flight/mobile/index.html"), /data-mobile-store="apple_app"/);
 assert.match(builtPages.get("local-flight/mobile/index.html"), /data-mobile-store="google_play"/);
 assert.match(pageText["local-flight/mobile/index.html"], /About 1 h Real-world schedules/);
 assert.match(pageText["local-flight/mobile/index.html"], /Between checks Saved board view/);
 assert.doesNotMatch(pageText["local-flight/mobile/index.html"], /saved board is re-evaluated every five minutes/i);
-assert.match(pageText["local-flight/mobile/index.html"], /About 3 min Real-world Radar/);
+assert.match(pageText["local-flight/mobile/index.html"], /About 3 min Real-world radar/);
 assert.match(pageText["local-flight/mobile/index.html"], /About 1 min VATSIM mode/);
 assert.doesNotMatch(pageText["local-flight/mobile/index.html"], /Three-hour boards and five-minute visible radar updates/);
-assert.match(pageText["local-flight/relay-access/index.html"], /one active main device/);
+const mobileHtml = builtPages.get("local-flight/mobile/index.html");
+for (const anchor of ["modes", "screens", "widgets", "store-model", "update-timing", "availability"]) {
+  assert.match(mobileHtml, new RegExp('id="' + anchor + '"'));
+}
+assert.ok(mobileHtml.indexOf('id="modes"') < mobileHtml.indexOf('id="screens"'));
+assert.ok(mobileHtml.indexOf('id="screens"') < mobileHtml.indexOf('id="widgets"'));
+assert.ok(mobileHtml.indexOf('id="widgets"') < mobileHtml.indexOf('id="store-model"'));
+assert.match(pageText["local-flight/relay-access/index.html"], /One license can be active on one desktop .* or one mobile .* at a time\./);
 assert.match(pageText["local-flight/relay-access/index.html"], /Beacon Relay.*Bring Your Own Keys.*VATSIM/);
 assert.equal(
   (builtPages
     .get("local-flight/relay-access/index.html")
-    .match(/<article class="acquisition-card" data-purchase-source=/g) || []).length,
+    .match(/<article class="acquisition-row" data-purchase-source=/g) || []).length,
   3,
 );
 assert.match(builtPages.get("local-flight/relay-access/index.html"), /\/v1\/access\/catalog/);
-assert.match(pageText["local-flight/relay-access/index.html"], /A portable Relay license does not purchase an app from another store/);
-assert.match(pageText["local-flight/relay-access/success/index.html"], /Your universal Relay Access key/);
+assert.match(builtPages.get("local-flight/relay-access/index.html"), /data-public-state="prelaunch"/);
+assert.match(builtPages.get("local-flight/relay-access/index.html"), /id="relayCheckout" disabled/);
+assert.match(pageText["local-flight/relay-access/index.html"], /Beacon Relay is the optional hosted path for real-flight data\./);
+assert.match(pageText["local-flight/relay-access/index.html"], /Relay Access purchases are being prepared\. No payment can be started yet\./);
+assert.match(pageText["local-flight/relay-access/index.html"], /The software is free\. Hosted service has ongoing costs\./);
+assert.match(pageText["local-flight/relay-access/index.html"], /A web or Android Relay purchase does not buy the paid iOS app/);
+assert.match(pageText["local-flight/relay-access/success/index.html"], /Your Relay Access key/);
 assert.match(pageText["local-flight/relay-access/success/index.html"], /The key never goes into the app/);
-assert.match(pageText[managementRoute], /Manage a license without an account\./);
+assert.match(builtPages.get("local-flight/relay-access/success/index.html"), /name="robots" content="noindex, nofollow"/);
+assert.match(pageText[managementRoute], /Recover access or change the active device\./);
 assert.match(pageText[managementRoute], /no checkout, pricing, or app-store links/i);
+for (const taskLabel of ["Use on a computer", "Move to a phone", "Release current device", "Replace a lost key"]) {
+  assert.match(pageText[managementRoute], new RegExp(taskLabel));
+}
 assert.match(managementHtml, /window\.location\.hash/);
 assert.doesNotMatch(managementHtml, /searchParams\.get\(["']token["']\)|\?token=/);
 assert.match(managementHtml, /\/v1\/access\/magic-links\/exchange/);
@@ -154,13 +180,17 @@ assert.match(managementHtml, /resend_key_email/);
 assert.match(pageText[managementRoute], /Email the license key again/);
 assert.match(managementHtml, /localflight:\/\/relay-access#grant=/);
 assert.doesNotMatch(managementHtml, /localflight:\/\/relay-access\?(?:grant|activation_grant)=/);
-assert.match(pageText["local-flight/relay-access/terms/index.html"], /Non-expiring access—not a promise that a hosted service lasts forever\./);
+assert.match(pageText["local-flight/relay-access/terms/index.html"], /Beacon Relay Access terms\./);
+assert.match(pageText["local-flight/relay-access/terms/index.html"], /access has no scheduled expiry, but hosted service and provider availability are not guaranteed/i);
 assert.match(pageText["local-flight/relay-access/terms/index.html"], /Buying more than once creates additional separate licenses/);
 assert.match(pageText["local-flight/relay-access/terms/index.html"], /A purchase never overrides a provider contract/);
 assert.match(pageText["network/index.html"], /Most of Local Flight stays on your network\./);
 assert.match(pageText["network/index.html"], /home or local network \(LAN\)/);
 assert.match(pageText["network/index.html"], /Beacon Tools cannot read the message\./);
-assert.match(pageText["privacy/index.html"], /Your setup is yours\. Your choices stay clear\./);
+assert.equal((builtPages.get("network/index.html").match(/<article class="mode-matrix-row"/g) || []).length, 7);
+assert.match(pageText["network/index.html"], /Desktop, LAN, matrix, Companion.*Beacon Relay.*Bring Your Own Keys.*Desktop VATSIM.*Mobile VATSIM.*Real-flight Standalone.*Remote Companion/);
+assert.match(pageText["privacy/index.html"], /Privacy is part of how Local Flight is built\./);
+assert.match(pageText["privacy/index.html"], /no advertising model, behavioral analytics, cross-site tracking, required Beacon profile, or sale of usage data/i);
 assert.match(pageText["privacy/index.html"], /Remote Companion messages are end-to-end encrypted\./);
 assert.match(pageText["privacy/index.html"], /Automatic crash reports run only after you opt in\./);
 assert.match(pageText["privacy/index.html"], /They unlock nothing and create no lasting paid entitlement\./);
@@ -169,13 +199,16 @@ assert.match(pageText["privacy/index.html"], /keyed one-way email lookup plus en
 assert.doesNotMatch(allSiteText, /paid Android app|paid iOS or Android app/i);
 assert.match(pageText["privacy/index.html"], /notification outbox keeps masked references and delivery state/);
 assert.match(pageText["privacy/index.html"], /reconcile it against Apple’s signed server response/);
-assert.match(pageText["privacy/index.html"], /Purchases and in-app payments \(IAP\)\./);
+assert.match(pageText["privacy/index.html"], /Paying for hosted access does not turn Local Flight into an account\./);
+assert.match(pageText["privacy/index.html"], /Support purchases are tips, not Relay Access\./);
 assert.match(pageText["privacy/index.html"], /Apple transaction ID or Google purchase token/);
 assert.match(pageText["privacy/index.html"], /keyed one-way hash and short reference/);
 assert.match(pageText["privacy/index.html"], /does not retain the raw Apple transaction ID/);
 assert.match(pageText["privacy/index.html"], /use every Local Flight feature without making a support purchase/);
 assert.match(pageText["support/index.html"], /Tell us what you’re trying to do\./);
-assert.match(pageText["support/index.html"], /You don’t need the technical name\./);
+assert.match(pageText["support/index.html"], /you do not need the technical name/i);
+assert.match(pageText["support/index.html"], /Download Local Flight.*Connection help.*Recover Relay Access.*Privacy controls/);
+assert.match(pageText["support/index.html"], /Relay Access purchase or recovery/);
 assert.match(pageText["404.html"], /That page isn’t on the board\./);
 
 const safetyText = [
@@ -221,13 +254,20 @@ assert.equal((support.match(/data-support-form=/g) || []).length, 2);
 const themeSource = fs.readFileSync(path.join(siteRoot, "src/layouts/SiteLayout.astro"), "utf8");
 assert.match(themeSource, /beacontools\.theme/);
 assert.match(themeSource, /saved === "light" \|\| saved === "dark"/);
+const siteDataSource = fs.readFileSync(path.join(siteRoot, "src/data/site.ts"), "utf8");
+assert.match(siteDataSource, /pyproject\.toml/);
+assert.match(siteDataSource, /candidateRelease = projectVersion/);
+assert.match(siteDataSource, /currentRelease = "0\.6\.0"/, "Downloads must remain at the published package version");
+assert.match(siteDataSource, /relayAccess:\s*"prelaunch"/);
 
 const relayHtml = fs.readFileSync(path.join(siteRoot, "..", "relay", "public", "index.html"), "utf8");
 const relayText = visibleText(relayHtml);
-assert.match(relayText, /You’ve reached the Local Flight shared service\./);
-assert.match(relayText, /Beacon Relay serves licensed Local Flight receivers/);
-assert.match(relayText, /It is not a live flight-tracking website\./);
-assert.match(relayText, /See how the shared service works/);
+assert.match(relayText, /Beacon Relay is the hosted service behind selected Local Flight features\./);
+assert.match(relayText, /provider-authorized real-flight data/);
+assert.match(relayText, /This endpoint is not a live flight-tracking website\./);
+assert.match(relayText, /purchases in prelaunch/i);
+assert.match(relayText, /The application is free\. Hosting has continuing costs\./);
+assert.match(relayText, /Understand Relay Access/);
 assert.match(relayText, /Beacon Tools cannot read the request or response\./);
 assert.doesNotMatch(relayText, /\b(?:bounded|cadence|envelope|surface)\b/i);
 
