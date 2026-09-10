@@ -8,6 +8,7 @@ const visualRoutes = [
   ["network", "/network/"],
   ["privacy", "/privacy/"],
   ["support", "/support/"],
+  ["status", "/status/"],
 ] as const;
 
 for (const theme of ["dark", "light"] as const) {
@@ -18,6 +19,33 @@ for (const theme of ["dark", "light"] as const) {
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.route("**/api/releases/latest", async (request) => {
         await request.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false }) });
+      });
+      await page.route("**/api/status", async (request) => {
+        await request.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            ok: true,
+            generated_at: "2026-07-20T12:34:00Z",
+            overall: "operational",
+            services: [
+              { key: "website", label: "Website", state: "operational", uptime: { day: 100, week: 99.985, month: 99.95, quarter: 99.9 } },
+              { key: "relay_api", label: "Relay API", state: "operational", uptime: { day: 100, week: 100, month: 99.99, quarter: 99.97 } },
+              { key: "licensing", label: "Licensing and activation", state: "operational", uptime: { day: 100, week: 99.9, month: 99.8, quarter: 99.85 } },
+              { key: "mobile", label: "Mobile gateway", state: "operational", uptime: { day: 100, week: 99.9, month: 99.8, quarter: 99.7 } },
+              { key: "downloads", label: "Downloads", state: "operational", uptime: { day: 100, week: 99.1, month: 99.4, quarter: 99.6 } },
+            ],
+            components: [
+              { key: "catalog", label: "Product catalog", state: "operational" },
+              { key: "licensing", label: "License issuing", state: "operational" },
+              { key: "purchases", label: "Purchases and billing", state: "operational" },
+              { key: "email", label: "License email delivery", state: "operational" },
+              { key: "backups", label: "Backups", state: "operational" },
+            ],
+            notices: [],
+            build: { version: "0.7.1", revision: "55c33d5900ef", environment: "production" },
+            sources: { live: true, history: true },
+          }),
+        });
       });
       await page.route("**/v1/access/catalog", async (request) => {
         await request.fulfill({

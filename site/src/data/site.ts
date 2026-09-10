@@ -38,6 +38,11 @@ export const currentRelease = "0.7.1";
 export const releaseUrl = `${githubUrl}/releases/tag/v${currentRelease}`;
 export const relayOrigin = resolveDeployment().relayOrigin;
 
+// The externally hosted status page published by the uptime monitor. It is the only
+// status surface that survives this site being unreachable, so /status/ links to it.
+// Empty until that monitor is published; the page hides the link while it is blank.
+export const statusFallbackUrl = "";
+
 export const availability = {
   relayAccess: "live",
   ios: "testing",

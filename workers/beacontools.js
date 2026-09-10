@@ -4,6 +4,25 @@ const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_REPOSITORY}/releases`;
 const RELEASE_CACHE_SECONDS = 1800;
 const MINIMUM_PUBLIC_VERSION = "0.7.1";
 
+const STATUS_CACHE_SECONDS = 60;
+const STATUS_PROBE_TIMEOUT_MS = 5000;
+const UPTIME_MONITORS_API = "https://api.uptimerobot.com/v2/getMonitors";
+// Periods requested from UptimeRobot, in the order `uptimeRatios` unpacks them:
+// 24 hours, 7 days, 30 days, 90 days.
+const UPTIME_RATIO_PERIODS = "1-7-30-90";
+
+// Public service rows, joined to UptimeRobot by friendly name rather than numeric
+// monitor id so the mapping stays readable and survives a monitor being recreated.
+// A monitor with no entry here is simply not published, so operator-only checks can
+// exist upstream without appearing on the public page.
+const STATUS_SERVICES = [
+  { key: "website", monitor: "website", label: "Website" },
+  { key: "relay_api", monitor: "relay-api", label: "Relay API" },
+  { key: "licensing", monitor: "licensing", label: "Licensing and activation" },
+  { key: "mobile", monitor: "mobile-gateway", label: "Mobile gateway" },
+  { key: "downloads", monitor: "downloads", label: "Downloads" },
+];
+
 const DOWNLOAD_FILENAMES = {
   windows: (version) => `LocalFlight-${version}-Setup.exe`,
   macos_arm64: (version) => `LocalFlight-${version}-macos-arm64.pkg`,
@@ -17,14 +36,17 @@ const DOWNLOAD_FILENAMES = {
   pi: (version) => `LocalFlight-pi-source-${version}.zip`,
 };
 
-function jsonResponse(payload, status = 200) {
+const RELEASE_CACHE_CONTROL = `public, max-age=300, s-maxage=${RELEASE_CACHE_SECONDS}, stale-while-revalidate=86400`;
+// Status is deliberately short-lived in the browser as well as at the edge: a
+// reader refreshing during an incident must not be served a five-minute-old page.
+const STATUS_CACHE_CONTROL = `public, max-age=${STATUS_CACHE_SECONDS}, s-maxage=${STATUS_CACHE_SECONDS}, stale-while-revalidate=300`;
+
+function jsonResponse(payload, status = 200, cacheControl = RELEASE_CACHE_CONTROL) {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": status === 200
-        ? `public, max-age=300, s-maxage=${RELEASE_CACHE_SECONDS}, stale-while-revalidate=86400`
-        : "no-store",
+      "Cache-Control": status === 200 ? cacheControl : "no-store",
       "X-Content-Type-Options": "nosniff",
     },
   });
@@ -138,7 +160,7 @@ export function selectLatestPackagedRelease(releases) {
   return null;
 }
 
-async function latestReleaseResponse(request, context) {
+async function latestReleaseResponse(request, _env, context) {
   const cache = caches.default;
   const cacheUrl = new URL("/api/releases/latest", request.url);
   cacheUrl.searchParams.set("manifest", MINIMUM_PUBLIC_VERSION);
@@ -176,6 +198,207 @@ async function latestReleaseResponse(request, context) {
   }
 }
 
+function readiness(value) {
+  return value ? "operational" : "degraded";
+}
+
+export function relayComponentRows(health) {
+  const access = health?.access;
+  if (!access) return [];
+  return [
+    { key: "catalog", label: "Product catalog", state: readiness(access.catalog_ready) },
+    // The relay already computes `license_core_ready` as `config_ready && keyrings_ready`,
+    // so it is the single signal worth publishing for licence issuing.
+    { key: "licensing", label: "License issuing", state: readiness(access.license_core_ready) },
+    // Deliberately `providers.stripe` rather than `sales_ready`: the relay folds the
+    // RELAY_ACCESS_SALES_ENABLED business toggle into `sales_ready`, so pausing sales
+    // on purpose would otherwise be published as a fault. Stripe readiness is the
+    // infrastructure signal; a deliberate pause is reported through `relayNotices`.
+    { key: "purchases", label: "Purchases and billing", state: readiness(access.providers?.stripe) },
+    { key: "email", label: "License email delivery", state: readiness(access.smtp_ready) },
+    { key: "backups", label: "Backups", state: readiness(access.backup_ready) },
+  ];
+}
+
+export function relayNotices(health) {
+  const access = health?.access;
+  if (!access) return [];
+  const notices = [];
+  if (access.schema_version !== access.expected_schema_version) {
+    notices.push({ key: "schema", tone: "degraded", text: "A database migration is still being applied." });
+  }
+  if (access.providers?.stripe && access.sales_ready === false) {
+    notices.push({ key: "sales", tone: "info", text: "New purchases are paused. Existing licences are unaffected." });
+  }
+  return notices;
+}
+
+// UptimeRobot monitor status: 0 paused, 1 not checked yet, 2 up, 8 seems down, 9 down.
+function monitorState(status) {
+  if (status === 2) return "operational";
+  if (status === 8) return "degraded";
+  if (status === 9) return "outage";
+  return "unknown";
+}
+
+function uptimeRatios(raw) {
+  const periods = ["day", "week", "month", "quarter"];
+  const parts = String(raw ?? "").split("-");
+  const ratios = {};
+  periods.forEach((period, index) => {
+    const value = Number.parseFloat(parts[index]);
+    if (Number.isFinite(value)) ratios[period] = Math.round(value * 1000) / 1000;
+  });
+  return ratios;
+}
+
+export function normalizeUptimeMonitors(payload) {
+  const allowed = new Map(STATUS_SERVICES.map((service) => [service.monitor, service.key]));
+  const monitors = Array.isArray(payload?.monitors) ? payload.monitors : [];
+  const normalized = {};
+  for (const monitor of monitors) {
+    const key = allowed.get(String(monitor?.friendly_name || "").trim());
+    if (!key) continue;
+    normalized[key] = {
+      state: monitorState(Number(monitor?.status)),
+      uptime: uptimeRatios(monitor?.custom_uptime_ratio),
+    };
+  }
+  return normalized;
+}
+
+// Signals derivable from this request alone, which stay correct even when the
+// monitoring API is unreachable. `null` means "no live signal, defer to the monitor".
+function liveServiceState(key, health) {
+  // Serving this response is itself proof that the website is reachable.
+  if (key === "website") return "operational";
+  if (key === "relay_api") return health?.ok === true ? "operational" : "outage";
+  if (key === "licensing") {
+    if (health?.ok !== true) return "outage";
+    return readiness(health.access?.catalog_ready);
+  }
+  return null;
+}
+
+function overallState(states) {
+  const known = states.filter((state) => state !== "unknown");
+  if (!known.length) return "unknown";
+  if (known.includes("outage")) return "outage";
+  if (known.includes("degraded")) return "degraded";
+  return "operational";
+}
+
+export function buildStatusPayload({ health, monitors, now }) {
+  const live = health?.ok === true;
+  const history = monitors && Object.keys(monitors).length > 0 ? monitors : null;
+  const services = STATUS_SERVICES.map((service) => {
+    const observed = history?.[service.key] || null;
+    return {
+      key: service.key,
+      label: service.label,
+      state: liveServiceState(service.key, health) || observed?.state || "unknown",
+      uptime: observed?.uptime || null,
+    };
+  });
+  const components = live ? relayComponentRows(health) : [];
+  const notices = live ? relayNotices(health) : [];
+
+  return {
+    ok: true,
+    generated_at: (now instanceof Date ? now : new Date()).toISOString(),
+    overall: overallState([
+      ...services.map((service) => service.state),
+      ...components.map((component) => component.state),
+      ...notices.filter((notice) => notice.tone === "degraded").map(() => "degraded"),
+    ]),
+    services,
+    components,
+    notices,
+    build: live
+      ? {
+          version: String(health.version || ""),
+          revision: String(health.revision || "").slice(0, 12),
+          environment: String(health.access?.deployment_environment || ""),
+        }
+      : null,
+    sources: { live, history: Boolean(history) },
+  };
+}
+
+function relayOrigin(request, env) {
+  const configured = String(env?.RELAY_ORIGIN || "").trim();
+  if (configured) return configured.replace(/\/+$/, "");
+  // Mirrors resolveDeployment() in site/deployment.mjs so the Worker and the site
+  // always agree about which relay belongs to which site origin.
+  return new URL(request.url).hostname === "staging.beacontools.cc"
+    ? "https://relay-staging.beacontools.cc"
+    : "https://relay.beacontools.cc";
+}
+
+async function relayHealth(origin) {
+  const response = await fetch(`${origin}/health`, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(STATUS_PROBE_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`Relay health returned ${response.status}`);
+  return await response.json();
+}
+
+async function uptimeMonitors(apiKey) {
+  const response = await fetch(UPTIME_MONITORS_API, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: new URLSearchParams({
+      api_key: apiKey,
+      format: "json",
+      custom_uptime_ratios: UPTIME_RATIO_PERIODS,
+    }),
+    signal: AbortSignal.timeout(STATUS_PROBE_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`UptimeRobot returned ${response.status}`);
+  const payload = await response.json();
+  if (payload?.stat !== "ok") throw new Error("UptimeRobot rejected the request");
+  return payload;
+}
+
+async function statusResponse(request, env, context) {
+  const cache = caches.default;
+  const cacheKey = new Request(new URL("/api/status", request.url), { method: "GET" });
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
+
+  const apiKey = String(env?.UPTIMEROBOT_API_KEY || "").trim();
+  // Settled rather than all: either source failing must still produce a page, and a
+  // dead relay is itself the most important thing this endpoint has to report.
+  const [health, monitors] = await Promise.allSettled([
+    relayHealth(relayOrigin(request, env)),
+    // Without a key the page still renders live component health and simply omits the
+    // uptime history, which keeps `wrangler dev` usable with no secrets configured.
+    apiKey ? uptimeMonitors(apiKey) : Promise.resolve(null),
+  ]);
+  const monitorPayload = monitors.status === "fulfilled" ? monitors.value : null;
+
+  const response = jsonResponse(
+    buildStatusPayload({
+      health: health.status === "fulfilled" ? health.value : null,
+      monitors: monitorPayload ? normalizeUptimeMonitors(monitorPayload) : null,
+      now: new Date(),
+    }),
+    200,
+    STATUS_CACHE_CONTROL,
+  );
+  context.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
+}
+
+const JSON_ROUTES = new Map([
+  ["/api/releases/latest", latestReleaseResponse],
+  ["/api/status", statusResponse],
+]);
+
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
@@ -184,11 +407,12 @@ export default {
       return Response.redirect(new URL("/privacy", url), 301);
     }
 
-    if (url.pathname === "/api/releases/latest") {
+    const jsonRoute = JSON_ROUTES.get(url.pathname);
+    if (jsonRoute) {
       if (request.method !== "GET" && request.method !== "HEAD") {
         return jsonResponse({ ok: false, error: "method_not_allowed" }, 405);
       }
-      const response = await latestReleaseResponse(request, context);
+      const response = await jsonRoute(request, env, context);
       return request.method === "HEAD"
         ? new Response(null, { status: response.status, headers: response.headers })
         : response;

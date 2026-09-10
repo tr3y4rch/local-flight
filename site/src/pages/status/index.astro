@@ -1,0 +1,125 @@
+---
+import SiteLayout from "../../layouts/SiteLayout.astro";
+import SectionHeading from "../../components/SectionHeading.astro";
+import Icon from "../../components/Icon.astro";
+import { statusFallbackUrl } from "../../data/site";
+
+// Rendered server-side so the page is meaningful before its script runs, and so the
+// visual baseline has a stable skeleton. The client fills each row in from /api/status.
+const services = [
+  { key: "website", label: "Website", description: "beacontools.cc, including the download and Relay Access pages." },
+  { key: "relay_api", label: "Relay API", description: "The hosted service Local Flight and the mobile apps connect to." },
+  { key: "licensing", label: "Licensing and activation", description: "Activating, moving, and recovering Relay Access licences." },
+  { key: "mobile", label: "Mobile gateway", description: "The boards, radar, and weather the iOS and Android apps request." },
+  { key: "downloads", label: "Downloads", description: "The release manifest behind the download buttons." },
+];
+
+const components = [
+  { key: "catalog", label: "Product catalog" },
+  { key: "licensing", label: "License issuing" },
+  { key: "purchases", label: "Purchases and billing" },
+  { key: "email", label: "License email delivery" },
+  { key: "backups", label: "Backups" },
+];
+
+const periods = [
+  { key: "day", label: "24h" },
+  { key: "week", label: "7d" },
+  { key: "month", label: "30d" },
+  { key: "quarter", label: "90d" },
+];
+---
+
+<SiteLayout
+  title="Service status"
+  description="Live availability of the Beacon Tools website, the Relay API, licensing and activation, and downloads, with 90-day uptime history."
+>
+  <header class="terminal-hero terminal-hero--compact terminal-hero--text">
+    <div class="terminal-frame terminal-grid hero-grid">
+      <div class="hero-copy hero-copy--wide">
+        <div class="eyebrow">Beacon Tools / Status</div>
+        <h1 class="hero-title">Is anything broken right now?</h1>
+        <p class="hero-lede">Local Flight keeps running on your own hardware when these services do not. This page covers the optional online parts: Beacon Relay, licensing, and the downloads on this site.</p>
+        <p class="status-overall" data-status-overall data-state="unknown">Checking current status…</p>
+        <p class="hero-footnote" data-status-build hidden></p>
+      </div>
+    </div>
+  </header>
+
+  <section class="section section--compact">
+    <div class="terminal-frame">
+      <SectionHeading index="01 / SERVICES" title="What each service is doing." description="Checked every few minutes from outside our own hosting, so the result stays honest when the problem is us." />
+
+      <ul class="status-notices" data-status-notices hidden></ul>
+
+      <ul class="status-list" data-status-board data-reveal>
+        {services.map((service) => (
+          <li class="status-row" data-status-service={service.key}>
+            <div class="status-row-head">
+              <span class="status-dot" data-state="unknown" aria-hidden="true"></span>
+              <div class="status-row-copy">
+                <strong>{service.label}</strong>
+                <p>{service.description}</p>
+              </div>
+              <span class="status-state" data-status-state>Checking…</span>
+            </div>
+            <dl class="status-uptime" data-status-uptime hidden>
+              {periods.map((period) => (
+                <div>
+                  <dt>{period.label}</dt>
+                  <dd data-status-uptime-period={period.key}>—</dd>
+                </div>
+              ))}
+            </dl>
+          </li>
+        ))}
+      </ul>
+
+      <p class="status-fallback" data-status-fallback data-fallback-url={statusFallbackUrl || undefined} hidden></p>
+    </div>
+  </section>
+
+  <section class="section section--compact section--quiet">
+    <div class="terminal-frame">
+      <SectionHeading index="02 / RELAY DETAIL" title="Inside Beacon Relay." description="The relay reports its own readiness, so a partial fault—email delivery, say—shows up here instead of hiding behind one green dot." />
+      <ul class="status-components" data-reveal>
+        {components.map((component) => (
+          <li class="status-component" data-status-component={component.key}>
+            <span class="status-dot" data-state="unknown" aria-hidden="true"></span>
+            <strong>{component.label}</strong>
+            <span class="status-state" data-status-state>Checking…</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <section class="section section--compact">
+    <div class="terminal-frame">
+      <SectionHeading index="03 / HONEST LIMITS" title="What this page cannot tell you." />
+      <div class="status-limits" data-reveal>
+        <div>
+          <span class="icon-badge icon-badge--sm"><Icon name="globe" /></span>
+          <strong>It is served from the site it reports on.</strong>
+          <p>If beacontools.cc is unreachable, so is this page. {statusFallbackUrl ? "The independent status page below is hosted elsewhere and stays up." : "An independent status page hosted elsewhere is being set up for exactly that case."}</p>
+          {statusFallbackUrl && <a class="action-link" href={statusFallbackUrl}>Independent status page</a>}
+        </div>
+        <div>
+          <span class="icon-badge icon-badge--sm"><Icon name="shield" /></span>
+          <strong>It does not measure you.</strong>
+          <p>The checks run on our side and the results are cached for everyone. Opening this page sends nothing about you to the monitoring service, and the site still loads no third-party scripts.</p>
+        </div>
+        <div>
+          <span class="icon-badge icon-badge--sm"><Icon name="monitor" /></span>
+          <strong>It says nothing about your own setup.</strong>
+          <p>Local Flight running on your computer, server, or Raspberry Pi is not monitored here and does not depend on these services in Bring Your Own Keys or VATSIM mode.</p>
+          <a class="action-link" href="/support/">Report something that is not working</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</SiteLayout>
+
+<script>
+  import "../../scripts/status";
+</script>

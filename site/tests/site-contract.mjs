@@ -21,6 +21,7 @@ const routes = [
   "privacy/index.html",
   "privacy/choices/index.html",
   "support/index.html",
+  "status/index.html",
   "404.html",
 ];
 

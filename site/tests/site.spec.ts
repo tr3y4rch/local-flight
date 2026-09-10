@@ -44,6 +44,7 @@ const routes = [
   "/privacy/",
   "/privacy/choices/",
   "/support/",
+  "/status/",
   "/404.html",
 ];
 
@@ -484,4 +485,64 @@ test("management grants require the target flow and receiver actions return fres
   await expect(page.getByText("Available — no active main device")).toBeVisible();
   await page.locator(".relay-license").getByRole("button", { name: "Replace a lost key" }).click();
   await expect(page.locator("#managementLicenseKey")).toHaveValue("LFRA-ROTATED-SAVE-0002");
+});
+
+const statusPayload = {
+  ok: true,
+  generated_at: "2026-07-20T12:34:00Z",
+  overall: "degraded",
+  services: [
+    { key: "website", label: "Website", state: "operational", uptime: { day: 100, week: 99.985, month: 99.95, quarter: 99.9 } },
+    { key: "relay_api", label: "Relay API", state: "operational", uptime: { day: 100, week: 100, month: 99.99, quarter: 99.97 } },
+    { key: "licensing", label: "Licensing and activation", state: "operational", uptime: { day: 100, week: 99.9, month: 99.8, quarter: 99.85 } },
+    { key: "mobile", label: "Mobile gateway", state: "operational", uptime: { day: 100, week: 99.9, month: 99.8, quarter: 99.7 } },
+    { key: "downloads", label: "Downloads", state: "degraded", uptime: { day: 98.2, week: 99.1, month: 99.4, quarter: 99.6 } },
+  ],
+  components: [
+    { key: "catalog", label: "Product catalog", state: "operational" },
+    { key: "licensing", label: "License issuing", state: "operational" },
+    { key: "purchases", label: "Purchases and billing", state: "operational" },
+    { key: "email", label: "License email delivery", state: "degraded" },
+    { key: "backups", label: "Backups", state: "operational" },
+  ],
+  notices: [{ key: "sales", tone: "info", text: "New purchases are paused. Existing licences are unaffected." }],
+  build: { version: "0.7.1", revision: "55c33d5900ef", environment: "production" },
+  sources: { live: true, history: true },
+};
+
+test("status board renders service, component, and uptime detail", async ({ page }) => {
+  await page.route("**/api/status", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify(statusPayload),
+  }));
+  await page.goto("/status/");
+
+  await expect(page.locator("[data-status-overall]")).toHaveAttribute("data-state", "degraded");
+  // Rendered in UTC on purpose so the string does not depend on the reader's locale.
+  await expect(page.locator("[data-status-overall]")).toContainText("2026-07-20 at 12:34 UTC");
+
+  const downloads = page.locator('[data-status-service="downloads"]');
+  await expect(downloads.locator("[data-status-state]")).toHaveText("Degraded");
+  await expect(downloads.locator('[data-status-uptime-period="quarter"]')).toHaveText("99.60%");
+
+  const website = page.locator('[data-status-service="website"]');
+  await expect(website.locator("[data-status-state]")).toHaveText("Operational");
+  await expect(website.locator('[data-status-uptime-period="day"]')).toHaveText("100%");
+
+  await expect(page.locator('[data-status-component="email"] [data-status-state]')).toHaveText("Degraded");
+  await expect(page.locator('[data-status-component="backups"] [data-status-state]')).toHaveText("Operational");
+  await expect(page.locator("[data-status-notices] li")).toHaveText(/New purchases are paused/);
+  await expect(page.locator("[data-status-build]")).toContainText("Beacon Relay 0.7.1");
+  await expect(page.locator("[data-status-fallback]")).toBeHidden();
+});
+
+test("status board fails safely when the status endpoint is unavailable", async ({ page }) => {
+  await page.route("**/api/status", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false }) }));
+  await page.goto("/status/");
+
+  await expect(page.locator("[data-status-fallback]")).toBeVisible();
+  await expect(page.locator("[data-status-overall]")).toHaveAttribute("data-state", "unknown");
+  await expect(page.locator('[data-status-service="relay_api"] [data-status-state]')).toHaveText("Unknown");
+  // A failed lookup must never leave a stale uptime figure on screen.
+  await expect(page.locator('[data-status-service="relay_api"] [data-status-uptime]')).toBeHidden();
 });

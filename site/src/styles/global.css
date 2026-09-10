@@ -3766,6 +3766,217 @@ html[data-theme="light"] .action-button--primary {
   font-family: var(--font-board);
   font-size: 0.72rem;
 }
+/* Service status ------------------------------------------------------------
+   State is never carried by colour alone: every dot is aria-hidden and paired
+   with a textual state label, which also keeps the page readable in forced
+   colours mode. */
+
+.status-overall {
+  margin: 26px 0 0;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-left-color: var(--dim);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-family: var(--font-board);
+  font-size: 0.9rem;
+}
+
+.status-overall[data-state="operational"] { border-left-color: var(--good); }
+.status-overall[data-state="degraded"] { border-left-color: var(--warn); }
+.status-overall[data-state="outage"] { border-left-color: var(--bad); }
+
+.status-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--dim);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.status-dot[data-state="operational"] { background: var(--good); }
+.status-dot[data-state="degraded"] { background: var(--warn); }
+.status-dot[data-state="outage"] { background: var(--bad); }
+
+.status-state {
+  color: var(--muted);
+  font-family: var(--font-board);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-state[data-state="operational"] { color: var(--good); }
+.status-state[data-state="degraded"] { color: var(--warn); }
+.status-state[data-state="outage"] { color: var(--bad); }
+
+.status-list,
+.status-components,
+.status-notices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.status-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 28px;
+}
+
+.status-row {
+  padding: 18px 20px;
+  border: 1px solid var(--card-line);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+}
+
+.status-row-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.status-row-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.status-row-copy strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.status-row-copy p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.status-uptime {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.status-uptime dt {
+  color: var(--dim);
+  font-family: var(--font-board);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.status-uptime dd {
+  margin: 4px 0 0;
+  font-family: var(--font-board);
+  font-size: 0.9rem;
+}
+
+.status-components {
+  display: grid;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.status-component {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.status-component strong {
+  flex: 1 1 auto;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.status-notices {
+  display: grid;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.status-notices li {
+  padding: 12px 16px;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-size: 0.9rem;
+}
+
+.status-notices li[data-tone="info"] { border-left-color: var(--accent); }
+
+/* Both containers set `display`, which would otherwise defeat the hidden attribute
+   the script toggles them with — the same reason .mode-panel carries this rule. */
+.status-uptime[hidden],
+.status-notices[hidden] {
+  display: none;
+}
+
+.status-fallback {
+  margin: 24px 0 0;
+  color: var(--muted);
+  font-family: var(--font-board);
+  font-size: 0.85rem;
+}
+
+.status-limits {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 26px;
+  margin-top: 28px;
+}
+
+.status-limits strong {
+  display: block;
+  margin-top: 14px;
+  font-size: 0.98rem;
+}
+
+.status-limits p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.status-limits .action-link {
+  display: inline-block;
+  margin-top: 12px;
+}
+
+@media (max-width: 920px) {
+  .status-limits {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .status-row-head {
+    flex-wrap: wrap;
+  }
+
+  .status-state {
+    width: 100%;
+    padding-left: 24px;
+  }
+
+  .status-uptime {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1180px) {
   .feature-grid--four {
     grid-template-columns: repeat(2, minmax(0, 1fr));

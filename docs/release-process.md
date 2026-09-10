@@ -229,6 +229,12 @@ is a cutover gate, not a substitute for that matrix.
 - The deployed relay passes `scripts/check_relay_access_deployment.py` for the
   exact release version, commit, access schema, and canonical catalog. A legacy
   `/health` response by itself cannot authorize a deployment or sale.
+- `https://beacontools.cc/status/` reports the released version and the deployed
+  commit. It reads the same `/health` readiness fields, so it is a public
+  cross-check of that verification rather than a replacement for it; the edge
+  caches the answer for 60 seconds, so allow a minute after deploying. The
+  monitors and credentials behind that page are documented in
+  [status-monitoring.md](status-monitoring.md).
 - A transactional SMTP service passes TLS, SPF, DKIM, DMARC, sender/reply,
   Gmail, iCloud Mail, Outlook, retry, resend, and queue-monitoring checks.
 

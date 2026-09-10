@@ -95,6 +95,7 @@ jobs:
         run: |
           npm run verify
           node ../scripts/site_downloads_contract.mjs
+          node ../scripts/site_status_contract.mjs
 
       - name: Audit site dependencies
         run: npm audit --audit-level=high
