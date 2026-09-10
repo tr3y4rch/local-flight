@@ -18,12 +18,13 @@ primary_region = 'fra'
   RELAY_OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
   RELAY_PUBLIC_HOST = 'relay.beacontools.cc'
   RELAY_ADMIN_HOST = 'network.beacontools.cc'
-  # Still 'legacy', so /v1/activate keeps issuing free anonymous lfm_ credentials
-  # alongside paid annual access. Cutting over to 'migration' closes that door,
-  # but it first requires an immutable founder cutoff and an executed founder
-  # snapshot; without the snapshot every existing legacy install loses hosted
-  # access on its next request.
-  RELAY_ACCESS_MODE = 'legacy'
+  # 'migration': the founder snapshot ran at the cutoff below and preserved 38
+  # legacy installs as permanent founders, so /v1/activate no longer issues new
+  # anonymous credentials. Founder lfm_ credentials keep working through the
+  # 12-month bridge and exchange themselves for lfr_ on first contact with a
+  # 0.7.0 client. Shared real radar closes here, as the annual entitlement
+  # deliberately excludes it.
+  RELAY_ACCESS_MODE = 'migration'
   RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT = 'production'
   RELAY_ACCESS_PRODUCT_CODE = 'beacon_relay_annual_v1'
   # Immutable once the founder snapshot runs. Eligibility is successful
