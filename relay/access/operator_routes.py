@@ -51,6 +51,11 @@ def operator_readiness(b) -> dict:
     except Exception:
         errors.append("historical_keyring_unavailable")
     enabled = b._enabled_env("RELAY_ACCESS_OPERATOR_ISSUANCE_ENABLED")
+    # A switched-off issuance flag is itself an outstanding gate. Omitting it
+    # let the console report "Outstanding gates: None" beside a dead button,
+    # telling the operator to complete server gates that were already green.
+    if not enabled:
+        errors.append("issuance_switched_off")
     return {
         "environment": b._access_deployment_environment(),
         "issuance_enabled": enabled,
@@ -60,6 +65,32 @@ def operator_readiness(b) -> dict:
         "backup": backup,
         "owner_identity": "Authenticated console owner",
         "delivery_notice": "Recipient delivery unknown with this mail connection.",
+    }
+
+
+def operator_founder_summary(b) -> dict:
+    """Return founder counts, the immutable cutoff, and the bridge deadline."""
+    conn = b._license_service()._connect()
+    try:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) FROM founder_entitlements GROUP BY status"
+        ).fetchall()
+        boundaries = conn.execute(
+            "SELECT MIN(cutoff_at), MIN(bridge_expires_at) FROM founder_entitlements"
+        ).fetchone()
+    finally:
+        conn.close()
+    counts = {str(row[0] or "unknown"): int(row[1] or 0) for row in rows}
+    total = sum(counts.values())
+    claimed = counts.get("claimed", 0)
+    return {
+        "total": total,
+        "claimed": claimed,
+        "awaiting_upgrade": total - claimed,
+        "by_status": counts,
+        "cutoff_at": str(boundaries[0] or "") if boundaries else "",
+        "bridge_expires_at": str(boundaries[1] or "") if boundaries else "",
+        "migration_active": b._access_mode() == "migration",
     }
 
 
@@ -238,6 +269,16 @@ def create_operator_router(b) -> APIRouter:
     @router.get("/admin/api/operator/configuration")
     def configuration(_owner=owner):
         return operator_readiness(b)
+
+    @router.get("/admin/api/operator/founders")
+    def founders(_owner=owner):
+        """Aggregate founder-migration progress.
+
+        Deliberately counts only. Per-install references are keyed hashes and
+        never leave the database, so the console can show how the bridge is
+        being taken up without exposing who any individual founder is.
+        """
+        return operator_founder_summary(b)
 
     @router.post("/admin/api/operator/licenses/search")
     def licenses(body: OperatorSearch, request: Request, _owner=owner):

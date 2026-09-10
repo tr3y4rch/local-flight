@@ -38,7 +38,10 @@ primary_region = 'fra'
   RELAY_ACCESS_STRIPE_SALES_ENABLED = '1'
   RELAY_ACCESS_APPLE_SALES_ENABLED = '0'
   RELAY_ACCESS_GOOGLE_SALES_ENABLED = '0'
-  RELAY_ACCESS_OPERATOR_ISSUANCE_ENABLED = '0'
+  # Complimentary/test grants. Enabling only makes the console's grant wizard
+  # usable: issuance still needs explicit confirmation, a recipient who accepts
+  # the invitation, and the server readiness gates in operator_readiness.
+  RELAY_ACCESS_OPERATOR_ISSUANCE_ENABLED = '1'
   RELAY_ACCESS_MOBILE_OWNERSHIP_ENABLED = '0'
   RELAY_ACCESS_SCHEDULE_ENABLED = '1'
   RELAY_ACCESS_RADAR_ENABLED = '0'

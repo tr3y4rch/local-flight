@@ -487,3 +487,61 @@ def test_established_remote_companion_disconnects_on_expiry(stack, monkeypatch):
             ws.receive_json()
         assert error.value.code == 1008
     assert b._install_fingerprint(install_id) not in b._REMOTE_COMPANION_HOSTS
+
+
+def test_switched_off_issuance_names_itself_instead_of_reporting_no_problems(
+    stack, monkeypatch
+):
+    """A disabled switch must appear as an outstanding gate.
+
+    Omitting it produced a console that showed "Outstanding gates: None" beside
+    a dead button whose tooltip told the operator to finish server gates that
+    were already green, leaving no way to discover the real cause.
+    """
+    client, _service, _mailer = stack
+
+    ready = client.get(
+        "/admin/api/operator/configuration", headers=ADMIN_HOST, auth=ADMIN_AUTH
+    ).json()
+    assert ready["issuance_enabled"] is True
+    assert ready["issuance_ready"] is True
+    assert "issuance_switched_off" not in ready["readiness_problems"]
+
+    monkeypatch.setenv("RELAY_ACCESS_OPERATOR_ISSUANCE_ENABLED", "0")
+    off = client.get(
+        "/admin/api/operator/configuration", headers=ADMIN_HOST, auth=ADMIN_AUTH
+    ).json()
+
+    assert off["issuance_enabled"] is False
+    assert off["issuance_ready"] is False
+    assert "issuance_switched_off" in off["readiness_problems"]
+    # Every other gate still passes, so the switch must be the only one named.
+    assert off["readiness_problems"] == ["issuance_switched_off"]
+
+
+def test_founder_summary_reports_counts_without_exposing_any_install(stack):
+    """The console needs bridge progress, never per-founder identities."""
+    client, _service, _mailer = stack
+
+    summary = client.get(
+        "/admin/api/operator/founders", headers=ADMIN_HOST, auth=ADMIN_AUTH
+    )
+    assert summary.status_code == 200
+    body = summary.json()
+    for key in (
+        "total",
+        "claimed",
+        "awaiting_upgrade",
+        "cutoff_at",
+        "bridge_expires_at",
+        "migration_active",
+    ):
+        assert key in body
+    assert body["total"] == body["claimed"] + body["awaiting_upgrade"]
+    serialized = json.dumps(body)
+    for leaked in ("install_id", "install_ref_hash", "legacy_token_hash", "license_id"):
+        assert leaked not in serialized
+
+    assert (
+        client.get("/admin/api/operator/founders", headers=ADMIN_HOST).status_code == 401
+    )

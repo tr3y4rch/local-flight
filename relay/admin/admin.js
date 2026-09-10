@@ -324,12 +324,13 @@ async function loadView(key, force = false) {
       payload = await getOverview(true, activeController.signal);
     } else {
       const params = buildParams(key);
+      // The Relay Access workspace fetches and pages its own data through the
+      // operator routes, so searching here only spent an extra authenticated
+      // round-trip on a payload that was immediately discarded.
       [payload] = await Promise.all([
-        key === "access" ? api("/admin/api/access/search", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ limit: 100, cursor: state[key].cursors[state[key].cursorIndex] || "", ...state[key].filters }),
-          signal: activeController.signal,
-        }) : api(`${endpoints[key]}${params.toString() ? `?${params}` : ""}`, { signal: activeController.signal }),
+        key === "access"
+          ? Promise.resolve({})
+          : api(`${endpoints[key]}${params.toString() ? `?${params}` : ""}`, { signal: activeController.signal }),
         getOverview(force, activeController.signal),
       ]);
     }
@@ -360,7 +361,7 @@ function renderView(key, payload) {
   else if (key === "surfaces") renderSurfaces(payload);
   else if (key === "reports") renderReports(payload);
   else if (key === "activations") renderActivations(payload);
-  else if (key === "access") renderAccess(payload);
+  else if (key === "access") renderAccess();
   else if (key === "providers") renderProviders(payload);
   else if (key === "retention") renderRetention(payload);
   else if (key === "maintenance") renderMaintenance(payload);
@@ -643,13 +644,6 @@ function renderActivations(payload) {
     ])}${panel("Managed tokens", "Select a prefix to rotate, revoke, unbind, reset counters, or delete.", tokenTable)}${panel("Activation queue", "Only manual-review rows can be issued. Any returned token is one-time.", requestTable)}${panel("Blocked installs", "Select an install to restore access.", blockedTable)}</div>`;
 }
 
-function maskedRef(value, lead = 6, tail = 4) {
-  const text = String(value || "").trim();
-  if (!text) return "-";
-  if (text.length <= lead + tail + 1) return `${text.slice(0, Math.min(lead, text.length))}…`;
-  return `${text.slice(0, lead)}…${text.slice(-tail)}`;
-}
-
 function licenseKeyRef(row) {
   const supplied = String(row?.key_ref || "").trim();
   if (supplied) return supplied;
@@ -660,31 +654,6 @@ function licenseKeyRef(row) {
 
 function emptyTable(message) {
   return `<div class="data-table-wrap table-scroll"><table class="data-table"><tbody><tr><td class="muted">${esc(message)}</td></tr></tbody></table></div>`;
-}
-
-function accessLicenseTable(rows) {
-  return dataTable("access", rows, [
-    { key: "key_ref", label: "Key reference", render: (row, index, store) => rowLink(licenseKeyRef(row), store, index, row.product_code) },
-    { key: "purchase_source", label: "Source", render: row => esc(titleCase(row.purchase_source)) },
-    { key: "status", label: "Status", render: row => badge(row.status) },
-    { key: "device_name", label: "Receiver", render: row => esc(text(row.device_name, "No active receiver")) },
-    { key: "install_ref", label: "Install reference", render: row => esc(maskedRef(row.install_ref)) },
-    { key: "created_at", label: "Created", render: row => dateTime(row.created_at) },
-    { key: "last_seen_at", label: "Activity", render: row => dateTime(row.last_seen_at || row.activated_at || row.updated_at) },
-  ], { kind: "access_license", sortable: false, empty: "No Relay Access licenses recorded." });
-}
-
-function accessDeliveryTable(rows, licenses) {
-  if (!rows.length) return emptyTable("No license deliveries recorded.");
-  const refs = new Map(licenses.map(row => [row.license_id, licenseKeyRef(row)]));
-  return `<div class="data-table-wrap table-scroll access-secondary-table"><table class="data-table"><thead><tr>
-    <th>License</th><th>Channel</th><th>Purpose</th><th>Status</th><th>Attempts</th><th>Next attempt</th><th>Detail</th>
-  </tr></thead><tbody>${rows.map(row => `<tr>
-    <td class="mono">${esc(refs.get(row.license_id) || maskedRef(row.license_id))}</td>
-    <td>${esc(row.channel || "-")}</td><td>${esc(row.purpose || "-")}</td><td>${badge(row.status)}</td>
-    <td>${Number(row.attempt_count || 0).toLocaleString()}</td><td>${esc(dateTime(row.next_attempt_at || row.delivered_at || row.updated_at))}</td>
-    <td>${esc(row.detail_code || "-")}</td>
-  </tr>`).join("")}</tbody></table></div>`;
 }
 
 function accessEventTable(rows) {
@@ -700,32 +669,9 @@ function accessEventTable(rows) {
   </tr>`).join("")}</tbody></table></div>`;
 }
 
-function accessNotificationTable(rows, licenses) {
-  if (!rows.length) return emptyTable("No queued notifications or provider operations.");
-  const refs = new Map(licenses.map(row => [row.license_id, licenseKeyRef(row)]));
-  return `<div class="data-table-wrap table-scroll access-secondary-table"><table class="data-table"><thead><tr>
-    <th>License</th><th>Channel</th><th>Purpose</th><th>Status</th><th>Attempts</th><th>Next attempt</th><th>Detail</th>
-  </tr></thead><tbody>${rows.map(row => `<tr>
-    <td class="mono">${esc(refs.get(row.license_id) || maskedRef(row.license_id))}</td>
-    <td>${esc(row.channel || "-")}</td><td>${esc(row.purpose || "-")}</td><td>${badge(row.status)}</td>
-    <td>${Number(row.attempt_count || 0).toLocaleString()}</td><td>${esc(dateTime(row.next_attempt_at || row.delivered_at || row.updated_at))}</td>
-    <td>${esc(row.detail_code || "-")}</td>
-  </tr>`).join("")}</tbody></table></div>`;
-}
-
-
-function renderAccess(payload) {
-  return renderOperatorWorkspace(payload);
-}
-
-
-async function openAccessDrawer(summary) {
-  return openOperatorLicense(summary);
-}
-
-
-async function runAccessAction(action) {
-  return operatorLicenseAction(action);
+function renderAccess() {
+  // The operator workspace loads its own data; it takes no payload.
+  return renderOperatorWorkspace();
 }
 
 
@@ -802,7 +748,6 @@ function detailSection(title, rows) {
 }
 
 function openDrawer(kind, row) {
-  if (kind === "access_license") return openAccessDrawer(row);
   activeAccessLicenseId = "";
   accessDetailGeneration += 1;
   drawer.dataset.kind = kind;
@@ -1152,19 +1097,10 @@ document.addEventListener("click", event => {
     if (store && row) openDrawer(store.kind, row);
     return;
   }
-  if (button.dataset.accessAction) return perform(() => runAccessAction(button.dataset.accessAction), button);
   if (button.dataset.eventAction && button.dataset.eventRef) return perform(async () => {
     const values = await ask({ title: "Resolve provider event", copy: "Mark this masked provider event as resolved after investigation.", confirmLabel: "Resolve event", fields:[opReason] });
     if (!values) return;
     await mutate(`/admin/api/access/events/${encodeURIComponent(button.dataset.eventRef)}/action`, { action: button.dataset.eventAction,reason:values.reason,request_id:crypto.randomUUID(),confirmed:true });
-  }, button);
-  if (button.dataset.accessBackup) return perform(async () => {
-    const action = button.dataset.accessBackup;
-    const values = await ask({ title: action === "create_backup" ? "Create verified backup" : "Verify latest backup", copy: "Check the encrypted Relay Access backup and its recovery status.", confirmLabel: "Continue", fields:[opReason] });
-    if (!values) return;
-    const result = await api("/admin/api/access-backups/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action,reason:values.reason,request_id:crypto.randomUUID() }) });
-    toast(result.backup?.healthy === false ? "Backup needs attention. Review its status below." : "Backup operation completed.", result.backup?.healthy === false ? "warn" : "good");
-    await loadView("access", true);
   }, button);
   if (button.dataset.command) return perform(() => command(button.dataset.command, button), button);
   if (button.dataset.rowAction) return perform(() => command(button.dataset.rowAction, button), button);

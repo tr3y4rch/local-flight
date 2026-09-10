@@ -25,7 +25,16 @@ function opPager(page) {
 
 function opSearch(view) {
   const f = operatorState.filters;
-  return `<form id="operatorSearch" class="operator-search"><label class="field"><span>Secure search</span><input name="q" type="search" value="${esc(f.q || "")}" placeholder="${view === "email" ? "Message reference, purpose, or exact email" : "License, key reference, or exact email"}" maxlength="240" autocomplete="off"></label>${view === "licenses" ? `<label class="field"><span>Source</span><select name="source"><option value="">All sources</option>${["stripe","apple_app","google_play_product","operator_complimentary","operator_test"].map(v => `<option value="${v}" ${f.source === v ? "selected" : ""}>${esc(titleCase(v))}</option>`).join("")}</select></label><label class="field"><span>Duration</span><select name="expiry">${[["","Any duration"],["permanent","Permanent"],["expiring","Expires within 7 days"],["expired","Expired"]].map(([v,l])=>`<option value="${v}" ${f.expiry===v ? "selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}<label class="field"><span>State</span><select name="state"><option value="">All states</option>${(view === "email" ? ["pending","sending","sent","failed","uncertain","cancelled"] : ["active","suspended","revoked","refunded","expired"]).map(v=>`<option value="${v}" ${f.state===v ? "selected" : ""}>${esc(v === "sent" ? "SMTP accepted" : titleCase(v))}</option>`).join("")}</select></label><button class="button button-primary" type="submit">Search</button></form>`;
+  return `<form id="operatorSearch" class="operator-search"><label class="field"><span>Secure search</span><input name="q" type="search" value="${esc(f.q || "")}" placeholder="${view === "email" ? "Message reference, purpose, or exact email" : "License, key reference, or exact email"}" maxlength="240" autocomplete="off"></label>${view === "licenses" ? `<label class="field"><span>Source</span><select name="source"><option value="">All sources</option>${["stripe","apple_subscription","google_play_subscription","founder_legacy","apple_app","google_play_product","operator_complimentary","operator_test"].map(v => `<option value="${v}" ${f.source === v ? "selected" : ""}>${esc(titleCase(v))}</option>`).join("")}</select></label><label class="field"><span>Duration</span><select name="expiry">${[["","Any duration"],["permanent","Permanent"],["expiring","Expires within 7 days"],["expired","Expired"]].map(([v,l])=>`<option value="${v}" ${f.expiry===v ? "selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}<label class="field"><span>State</span><select name="state"><option value="">All states</option>${(view === "email" ? ["pending","sending","sent","failed","uncertain","cancelled"] : ["active","grace","cancelled_active","past_due","expired","suspended","revoked","refunded"]).map(v=>`<option value="${v}" ${f.state===v ? "selected" : ""}>${esc(v === "sent" ? "SMTP accepted" : titleCase(v))}</option>`).join("")}</select></label><button class="button button-primary" type="submit">Search</button></form>`;
+}
+
+// The relay resolves entitlement facts server-side; these only phrase them.
+function opEntitlementKind(a) {
+  return (a && a.entitlement_kind) === "subscription" ? "Annual subscription" : "Permanent";
+}
+function opRenewal(a) {
+  if (!a || a.entitlement_kind !== "subscription") return "Permanent · no renewal";
+  return a.auto_renews ? "Renews yearly" : "Ends at period end";
 }
 
 function opLicenseTable(page) {
@@ -34,7 +43,9 @@ function opLicenseTable(page) {
     {key:"recipient",label:"Protected recipient"},
     {key:"purchase_source",label:"Authority",render:r=>esc(titleCase(r.purchase_source))},
     {key:"status",label:"State",render:r=>badge(r.authority?.effective_state || r.status)},
-    {key:"expires_at",label:"Duration",render:r=>esc(opWhen(r.authority?.expires_at))},
+    {key:"entitlement",label:"Entitlement",render:r=>esc(opEntitlementKind(r.authority))},
+    {key:"expires_at",label:"Paid through",render:r=>esc(opWhen(r.authority?.expires_at))},
+    {key:"renewal",label:"Renewal",render:r=>badge(opRenewal(r.authority))},
     {key:"device_kind",label:"Receiver",render:r=>esc(r.device_kind || "Not assigned")},
     {key:"delivery",label:"Last email",render:r=>esc(r.delivery?.[0]?.evidence_label || "No email record")},
     {key:"last_seen_at",label:"Last activity",render:r=>dateTime(r.last_seen_at || r.updated_at)},
@@ -59,11 +70,18 @@ async function renderOperatorWorkspace() {
       const page = await opPost("history/search",search);
       body = panel("Operator history", "Append-only actions and support notes. Mailbox confirmations and automated expiry are attributed separately.",`<div class="panel-body">${opHistory(page)}${opPager(page)}</div>`);
     } else if (view === "toolbox") {
-      const [config, grants] = await Promise.all([api("/admin/api/operator/configuration"),opPost("grants/search",search)]);
+      const [config, grants, founders] = await Promise.all([api("/admin/api/operator/configuration"),opPost("grants/search",search),api("/admin/api/operator/founders")]);
       operatorState.config = config;
-      body = panel("Issue an invitation", "The recipient must explicitly confirm before a license is activated. Operator grants are not paid purchases.",`<div class="panel-body">${detailSection("Issuance readiness",[["Environment",titleCase(config.environment)],["New grants",config.issuance_ready ? "Ready" : "Disabled / not ready"],["Outstanding gates",config.readiness_problems.join(", ") || "None"],["One receiver", "Normal provider permissions and limits apply"]])}${opButton(config.environment === "production" ? "Issue complimentary license" : "Issue test license","issue_grant",config.issuance_ready ? "" : 'disabled title="Complete the server-side issuance gates first"')}</div>`) +
+      const grantState = config.issuance_ready ? "Ready" : config.issuance_enabled === false ? "Switched off" : "Not ready";
+  // Distinguish a deliberate switch from an unmet server gate. Reporting both
+  // as "not ready" with no outstanding gates is what made this panel look broken.
+  const grantBlocker = config.issuance_ready ? "" : config.issuance_enabled === false
+    ? 'disabled title="Issuance is switched off for this deployment"'
+    : 'disabled title="Complete the server-side issuance gates first"';
+  body = panel("Issue an invitation", "The recipient must explicitly confirm before a license is activated. Operator grants are not paid purchases.",`<div class="panel-body">${detailSection("Issuance readiness",[["Environment",titleCase(config.environment)],["New grants",grantState],["Outstanding gates",config.readiness_problems.join(", ") || "None"],["One receiver", "Normal provider permissions and limits apply"]])}${opButton(config.environment === "production" ? "Issue complimentary license" : "Issue test license","issue_grant",grantBlocker)}</div>`) +
         panel("Mail and recovery configuration", "No secret values can be displayed or exported.",`<div class="panel-body">${detailSection("Readiness",[["SMTP",config.mail_ready ? "Configured" : "Not ready"],["Recipient delivery", "Unknown with this mail connection"],["Verified backup",config.backup.healthy ? "Healthy" : "Needs attention"],["Latest backup",dateTime(config.backup.last_backup_at)]])}<div class="action-buttons">${opButton("Send non-secret SMTP test","smtp_test",config.mail_ready ? "" : "disabled")}${opButton("Create verified backup","create_backup")}${opButton("Verify latest backup","verify_latest")}</div></div>`) +
-        panel("Operator grants & invitations", "Pending invitations expire after 24 hours or the grant expiry, whichever is sooner.",`<div class="panel-body">${opGrants(grants)}${opPager(grants)}</div>`);
+        panel("Founder migration", "Preserved legacy installs. Counts only; individual founders are stored as keyed references and are not listed here.",`<div class="panel-body">${founders.total ? detailSection("Bridge progress",[["Founder entitlements",String(founders.total)],["Upgraded to a device credential",String(founders.claimed)],["Still on the legacy bridge",String(founders.awaiting_upgrade)],["Immutable cutoff",opWhen(founders.cutoff_at)],["Bridge closes",opWhen(founders.bridge_expires_at)],["Migration mode",founders.migration_active ? "Active" : "Not active"]]) : emptyTable("No founder entitlements recorded.")}</div>`) +
+    panel("Operator grants & invitations", "Pending invitations expire after 24 hours or the grant expiry, whichever is sooner.",`<div class="panel-body">${opGrants(grants)}${opPager(grants)}</div>`);
     } else {
       const p = await api("/admin/api/operator/attention");
       operatorState.config = p.configuration;
@@ -103,11 +121,24 @@ async function openOperatorLicense(summary) {
 function renderOperatorDetail() {
   const d = operatorState.detail;
   const tab = operatorState.tab;
-  const action = (label,key,danger=false) => opButton(label,"license_action",`data-license-action="${key}" ${d.actions[key] && !d.actions[key].enabled ? `disabled title="${esc(d.actions[key].reason)}"` : ""}`,danger);
+  // The server gates only the actions whose availability depends on licence
+  // state (resend, recovery, rotate, email change) and returns a reason for
+  // each. Any other action is ungated by design and stays clickable; the POST
+  // still requires a typed reason plus explicit confirmation and is validated
+  // server-side. An absent key therefore means "not gated", not "unavailable".
+  const action = (label,key,danger=false) => {
+    const state = d.actions[key];
+    const blocked = Boolean(state) && !state.enabled;
+    return opButton(label,"license_action",`data-license-action="${key}" ${blocked ? `disabled title="${esc(state.reason)}"` : ""}`,danger);
+  };
   const primary = action("Resend license","resend_key_email")+action("Send recovery link","send_recovery_link")+opButton("Run diagnostics","diagnostics");
   let body = "";
   if (tab === "summary") {
-    body = detailSection("Entitlement",[["Key reference",licenseKeyRef(d.license)],["Authority",titleCase(d.authority.source || d.license.purchase_source)],["State",d.authority.effective_state],["Environment",d.authority.environment],["Duration",opWhen(d.authority.expires_at)],["Protected recipient",d.recipient],["Email verification",d.email_protected ? "Confirmed" : "Not confirmed"],["Receiver",d.receivers.some(r=>r.status === "active") ? "Assigned · online status not inferred" : "Not assigned"]])+
+    const entitlementRows = [["Key reference",licenseKeyRef(d.license)],["Authority",titleCase(d.authority.source || d.license.purchase_source)],["Entitlement",opEntitlementKind(d.authority)],["State",d.authority.effective_state],["Renewal",opRenewal(d.authority)],["Environment",d.authority.environment],[d.authority.entitlement_kind === "subscription" ? "Paid through" : "Duration",opWhen(d.authority.expires_at)]];
+    if (d.authority.grace_expires_at) entitlementRows.push(["Billing grace through",opWhen(d.authority.grace_expires_at)]);
+    if ((d.authority.source || d.license.purchase_source) === "founder_legacy") entitlementRows.push(["Founder","Preserved permanent access from the migration snapshot"]);
+    entitlementRows.push(["Protected recipient",d.recipient],["Email verification",d.email_protected ? "Confirmed" : "Not confirmed"],["Receiver",d.receivers.some(r=>r.status === "active") ? "Assigned · online status not inferred" : "Not assigned"]);
+    body = detailSection("Entitlement",entitlementRows)+
       `<section class="detail-section"><h3>Diagnostics</h3><p>Checked ${esc(opWhen(d.diagnostics.checked_at))}. Stored state and configuration only.</p>${d.diagnostics.findings.length ? `<ul>${d.diagnostics.findings.map(f=>`<li>${esc(f.message)}</li>`).join("")}</ul>` : "<p>No stored-state problems found. This does not certify inbox delivery or live connectivity.</p>"}<div class="action-buttons">${opButton("Copy support summary","copy_summary")}${opButton("Download support summary","download_summary")}</div></section>`;
   } else if (tab === "email") {
     body = opEmail(d.email)+opButton("Browse full delivery history","license_email");

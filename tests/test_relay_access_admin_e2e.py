@@ -81,8 +81,11 @@ def test_operator_ui_hides_actions_the_backend_must_reject() -> None:
         encoding="utf-8"
     )
     assert '["paid","purchased","issued"].includes(d.authority.authority_state)' in source
-    assert '!d.actions[key].enabled' in source
-    assert 'd.actions[key].reason' in source
+    # Only server-gated actions carry an enabled flag and a reason; an absent
+    # key means the action is ungated, not unavailable. Disabling on absence
+    # wrongly greys out ungated actions such as adding a support note.
+    assert "const blocked = Boolean(state) && !state.enabled;" in source
+    assert "state.reason" in source
     assert 'confirmed:true' in source
     assert 'showSecret(' not in source
 
