@@ -82,9 +82,16 @@ npx wrangler secret put UPTIMEROBOT_API_KEY
 ```
 
 The key never appears in `wrangler.jsonc`, in the site source, or in the
-`/api/status` response body; the contract test asserts the last of these. Free
-tier allows 10 API requests per minute, and the route caches for 60 seconds at
-the edge, so it makes at most one upstream call per minute regardless of traffic.
+`/api/status` response body; the contract test asserts the last of these.
+
+Two caches sit behind the route, with different jobs. The status response itself
+is held 30 seconds and carries no `stale-while-revalidate`, because serving a
+stale all-clear during an incident is the one failure this page exists to avoid.
+The monitor history is cached separately for five minutes, matching the check
+interval, and is retained well past that as a fallback: if the monitoring API is
+slow or refuses a request, the last known history is served instead of the column
+disappearing. That also keeps usage far inside the free tier's 10 requests per
+minute no matter how much traffic the page gets.
 
 If the key is absent, unset, or rejected, the page still renders live component
 health from the relay and simply omits the uptime history. `wrangler dev`

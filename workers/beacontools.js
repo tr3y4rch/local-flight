@@ -4,8 +4,14 @@ const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_REPOSITORY}/releases`;
 const RELEASE_CACHE_SECONDS = 1800;
 const MINIMUM_PUBLIC_VERSION = "0.7.1";
 
-const STATUS_CACHE_SECONDS = 60;
+const STATUS_CACHE_SECONDS = 30;
+// The monitoring service checks every five minutes, so re-asking more often than
+// that buys nothing and only spends the free tier's 10 requests per minute.
+const MONITOR_CACHE_SECONDS = 300;
 const STATUS_PROBE_TIMEOUT_MS = 5000;
+// Uptime ratios over four periods are a far heavier query than a health ping, so
+// the monitoring call gets its own budget rather than sharing the relay's.
+const MONITOR_PROBE_TIMEOUT_MS = 10000;
 const UPTIME_MONITORS_API = "https://api.uptimerobot.com/v2/getMonitors";
 // Periods requested from UptimeRobot, in the order `uptimeRatios` unpacks them:
 // 24 hours, 7 days, 30 days, 90 days.
@@ -37,9 +43,10 @@ const DOWNLOAD_FILENAMES = {
 };
 
 const RELEASE_CACHE_CONTROL = `public, max-age=300, s-maxage=${RELEASE_CACHE_SECONDS}, stale-while-revalidate=86400`;
-// Status is deliberately short-lived in the browser as well as at the edge: a
-// reader refreshing during an incident must not be served a five-minute-old page.
-const STATUS_CACHE_CONTROL = `public, max-age=${STATUS_CACHE_SECONDS}, s-maxage=${STATUS_CACHE_SECONDS}, stale-while-revalidate=300`;
+// Deliberately no stale-while-revalidate. Serving a stale "all clear" during an
+// incident is the one failure this page exists to avoid, and it stays short-lived in
+// the browser as well as at the edge so a reader can refresh their way to the truth.
+const STATUS_CACHE_CONTROL = `public, max-age=${STATUS_CACHE_SECONDS}, s-maxage=${STATUS_CACHE_SECONDS}`;
 
 function jsonResponse(payload, status = 200, cacheControl = RELEASE_CACHE_CONTROL) {
   return new Response(JSON.stringify(payload), {
@@ -356,7 +363,7 @@ async function uptimeMonitors(apiKey) {
       format: "json",
       custom_uptime_ratios: UPTIME_RATIO_PERIODS,
     }),
-    signal: AbortSignal.timeout(STATUS_PROBE_TIMEOUT_MS),
+    signal: AbortSignal.timeout(MONITOR_PROBE_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`UptimeRobot returned ${response.status}`);
   const payload = await response.json();
@@ -364,6 +371,43 @@ async function uptimeMonitors(apiKey) {
     throw new Error(`UptimeRobot rejected the request: ${JSON.stringify(payload?.error ?? payload).slice(0, 200)}`);
   }
   return payload;
+}
+
+export function freshMonitorRecord(record, now) {
+  if (!record || typeof record.fetched_at !== "number") return null;
+  return now - record.fetched_at < MONITOR_CACHE_SECONDS * 1000 ? record.monitors : null;
+}
+
+async function cachedUptimeMonitors(apiKey, request, context) {
+  const cache = caches.default;
+  // Not a routed path; it exists only as a cache key beside the status response.
+  const cacheKey = new Request(new URL("/api/status/monitors", request.url), { method: "GET" });
+  let previous = null;
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    const record = await cached.json().catch(() => null);
+    const fresh = freshMonitorRecord(record, Date.now());
+    if (fresh) return fresh;
+    previous = record?.monitors ?? null;
+  }
+
+  try {
+    const monitors = normalizeUptimeMonitors(await uptimeMonitors(apiKey));
+    const record = JSON.stringify({ fetched_at: Date.now(), monitors });
+    context.waitUntil(cache.put(cacheKey, new Response(record, {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        // Retained well past the point it stops counting as fresh, so it survives
+        // as a fallback when the monitoring API is slow or refuses a request.
+        "Cache-Control": `public, max-age=${MONITOR_CACHE_SECONDS * 6}`,
+      },
+    })));
+    return monitors;
+  } catch (error) {
+    console.warn("status: uptime monitors failed:", String(error));
+    // Last known history beats dropping the column entirely.
+    return previous;
+  }
 }
 
 async function statusResponse(request, env, context) {
@@ -379,18 +423,17 @@ async function statusResponse(request, env, context) {
     relayHealth(relayOrigin(request, env)),
     // Without a key the page still renders live component health and simply omits the
     // uptime history, which keeps `wrangler dev` usable with no secrets configured.
-    apiKey ? uptimeMonitors(apiKey) : Promise.resolve(null),
+    apiKey ? cachedUptimeMonitors(apiKey, request, context) : Promise.resolve(null),
   ]);
   // Logged, never returned: both sources are allowed to fail quietly for readers, but
   // silent failure with no trace is untriageable. Observability is on for this Worker.
   if (health.status === "rejected") console.warn("status: relay health failed:", String(health.reason));
   if (monitors.status === "rejected") console.warn("status: uptime monitors failed:", String(monitors.reason));
-  const monitorPayload = monitors.status === "fulfilled" ? monitors.value : null;
 
   const response = jsonResponse(
     buildStatusPayload({
       health: health.status === "fulfilled" ? health.value : null,
-      monitors: monitorPayload ? normalizeUptimeMonitors(monitorPayload) : null,
+      monitors: monitors.status === "fulfilled" ? monitors.value : null,
       now: new Date(),
     }),
     200,

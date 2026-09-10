@@ -156,6 +156,22 @@ assert.equal(
   "Serving this response proves the website is reachable.",
 );
 
+// --- Monitor history caching ----------------------------------------------
+
+const recordNow = Date.UTC(2026, 6, 20, 12, 34, 0);
+assert.deepEqual(
+  workerModule.freshMonitorRecord({ fetched_at: recordNow - 60_000, monitors: { website: {} } }, recordNow),
+  { website: {} },
+  "A record inside the five-minute window is reused rather than refetched.",
+);
+assert.equal(
+  workerModule.freshMonitorRecord({ fetched_at: recordNow - 400_000, monitors: { website: {} } }, recordNow),
+  null,
+  "A record past the window must trigger a refresh.",
+);
+assert.equal(workerModule.freshMonitorRecord(null, recordNow), null);
+assert.equal(workerModule.freshMonitorRecord({ monitors: {} }, recordNow), null);
+
 // --- Route behaviour -------------------------------------------------------
 
 function stubCaches() {
@@ -188,8 +204,13 @@ const okRelay = () => new Response(JSON.stringify(healthyRelay), { headers: { "C
 
 const live = await statusRequest({ relay: okRelay });
 assert.equal(live.response.status, 200);
-assert.match(live.response.headers.get("Cache-Control"), /max-age=60/);
-assert.match(live.response.headers.get("Cache-Control"), /s-maxage=60/);
+assert.match(live.response.headers.get("Cache-Control"), /max-age=30/);
+assert.match(live.response.headers.get("Cache-Control"), /s-maxage=30/);
+assert.doesNotMatch(
+  live.response.headers.get("Cache-Control"),
+  /stale-while-revalidate/,
+  "A status page must never serve a stale all-clear during an incident.",
+);
 assert.equal(live.response.headers.get("X-Content-Type-Options"), "nosniff");
 const livePayload = await live.response.json();
 assert.equal(livePayload.overall, "operational");
@@ -259,6 +280,82 @@ assert.equal((await relayError.response.json()).overall, "outage");
 const rejected = await statusRequest({ relay: okRelay, method: "POST" });
 assert.equal(rejected.response.status, 405);
 assert.equal(rejected.response.headers.get("Cache-Control"), "no-store");
+
+// Monitor history must survive a refused refresh, which is the whole point of
+// caching it separately from the status response.
+const statusUrl = "https://beacontools.cc/api/status";
+const monitorsUrl = "https://beacontools.cc/api/status/monitors";
+
+function statefulCaches() {
+  const store = new Map();
+  globalThis.caches = {
+    default: {
+      async match(request) {
+        const hit = store.get(request.url);
+        return hit ? hit.clone() : undefined;
+      },
+      async put(request, response) {
+        store.set(request.url, response.clone());
+      },
+    },
+  };
+  return store;
+}
+
+async function statusWith(uptime) {
+  const originalFetch = globalThis.fetch;
+  let uptimeCalls = 0;
+  globalThis.fetch = async (input) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/health")) return okRelay();
+    uptimeCalls += 1;
+    return uptime();
+  };
+  try {
+    const response = await workerModule.default.fetch(
+      new Request(statusUrl),
+      { UPTIMEROBOT_API_KEY: "ur-read-only-secret" },
+      { waitUntil() {} },
+    );
+    return { payload: await response.json(), uptimeCalls };
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+const goodMonitors = () => new Response(JSON.stringify({
+  stat: "ok",
+  monitors: [{ friendly_name: "downloads", status: 2, custom_uptime_ratio: "100.000-100.000-100.000-100.000" }],
+}), { headers: { "Content-Type": "application/json" } });
+const refusedMonitors = () => new Response("rate limited", { status: 429 });
+
+const store = statefulCaches();
+const firstRun = await statusWith(goodMonitors);
+assert.equal(firstRun.payload.sources.history, true);
+assert.equal(firstRun.uptimeCalls, 1);
+
+// A fresh record must be reused without asking the monitoring service again.
+store.delete(statusUrl);
+const secondRun = await statusWith(refusedMonitors);
+assert.equal(secondRun.uptimeCalls, 0, "A fresh monitor record must not trigger another API call.");
+assert.equal(secondRun.payload.sources.history, true);
+
+// Once the record ages out, a refused refresh must fall back to the last good copy
+// rather than dropping the history column.
+store.delete(statusUrl);
+const agedRecord = await store.get(monitorsUrl).json();
+store.set(monitorsUrl, new Response(
+  JSON.stringify({ ...agedRecord, fetched_at: Date.now() - 10 * 60 * 1000 }),
+  { headers: { "Content-Type": "application/json" } },
+));
+const thirdRun = await statusWith(refusedMonitors);
+assert.equal(thirdRun.uptimeCalls, 1, "A stale record must trigger a refresh attempt.");
+assert.equal(
+  thirdRun.payload.sources.history,
+  true,
+  "A refused refresh must fall back to the last known history.",
+);
+assert.equal(thirdRun.payload.services.find((service) => service.key === "downloads").state, "operational");
 
 // The pre-existing release route must be untouched by the shared dispatch.
 stubCaches();
