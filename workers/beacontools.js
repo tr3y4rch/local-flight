@@ -360,7 +360,9 @@ async function uptimeMonitors(apiKey) {
   });
   if (!response.ok) throw new Error(`UptimeRobot returned ${response.status}`);
   const payload = await response.json();
-  if (payload?.stat !== "ok") throw new Error("UptimeRobot rejected the request");
+  if (payload?.stat !== "ok") {
+    throw new Error(`UptimeRobot rejected the request: ${JSON.stringify(payload?.error ?? payload).slice(0, 200)}`);
+  }
   return payload;
 }
 
@@ -379,6 +381,10 @@ async function statusResponse(request, env, context) {
     // uptime history, which keeps `wrangler dev` usable with no secrets configured.
     apiKey ? uptimeMonitors(apiKey) : Promise.resolve(null),
   ]);
+  // Logged, never returned: both sources are allowed to fail quietly for readers, but
+  // silent failure with no trace is untriageable. Observability is on for this Worker.
+  if (health.status === "rejected") console.warn("status: relay health failed:", String(health.reason));
+  if (monitors.status === "rejected") console.warn("status: uptime monitors failed:", String(monitors.reason));
   const monitorPayload = monitors.status === "fulfilled" ? monitors.value : null;
 
   const response = jsonResponse(
@@ -394,10 +400,15 @@ async function statusResponse(request, env, context) {
   return response;
 }
 
-const JSON_ROUTES = new Map([
-  ["/api/releases/latest", latestReleaseResponse],
-  ["/api/status", statusResponse],
-]);
+async function jsonRouteResponse(handler, request, env, context) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return jsonResponse({ ok: false, error: "method_not_allowed" }, 405);
+  }
+  const response = await handler(request, env, context);
+  return request.method === "HEAD"
+    ? new Response(null, { status: response.status, headers: response.headers })
+    : response;
+}
 
 export default {
   async fetch(request, env, context) {
@@ -407,15 +418,12 @@ export default {
       return Response.redirect(new URL("/privacy", url), 301);
     }
 
-    const jsonRoute = JSON_ROUTES.get(url.pathname);
-    if (jsonRoute) {
-      if (request.method !== "GET" && request.method !== "HEAD") {
-        return jsonResponse({ ok: false, error: "method_not_allowed" }, 405);
-      }
-      const response = await jsonRoute(request, env, context);
-      return request.method === "HEAD"
-        ? new Response(null, { status: response.status, headers: response.headers })
-        : response;
+    if (url.pathname === "/api/releases/latest") {
+      return jsonRouteResponse(latestReleaseResponse, request, env, context);
+    }
+
+    if (url.pathname === "/api/status") {
+      return jsonRouteResponse(statusResponse, request, env, context);
     }
 
     if (request.method === "HEAD") {
