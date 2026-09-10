@@ -1160,3 +1160,30 @@ def test_access_rate_limit_maps_to_429_with_retry_after(access_stack, monkeypatc
     assert limited.json()["detail"]["code"] == "access_rate_limited"
     assert int(limited.headers["retry-after"]) > 0
     _assert_private_response(limited)
+
+
+def test_closing_the_stripe_channel_closes_checkout_not_only_the_catalog(
+    access_stack,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A closed channel must refuse cleanly instead of attempting a charge.
+
+    Hiding the button while leaving the route reachable meant an operator who
+    turned Stripe off still exposed an endpoint that called Stripe and returned
+    a server error, which is the worst possible answer at the moment of payment.
+    """
+    client, _service, _stripe, _mailer = access_stack
+
+    open_catalog = client.get("/v1/access/catalog", headers=PUBLIC_HOST).json()
+    assert open_catalog["product"]["purchase_sources"]["stripe"]["available"] is True
+    assert client.post("/v1/access/stripe/checkout", headers=PUBLIC_HOST, json={}).status_code == 200
+
+    monkeypatch.setenv("RELAY_ACCESS_STRIPE_SALES_ENABLED", "0")
+
+    closed_catalog = client.get("/v1/access/catalog", headers=PUBLIC_HOST).json()
+    assert closed_catalog["product"]["purchase_sources"]["stripe"]["available"] is False
+    assert closed_catalog["product"]["sales_available"] is False
+
+    refused = client.post("/v1/access/stripe/checkout", headers=PUBLIC_HOST, json={})
+    assert refused.status_code == 503
+    assert refused.json()["detail"]["code"] == "relay_access_sales_unavailable"

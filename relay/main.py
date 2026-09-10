@@ -11941,7 +11941,10 @@ def access_catalog() -> Dict[str, Any]:
 def access_stripe_checkout(_body: AccessStripeCheckoutIn, request: Request) -> Dict[str, Any]:
     policy = _provider_access_policy()
     stripe_adapter = _stripe_adapter()
-    if not _relay_sales_policy_ready(policy):
+    # The per-channel switch must close the endpoint, not merely hide the button.
+    # Otherwise turning Stripe off still leaves a reachable route that attempts a
+    # real charge attempt and surfaces a server error instead of a clean refusal.
+    if not _relay_sales_policy_ready(policy) or not _sales_channel_enabled("stripe"):
         raise HTTPException(
             status_code=503,
             detail={"code": "relay_access_sales_unavailable", "message": "Beacon Relay Access sales are not available yet."},
