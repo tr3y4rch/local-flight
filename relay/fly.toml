@@ -26,6 +26,10 @@ primary_region = 'fra'
   RELAY_ACCESS_MODE = 'legacy'
   RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT = 'production'
   RELAY_ACCESS_PRODUCT_CODE = 'beacon_relay_annual_v1'
+  # Immutable once the founder snapshot runs. Eligibility is successful
+  # authenticated activity in the 90 days before this instant, which
+  # grandfathers 38 of the 64 legacy installs present at launch.
+  RELAY_ACCESS_FOUNDER_CUTOFF_AT = '2026-09-10T00:00:00+00:00'
   RELAY_ACCESS_HASH_SECRET_ID = 'v1'
   RELAY_ACCESS_KEY_SECRET_ID = 'v1'
   RELAY_ACCESS_ENCRYPTION_SECRET_ID = 'v1'
