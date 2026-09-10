@@ -14,7 +14,10 @@ from localflight.native.qt_compat import import_qt
 EXPECTED_FAMILIES = ("Audiowide", "DM Sans", "Space Mono")
 FONT_FILES = (
     "Audiowide-Regular.ttf",
-    "DMSans.ttf",
+    "DMSans-Regular.ttf",
+    "DMSans-Bold.ttf",
+    "DMSans-ExtraBold.ttf",
+    "DMSans-Black.ttf",
     "SpaceMono-Regular.ttf",
     "SpaceMono-Bold.ttf",
     "OFL-Audiowide.txt",

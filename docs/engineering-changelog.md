@@ -7,6 +7,19 @@ hashes, and personal build identifiers belong outside Git.
 
 ## 0.7.0 annual Relay Access candidate
 
+- The native Qt shell now loads static DM Sans weights
+  (`DMSans-{Regular,Bold,ExtraBold,Black}.ttf`, generated from the variable
+  font by `scripts/build_static_ui_fonts.py`) instead of the variable
+  `DMSans.ttf`. Qt registered only the variable font's default instance under
+  its optical-size family name, so Windows and macOS resolved the `DM Sans`
+  stylesheet request to different fallbacks and Windows rasterized the
+  variable outlines poorly, which made setup text unreadable. Browser pages
+  and mobile keep the variable font.
+- The first-launch setup window derives its content width, compact mode, and
+  option-card columns from the fitted window (`setup_layout_profile`) rather
+  than the raw screen, re-flows the card grids on resize, and is centred
+  explicitly, so ultrawide displays and scaled Windows laptops get a normal,
+  readable window instead of cramped three-column grids.
 - Desktop, Pi, and LAN clients now honor provider-confirmed `grace` and
   `cancelled_active` subscription states, surface `past_due`/`expired` with
   renew, restore, BYOK, or VATSIM actions, and cache period end, renewal

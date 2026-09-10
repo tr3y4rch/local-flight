@@ -1503,9 +1503,18 @@ def resolve_media_path(*parts: str) -> Path | None:
     return None
 
 
+# Qt gets static DM Sans weights rather than the variable ``DMSans.ttf`` the
+# web pages use: Qt registers only a variable font's default instance under
+# its optical-size family name ("DM Sans 9pt"), so the "DM Sans" stylesheet
+# request fell through to a different system font on each platform and the
+# variable outlines rasterized poorly on Windows. ``scripts/build_static_ui_fonts.py``
+# regenerates these files from the variable font.
 FONT_FILES = (
     ("Audiowide-Regular.ttf", BRAND_FONT_FAMILY),
-    ("DMSans.ttf", UI_FONT_FAMILY),
+    ("DMSans-Regular.ttf", UI_FONT_FAMILY),
+    ("DMSans-Bold.ttf", UI_FONT_FAMILY),
+    ("DMSans-ExtraBold.ttf", UI_FONT_FAMILY),
+    ("DMSans-Black.ttf", UI_FONT_FAMILY),
     ("SpaceMono-Regular.ttf", BOARD_FONT_FAMILY),
     ("SpaceMono-Bold.ttf", BOARD_FONT_FAMILY),
 )

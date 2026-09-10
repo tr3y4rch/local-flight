@@ -56,6 +56,8 @@ from localflight.native.design import (
 from localflight.native.geometry import (
     default_display_mode,
     display_split_orientation,
+    SETUP_WINDOW_MAX_HEIGHT,
+    SETUP_WINDOW_MAX_WIDTH,
     fitted_window_size,
     native_visual_density,
 )
@@ -227,9 +229,14 @@ def _fit_window_to_screen(QtWidgets: Any, window: Any, preferred_width: int, pre
     )
     window.resize(width, height)
 
+    # frameGeometry() returns a copy, so centring the copy did nothing on
+    # Windows, where the window manager does not centre new windows itself.
     frame = getattr(window, "frameGeometry", lambda: None)()
     if frame is not None:
         frame.moveCenter(geometry.center())
+        move = getattr(window, "move", None)
+        if callable(move):
+            move(frame.topLeft())
         window.move(frame.topLeft())
 
 
@@ -508,7 +515,7 @@ def launch_native_app(
             if not app_icon.isNull():
                 setup_window.setWindowIcon(app_icon)
             windows["setup"] = setup_window
-        _show_fitted_window(QtCore, QtWidgets, setup_window, 980, 760)
+        _show_fitted_window(QtCore, QtWidgets, setup_window, SETUP_WINDOW_MAX_WIDTH, SETUP_WINDOW_MAX_HEIGHT)
         try:
             setup_window.raise_()
             setup_window.activateWindow()

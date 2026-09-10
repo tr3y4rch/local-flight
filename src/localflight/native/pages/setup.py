@@ -18,6 +18,7 @@ from localflight.native.design import (
     pixmap_from_media,
     scroll_page,
 )
+from localflight.native.geometry import SETUP_CONTENT_MAX_WIDTH, setup_card_columns, setup_layout_profile
 from localflight.native.identity import localflight_app_icon
 from localflight.native.pages.setup_widgets import (
     build_celebration,
@@ -137,17 +138,37 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         available = screen.availableGeometry() if screen is not None else None
         available_width = available.width() if available is not None else 1200
         available_height = available.height() if available is not None else 900
-        self.setup_max_width = min(1080, max(540, available_width - 32))
-        self.compact_setup = available_width < 900 or available_height < 820
-        self.card_columns = 1 if available_width < 900 else 2 if available_width < 1220 else 3
+        # Size decisions follow the window the wizard will really get, not the
+        # raw screen: a 980px window on an ultrawide must not pick three
+        # columns, and a 150% scaled Windows laptop must not mix compact rows
+        # with wide grids. Grids re-flow again whenever the window is resized.
+        profile = setup_layout_profile(available_width, available_height)
+        # Content is capped at a readable width and centred; the window itself
+        # is the lower bound, so growing the window later still re-flows.
+        self.setup_max_width = SETUP_CONTENT_MAX_WIDTH
+        self.compact_setup = bool(profile["compact"])
+        self.card_columns = int(profile["columns"])
+        self._card_grids: list[tuple[Any, list[Any], int]] = []
         self.step_names = list(STEP_NAMES)
         self.step_short_labels = list(STEP_SHORT_LABELS)
         self.source_buttons: dict[str, Any] = {}
         self.diagnostics_buttons: dict[str, Any] = {}
         self.provider_link_buttons: dict[str, Any] = {}
 
-        self.widget = QtWidgets.QWidget()
+        screen_ref = self
+
+        class _SetupRoot(QtWidgets.QWidget):
+            def resizeEvent(self_, event: Any) -> None:  # noqa: N802 - Qt naming
+                super().resizeEvent(event)
+                screen_ref._on_root_resized(self_.width())
+
+        self.widget = _SetupRoot()
         self._init_async(QtCore, self.widget)
+        self._regrid_timer = QtCore.QTimer(self.widget)
+        self._regrid_timer.setSingleShot(True)
+        self._regrid_timer.setInterval(60)
+        self._regrid_timer.timeout.connect(self._regrid_cards)
+        self._pending_root_width = 0
         self.widget.setMinimumWidth(0)
         root_layout = QtWidgets.QVBoxLayout(self.widget)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -456,12 +477,8 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         cards = self.QtWidgets.QGridLayout()
         cards.setHorizontalSpacing(12)
         cards.setVerticalSpacing(12)
-        for index, card in enumerate(WELCOME_CARDS):
-            cards.addWidget(
-                self._mini_card(card["title"], card["body"], icon=card.get("icon", "")),
-                index // self.card_columns,
-                index % self.card_columns,
-            )
+        welcome_cards = [self._mini_card(card["title"], card["body"], icon=card.get("icon", "")) for card in WELCOME_CARDS]
+        self._register_card_grid(cards, welcome_cards)
         layout.addLayout(cards)
         self.start_btn = self.QtWidgets.QPushButton("\U0001F680  Start setup")
         self.start_btn.setObjectName("SetupPrimary")
@@ -552,7 +569,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         cards = self.QtWidgets.QGridLayout()
         cards.setHorizontalSpacing(12)
         cards.setVerticalSpacing(12)
-        for index, option in enumerate(SOURCE_OPTIONS):
+        for option in SOURCE_OPTIONS:
             mode = option["mode"]
             card = self._option_card(
                 icon=option["icon"],
@@ -561,7 +578,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 click=lambda m=mode: self._set_mode(m),
             )
             self.source_buttons[mode] = card
-            cards.addWidget(card, index // self.card_columns, index % self.card_columns)
+        self._register_card_grid(cards, list(self.source_buttons.values()))
         layout.addLayout(cards)
         self.mode_help = self._status_chip("", "muted")
         layout.addWidget(self.mode_help)
@@ -742,7 +759,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         cards = self.QtWidgets.QGridLayout()
         cards.setHorizontalSpacing(12)
         cards.setVerticalSpacing(12)
-        for index, option in enumerate(DIAGNOSTICS_OPTIONS):
+        for option in DIAGNOSTICS_OPTIONS:
             mode = option["mode"]
             card = self._option_card(
                 icon=option["icon"],
@@ -751,7 +768,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 click=lambda m=mode: self._set_diagnostics_mode(m),
             )
             self.diagnostics_buttons[mode] = card
-            cards.addWidget(card, index // self.card_columns, index % self.card_columns)
+        self._register_card_grid(cards, list(self.diagnostics_buttons.values()))
         layout.addLayout(cards)
         self.diagnostics_help = self._status_chip(
             "Privacy rule: no provider keys, Relay Access credentials, raw install IDs, pilot identities, or internal secrets are shown here or sent from the client UI.",
@@ -777,8 +794,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             "keys": self._summary_card("Provider keys", "No provider keys saved"),
             "diagnostics": self._summary_card("Diagnostics", "Manual reports only"),
         }
-        for index, card in enumerate(self.finish_cards.values()):
-            self.finish_grid.addWidget(card, index // max(1, min(2, self.card_columns)), index % max(1, min(2, self.card_columns)))
+        self._register_card_grid(self.finish_grid, list(self.finish_cards.values()), max_columns=2)
         layout.addLayout(self.finish_grid)
         self.finish_summary = label(self.QtWidgets, "", "Muted", wrap=True)
         self.finish_summary.hide()
@@ -838,6 +854,39 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         eye.clicked.connect(_toggle)
         layout.addWidget(eye)
         return container
+
+    def _register_card_grid(self, grid: Any, cards: list[Any], *, max_columns: int = 3) -> None:
+        """Place cards in a grid now and remember them so the grid can re-flow later."""
+        self._card_grids.append((grid, cards, max_columns))
+        self._place_cards(grid, cards, max(1, min(self.card_columns, max_columns)))
+
+    @staticmethod
+    def _place_cards(grid: Any, cards: list[Any], columns: int) -> None:
+        for index, card in enumerate(cards):
+            grid.addWidget(card, index // columns, index % columns)
+
+    def _on_root_resized(self, width: int) -> None:
+        self._pending_root_width = int(width)
+        try:
+            self._regrid_timer.start()
+        except Exception:
+            self._regrid_cards()
+
+    def _regrid_cards(self) -> None:
+        """Re-flow the option-card grids for the width the window actually has."""
+        width = self._pending_root_width
+        if width <= 0:
+            return
+        columns = setup_card_columns(min(self.setup_max_width, width - 24))
+        if columns == self.card_columns:
+            return
+        self.card_columns = columns
+        for grid, cards, max_columns in self._card_grids:
+            target = max(1, min(columns, max_columns))
+            for card in cards:
+                grid.removeWidget(card)
+            self._place_cards(grid, cards, target)
+        self._sync_current_page_geometry()
 
     def _sync_current_page_geometry(self) -> None:
         """Let the outer setup scroll area own overflow instead of clipping the active page."""

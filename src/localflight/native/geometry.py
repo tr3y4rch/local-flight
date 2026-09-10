@@ -9,6 +9,13 @@ from __future__ import annotations
 
 DISPLAY_SPLIT_SIDE_BY_SIDE_MIN_WIDTH = 1320
 
+# The first-launch setup window is a normal window, never maximized or
+# fullscreen. It grows with the screen only up to this size; on an ultrawide
+# display it simply sits centred at this size.
+SETUP_WINDOW_MAX_WIDTH = 980
+SETUP_WINDOW_MAX_HEIGHT = 760
+SETUP_CONTENT_MAX_WIDTH = 1080
+
 
 def width_fraction(available_width: int) -> float:
     """Return a comfortable initial-window fraction for a display width."""
@@ -72,3 +79,44 @@ def native_visual_density(available_width: int | None) -> str:
     if width >= 2200:
         return "presentation"
     return "wide"
+
+
+def setup_card_columns(content_width: int | None) -> int:
+    """Return how many option cards fit side by side in the setup pages.
+
+    Derived from the width the cards actually get, not from the screen, so a
+    980px window on a 3440px ultrawide does not try to squeeze in three
+    columns and a 150% scaled laptop does not mix compact rows with wide grids.
+    """
+    if content_width is None:
+        return 2
+    width = max(1, int(content_width))
+    if width < 640:
+        return 1
+    if width < 900:
+        return 2
+    return 3
+
+
+def setup_layout_profile(available_width: int, available_height: int) -> dict[str, int | bool]:
+    """Return the initial setup-window size and the layout choices for it.
+
+    Everything is computed from the window the wizard will really get
+    (``fitted_window_size`` capped at the setup maximums), so the content
+    width, compact mode, and card columns agree with each other on any
+    display size or Windows scaling factor.
+    """
+    window_width, window_height = fitted_window_size(
+        available_width,
+        available_height,
+        max_width=SETUP_WINDOW_MAX_WIDTH,
+        max_height=SETUP_WINDOW_MAX_HEIGHT,
+    )
+    content_width = min(SETUP_CONTENT_MAX_WIDTH, max(540, window_width - 32))
+    return {
+        "window_width": window_width,
+        "window_height": window_height,
+        "content_width": content_width,
+        "compact": window_width < 900 or window_height < 700,
+        "columns": setup_card_columns(content_width),
+    }

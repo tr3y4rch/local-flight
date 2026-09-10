@@ -21,7 +21,7 @@ them.
 
 ### DM Sans
 
-- Files: `src/localflight/ui/static/fonts/DMSans.ttf`, `mobile/assets/fonts/DMSans.ttf`
+- Files: `src/localflight/ui/static/fonts/DMSans.ttf`, `mobile/assets/fonts/DMSans.ttf`; static weights `src/localflight/ui/static/fonts/DMSans-{Regular,Bold,ExtraBold,Black}.ttf` are generated from the variable font by `scripts/build_static_ui_fonts.py` for the native Qt shell
 - Designer: Colophon Foundry
 - Copyright: Copyright 2014 The DM Sans Project Authors
 - Source: https://github.com/googlefonts/dm-fonts
