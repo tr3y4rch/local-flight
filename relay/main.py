@@ -13371,7 +13371,12 @@ def _build_client_status(
             except Exception as exc:
                 raise _access_exception(exc) from exc
         _bind_activation_install(str(activation_row["token_hash"]), install_id)
-        plan = "community" if str(activation_row["access_plan"] or "managed").strip().lower() == "community" else "managed"
+        legacy_plan = "community" if str(activation_row["access_plan"] or "managed").strip().lower() == "community" else "managed"
+        # An active founder bridge is a preserved permanent entitlement, so it has
+        # to authorize the same capabilities as a purchased credential. Reporting
+        # it as "managed" would drop Remote Companion the moment migration mode
+        # starts, for exactly the users the bridge exists to carry for a year.
+        plan = "licensed" if founder_bridge.get("bridge_active") else legacy_plan
         schedule_limit = int(activation_row["schedule_limit"] or _managed_schedule_limit())
         radar_limit = int(activation_row["radar_limit"] or _managed_radar_limit())
         token_prefix = str(activation_row["token_prefix"] or "")

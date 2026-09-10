@@ -2803,3 +2803,57 @@ def test_checkout_does_not_create_claim_without_launch_configuration(tmp_path: P
         assert conn.execute("SELECT COUNT(*) FROM access_challenges WHERE purpose='checkout_result'").fetchone()[0] == 0
     finally:
         conn.close()
+
+
+def test_founder_bridge_keeps_remote_companion_before_the_credential_upgrade(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A grandfathered install must keep Remote Companion on its old credential.
+
+    Founder installs only exchange lfm_ for lfr_ once a 0.7.0 client reaches
+    them. Treating the bridge as a merely "managed" legacy plan would revoke
+    Remote Companion at the instant migration mode starts, for precisely the
+    users the twelve-month bridge exists to carry.
+    """
+    _use_relay_access_db(tmp_path, monkeypatch)
+    cutoff = datetime.now(timezone.utc) + timedelta(minutes=1)
+    monkeypatch.setenv("RELAY_ACCESS_FOUNDER_CUTOFF_AT", cutoff.isoformat())
+    service = relay_main._license_service()
+
+    founder_install = "81818181-8181-4181-8181-818181818181"
+    founder_token = "lfm_founder_remote_companion_test"
+    excluded_install = "82828282-8282-4282-8282-828282828282"
+    excluded_token = "lfm_excluded_remote_companion_test"
+    _store_legacy_install(
+        token=founder_token,
+        install_id=founder_install,
+        created_at=cutoff - timedelta(days=180),
+        last_seen=cutoff - timedelta(days=1),
+    )
+    _store_legacy_install(
+        token=excluded_token,
+        install_id=excluded_install,
+        created_at=cutoff - timedelta(days=180),
+        last_seen=cutoff - timedelta(days=200),
+    )
+    assert service.founder_snapshot(cutoff_at=cutoff.isoformat(), execute=True)["created_count"] == 1
+
+    monkeypatch.setenv("RELAY_ACCESS_MODE", "migration")
+
+    status = relay_main._build_client_status(
+        install_id=founder_install,
+        activation_token=founder_token,
+    )
+    assert status["plan"] == "licensed"
+    assert status["founder"] is True
+    assert status["founder_claim_available"] is True
+    assert relay_main._require_remote_companion_install(founder_install, founder_token)
+
+    # The install left out of the snapshot stays refused rather than inheriting
+    # Remote Companion from the bridge it was never part of.
+    with pytest.raises(HTTPException):
+        relay_main._build_client_status(
+            install_id=excluded_install,
+            activation_token=excluded_token,
+        )
