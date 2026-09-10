@@ -4,6 +4,7 @@ import SiteLayout from "../../../layouts/SiteLayout.astro";
 import SectionHeading from "../../../components/SectionHeading.astro";
 import MobileModeSwitcher from "../../../components/MobileModeSwitcher.astro";
 import SafetyNotice from "../../../components/SafetyNotice.astro";
+import Icon from "../../../components/Icon.astro";
 import { availability, candidateRelease, relayOrigin } from "../../../data/site";
 import iosFids from "../../../assets/screens/mobile/ios/current/fids-dark.png";
 import iosHistory from "../../../assets/screens/mobile/ios/current/history-dark.png";
@@ -27,7 +28,11 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
           <a class="action-button action-button--primary" href="#modes">Compare Companion and Standalone <span aria-hidden="true">↓</span></a>
           <a class="action-link" href="#screens">See the app</a>
         </div>
-        <p class="hero-footnote">Companion keeps the computer in charge · Standalone runs on the phone · No ads · No cross-app tracking</p>
+        <ul class="stat-row hero-stat-row">
+          <li><Icon name="monitor" />Companion keeps the computer in charge</li>
+          <li><Icon name="phone" />Standalone runs on the phone</li>
+          <li><Icon name="eyeOff" />No ads or cross-app tracking</li>
+        </ul>
       </div>
       <div class="hero-visual hero-visual--wide phone-composition" aria-label="Local Flight Mobile interface previews" data-reveal>
         <div class="phone-frame phone-frame--primary">
@@ -56,10 +61,22 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
         <figure class="preview-phone"><Picture src={iosHistory} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight movement history on iOS in dark appearance" /><figcaption>iOS / HISTORY · DARK APPEARANCE</figcaption></figure>
         <figure class="preview-phone"><Picture src={androidHistory} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight movement history on Android in light appearance" /><figcaption>ANDROID / HISTORY · LIGHT APPEARANCE</figcaption></figure>
       </div>
-      <div class="summary-lines summary-lines--compact mobile-outcomes" data-reveal>
-        <div class="summary-line"><span>BRD</span><strong>Flight board</strong><p>Airport-local times, weather, supplied status and gates, pinned flights, and a visible freshness time.</p></div>
-        <div class="summary-line"><span>RDR</span><strong>Nearby aircraft</strong><p>A phone-sized radar view using the same deliberate 15-second sweep as the desktop and browser displays.</p></div>
-        <div class="summary-line"><span>HST</span><strong>Recent movements</strong><p>Companion reads history from the computer; Standalone keeps its own recent history on the phone.</p></div>
+      <div class="feature-grid mobile-outcomes" data-reveal>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="board" /></span>
+          <h3>Flight board</h3>
+          <p>Airport-local times, weather, supplied status and gates, pinned flights, and a visible freshness time.</p>
+        </article>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="radar" /></span>
+          <h3>Nearby aircraft</h3>
+          <p>A phone-sized radar view using the same deliberate 15-second sweep as the desktop and browser displays.</p>
+        </article>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="history" /></span>
+          <h3>Recent movements</h3>
+          <p>Companion reads history from the computer; Standalone keeps its own recent history on the phone.</p>
+        </article>
       </div>
     </div>
   </section>
@@ -85,9 +102,8 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
     <div class="terminal-frame">
       <SectionHeading index="04 / IOS + ANDROID" title="The same free app and annual plan on both stores." description="Use Companion or VATSIM without Relay Access, or subscribe annually for real-flight Standalone. Eligible earlier users restore permanent access instead." />
       <div class="platform-comparison" data-reveal>
-        <div class="platform-row platform-row--head" aria-hidden="true"><span>Platform</span><span>App download</span><span>Companion + VATSIM</span><span>Real-flight Standalone</span></div>
-        <article class="platform-row"><strong>iOS</strong><p>Free app</p><p>Free to use</p><p>Annual App Store Relay Access subscription, existing license, or eligible founder restore.</p></article>
-        <article class="platform-row"><strong>Android</strong><p>Free app</p><p>Free to use</p><p>Annual Google Play Relay Access subscription, existing license, or eligible founder restore.</p></article>
+        <article class="platform-row"><span class="icon-badge icon-badge--sm"><Icon name="phone" /></span><strong>iOS</strong><dl class="platform-facts"><div><dt>App download</dt><dd>Free app</dd></div><div><dt>Companion + VATSIM</dt><dd>Free to use</dd></div><div><dt>Real-flight Standalone</dt><dd>Annual App Store Relay Access subscription, existing license, or eligible founder restore.</dd></div></dl></article>
+        <article class="platform-row"><span class="icon-badge icon-badge--sm"><Icon name="phone" /></span><strong>Android</strong><dl class="platform-facts"><div><dt>App download</dt><dd>Free app</dd></div><div><dt>Companion + VATSIM</dt><dd>Free to use</dd></div><div><dt>Real-flight Standalone</dt><dd>Annual Google Play Relay Access subscription, existing license, or eligible founder restore.</dd></div></dl></article>
       </div>
       <p class="hero-footnote">Each Stripe, App Store, or Google Play subscription creates a separate one-main-device entitlement. Unrelated purchases are not silently merged.</p>
     </div>
@@ -97,10 +113,10 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
     <div class="terminal-frame">
       <SectionHeading index="05 / UPDATE TIMING" title="What updates—and when—in phone-only mode." description="Standalone checks shared data at conservative intervals and keeps the latest saved view available between checks. These are target intervals, not guarantees." />
       <div class="cadence-line cadence-line--mobile" data-reveal>
-        <article class="cadence-item"><strong>About 1 h</strong><h3>Real-world schedules</h3><p>Standalone requests new shared airline-schedule data no more often than about once an hour.</p></article>
-        <article class="cadence-item"><strong>Between checks</strong><h3>Saved board view</h3><p>The app keeps the latest board available and re-evaluates saved rows locally without requesting a new schedule.</p></article>
-        <article class="cadence-item"><strong>BYOK or VATSIM</strong><h3>Radar</h3><p>Shared real-aircraft radar is not included in Relay Access. Companion can follow a host's BYOK/VATSIM radar, and VATSIM Radar remains available in Standalone.</p></article>
-        <article class="cadence-item"><strong>About 1 min</strong><h3>VATSIM mode</h3><p>VATSIM board and Radar views target about one-minute checks while the phone is in use.</p></article>
+        <article class="cadence-item"><span class="icon-badge icon-badge--sm"><Icon name="refresh" /></span><strong>About 1 h</strong><h3>Real-world schedules</h3><p>Standalone requests new shared airline-schedule data no more often than about once an hour.</p></article>
+        <article class="cadence-item"><span class="icon-badge icon-badge--sm"><Icon name="board" /></span><strong>Between checks</strong><h3>Saved board view</h3><p>The app keeps the latest board available and re-evaluates saved rows locally without requesting a new schedule.</p></article>
+        <article class="cadence-item"><span class="icon-badge icon-badge--sm"><Icon name="radar" /></span><strong>BYOK or VATSIM</strong><h3>Radar</h3><p>Shared real-aircraft radar is not included in Relay Access. Companion can follow a host's BYOK/VATSIM radar, and VATSIM Radar remains available in Standalone.</p></article>
+        <article class="cadence-item"><span class="icon-badge icon-badge--sm"><Icon name="globe" /></span><strong>About 1 min</strong><h3>VATSIM mode</h3><p>VATSIM board and Radar views target about one-minute checks while the phone is in use.</p></article>
       </div>
     </div>
   </section>

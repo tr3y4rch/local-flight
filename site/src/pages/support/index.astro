@@ -3,6 +3,7 @@ import SiteLayout from "../../layouts/SiteLayout.astro";
 import SectionHeading from "../../components/SectionHeading.astro";
 import SupportForms from "../../components/SupportForms.astro";
 import SafetyNotice from "../../components/SafetyNotice.astro";
+import Icon from "../../components/Icon.astro";
 ---
 
 <SiteLayout
@@ -29,10 +30,10 @@ import SafetyNotice from "../../components/SafetyNotice.astro";
     <div class="terminal-frame">
       <SectionHeading index="01 / START HERE" title="The answer may already be one step away." description="Use these direct routes for the most common tasks. If they do not fit, choose the closest form below—you do not need the technical name." />
       <div class="support-start-list" data-reveal>
-        <a href="/local-flight/#downloads"><span>DWN</span><strong>Download Local Flight</strong><p>Choose Windows, macOS, Linux, server, or Raspberry Pi.</p><i aria-hidden="true">↗</i></a>
-        <a href="/network/"><span>NET</span><strong>Connection help</strong><p>Compare LAN, Companion, Standalone, VATSIM, own keys, and Beacon Relay.</p><i aria-hidden="true">↗</i></a>
-        <a href="/local-flight/relay-access/manage/"><span>RLY</span><strong>Recover Relay Access</strong><p>Protect a license, move it, release a device, or replace a lost key.</p><i aria-hidden="true">↗</i></a>
-        <a href="/privacy/choices/"><span>PRV</span><strong>Privacy controls</strong><p>Change diagnostics, revoke a phone, reset, erase, or make a data request.</p><i aria-hidden="true">↗</i></a>
+        <a href="/local-flight/#downloads"><span class="icon-badge icon-badge--sm"><Icon name="download" /></span><strong>Download Local Flight</strong><p>Choose Windows, macOS, Linux, server, or Raspberry Pi.</p><i aria-hidden="true">↗</i></a>
+        <a href="/network/"><span class="icon-badge icon-badge--sm"><Icon name="network" /></span><strong>Connection help</strong><p>Compare LAN, Companion, Standalone, VATSIM, own keys, and Beacon Relay.</p><i aria-hidden="true">↗</i></a>
+        <a href="/local-flight/relay-access/manage/"><span class="icon-badge icon-badge--sm"><Icon name="key" /></span><strong>Recover Relay Access</strong><p>Protect a license, move it, release a device, or replace a lost key.</p><i aria-hidden="true">↗</i></a>
+        <a href="/privacy/choices/"><span class="icon-badge icon-badge--sm"><Icon name="shield" /></span><strong>Privacy controls</strong><p>Change diagnostics, revoke a phone, reset, erase, or make a data request.</p><i aria-hidden="true">↗</i></a>
       </div>
     </div>
   </section>

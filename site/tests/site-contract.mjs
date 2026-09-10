@@ -109,7 +109,6 @@ assert.match(pageText["index.html"], /Local Flight is free, open-source software
 assert.match(pageText["index.html"], /Local Flight grew from wanting airport-style information on ordinary screens/);
 assert.match(pageText["index.html"], /I did not want advertising, tracking, or cookie strategies to become the business model/);
 assert.match(pageText["index.html"], /Why Beacon Relay is paid\./);
-assert.match(pageText["index.html"], /provider-authorized aviation data, servers, payment and license delivery, abuse protection, and ongoing maintenance/);
 const relayAccessState = fs
   .readFileSync(path.join(siteRoot, "src/data/site.ts"), "utf8")
   .match(/relayAccess:\s*"([a-z]+)"/)?.[1];
@@ -144,8 +143,8 @@ assert.match(pageText["local-flight/index.html"], /Only Beacon Relay needs paid 
 assert.match(pageText["local-flight/index.html"], /appropriately licensed aviation-data provider account/);
 assert.match(pageText["local-flight/mobile/index.html"], /Take your flight board with you\./);
 assert.match(pageText["local-flight/mobile/index.html"], /Compare Companion and Standalone/);
-assert.match(pageText["local-flight/mobile/index.html"], /iOS Free app Free to use Annual App Store Relay Access subscription/);
-assert.match(pageText["local-flight/mobile/index.html"], /Android Free app Free to use Annual Google Play Relay Access subscription/);
+assert.match(pageText["local-flight/mobile/index.html"], /iOS App download Free app Companion \+ VATSIM Free to use Real-flight Standalone Annual App Store Relay Access subscription/);
+assert.match(pageText["local-flight/mobile/index.html"], /Android App download Free app Companion \+ VATSIM Free to use Real-flight Standalone Annual Google Play Relay Access subscription/);
 assert.match(pageText["local-flight/mobile/index.html"], /The mobile apps are currently in testing\./);
 assert.match(pageText["local-flight/mobile/index.html"], /Ask about mobile testing/);
 assert.match(builtPages.get("local-flight/mobile/index.html"), /\/v1\/access\/catalog/);
@@ -187,6 +186,7 @@ assert.match(
     : /Relay Access purchases are being prepared\. No payment can be started yet\./,
 );
 assert.match(pageText["local-flight/relay-access/index.html"], /The software is free\. Hosted service has ongoing costs\./);
+assert.match(pageText["local-flight/relay-access/index.html"], /provider-authorized aviation data, servers, payment and license delivery, abuse protection, and ongoing maintenance/);
 assert.match(pageText["local-flight/relay-access/index.html"], /iOS and Android downloads are free/);
 assert.match(pageText["local-flight/relay-access/index.html"], /CHF 8\/year/);
 assert.match(pageText["local-flight/relay-access/success/index.html"], /Your Relay Access key/);

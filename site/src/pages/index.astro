@@ -1,16 +1,19 @@
 ---
 import { Picture } from "astro:assets";
 import SiteLayout from "../layouts/SiteLayout.astro";
-import DestinationBoard from "../components/DestinationBoard.astro";
+import ProductGrid from "../components/ProductGrid.astro";
 import SystemMap from "../components/SystemMap.astro";
 import MediaStage from "../components/MediaStage.astro";
 import SectionHeading from "../components/SectionHeading.astro";
 import SafetyNotice from "../components/SafetyNotice.astro";
-import { availability, currentRelease, makerNote, paidRelayExplanation } from "../data/site";
+import Icon from "../components/Icon.astro";
+import { availability, currentRelease, makerNote } from "../data/site";
 import fidsImage from "../assets/screens/shell/fids-0.5.1.png";
 import iosFids from "../assets/screens/mobile/ios/current/fids-dark.png";
 import androidRadar from "../assets/screens/mobile/android/current/radar-light.png";
 import matrixImage from "../assets/screens/shell/matrix.png";
+
+const relayLive = availability.relayAccess === "live";
 ---
 
 <SiteLayout
@@ -22,14 +25,18 @@ import matrixImage from "../assets/screens/shell/matrix.png";
   <header class="terminal-hero terminal-hero--product">
     <div class="terminal-frame terminal-grid hero-grid">
       <div class="hero-copy hero-copy--narrow">
-        <div class="eyebrow">Beacon Tools / Local Flight {currentRelease}</div>
-        <h1 class="hero-title">Airport-style flight boards for screens you own.</h1>
-        <p class="hero-lede">Local Flight is free, open-source software for arrivals and departures boards, nearby-aircraft radar, movement history, phone views, kiosks, and LED displays. Run it on a computer or Raspberry Pi you control.</p>
+        <div class="eyebrow">Beacon Tools / Local-first aviation displays</div>
+        <h1 class="hero-title">Your own airport, on <span class="accent-word">your own screens.</span></h1>
+        <p class="hero-lede">Local Flight is free, open-source software for arrivals and departures boards, nearby-aircraft radar, and movement history. Run it on a computer or Raspberry Pi you control, and add phones, kiosks, or LED panels when you want them.</p>
         <div class="hero-actions">
           <a class="action-button action-button--primary" href="/local-flight/#downloads">Download Local Flight <span aria-hidden="true">→</span></a>
-          <a class="action-link" href="#outputs">See what it can show</a>
+          <a class="action-link" href="#products">See what we make</a>
         </div>
-        <p class="hero-footnote">Free and open source · No required account · No subscription for the software · Optional online service</p>
+        <ul class="stat-row hero-stat-row">
+          <li><Icon name="code" />Free and open source</li>
+          <li><Icon name="eyeOff" />No ads or tracking</li>
+          <li><Icon name="shield" />No account required</li>
+        </ul>
       </div>
       <div class="hero-visual hero-visual--wide">
         <MediaStage src={fidsImage} alt="Local Flight airport-style departures board in the desktop application" label="LOCAL FLIGHT / DEPARTURES" meta={`Real desktop capture · ${currentRelease}`} loading="eager" widths={[720, 1100, 1500]} sizes="(max-width: 920px) 90vw, 55vw" />
@@ -37,16 +44,16 @@ import matrixImage from "../assets/screens/shell/matrix.png";
     </div>
   </header>
 
-  <section class="section section--compact" id="destinations">
+  <section class="section section--compact" id="products">
     <div class="terminal-frame">
-      <SectionHeading index="01 / CHOOSE A PATH" title="Choose how you want to use Local Flight." description="Start with the free application. Add phones, local screens, your preferred flight-data source, or the optional hosted relay as your setup grows." />
-      <DestinationBoard />
+      <SectionHeading index="01 / PRODUCTS" title="Three pieces. Start with the free one." description="Local Flight is the application. Mobile puts it in your pocket. Relay Access is the only paid part, and only if you want hosted flight data." />
+      <ProductGrid />
     </div>
   </section>
 
   <section class="section section--raised section--ruled" id="outputs">
     <div class="terminal-frame">
-      <SectionHeading index="02 / YOUR SCREENS" title="One setup can reach several screens." description="The computer running Local Flight can serve its own window, browsers and phones on your home network, kiosk displays, and supported HUB75 LED matrix panels." />
+      <SectionHeading index="02 / YOUR SCREENS" title="One setup can reach several screens." description="The computer running Local Flight serves its own window, browsers and phones on your home network, kiosk displays, and supported HUB75 LED matrix panels." />
       <SystemMap />
       <div class="output-strip" data-reveal aria-label="Local Flight phone, widget, and LED matrix outputs">
         <figure>
@@ -69,27 +76,30 @@ import matrixImage from "../assets/screens/shell/matrix.png";
     </div>
   </section>
 
-  <section class="section">
-    <div class="terminal-frame terminal-grid editorial-pair">
-      <div class="editorial-heading" data-reveal>
-        <span class="section-index">03 / WHY IT EXISTS</span>
-        <h2>Built for displays that stay yours.</h2>
-      </div>
-      <div class="editorial-copy maker-note" data-reveal>
-        <p>{makerNote}</p>
-        <a class="action-link" href="https://github.com/tr3y4rch/local-flight">Inspect the source on GitHub</a>
-      </div>
-    </div>
-  </section>
-
   <section class="section section--quiet section--ruled">
     <div class="terminal-frame">
-      <SectionHeading index="04 / PRIVACY BY DESIGN" title="Local first is a practical boundary." description="Local Flight keeps its everyday state near the person running it. Online connections have a clear purpose and remain optional where the product allows." />
-      <div class="principle-list" data-reveal>
-        <article><span>01</span><div><h3>Runs on your hardware</h3><p>Settings, saved boards, movement history, logs, display choices, and your own provider keys normally stay on your computer or phone.</p></div></article>
-        <article><span>02</span><div><h3>No required Beacon profile</h3><p>Normal use has no Beacon Tools account. There is no advertising, behavioral analytics, cross-site tracking, or sale of usage data.</p></div></article>
-        <article><span>03</span><div><h3>Online features are named</h3><p>Beacon Relay, Remote Companion, reports, and diagnostics connect only for the function you choose. Automatic diagnostics require consent.</p></div></article>
-        <article><span>04</span><div><h3>The source can be inspected</h3><p>The desktop and server application remain open source, including the local data paths and display logic you run.</p></div></article>
+      <SectionHeading index="03 / PRIVACY BY DESIGN" title="Local first is a practical boundary." description="Local Flight keeps its everyday state near the person running it. Online connections have a clear purpose and stay optional where the product allows." />
+      <div class="feature-grid feature-grid--four" data-reveal>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="monitor" /></span>
+          <h3>Runs on your hardware</h3>
+          <p>Settings, saved boards, movement history, logs, and your own provider keys normally stay on your computer or phone.</p>
+        </article>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="eyeOff" /></span>
+          <h3>No required Beacon profile</h3>
+          <p>Normal use has no Beacon Tools account. There is no advertising, behavioral analytics, cross-site tracking, or sale of usage data.</p>
+        </article>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="network" /></span>
+          <h3>Online features are named</h3>
+          <p>Beacon Relay, Remote Companion, reports, and diagnostics connect only for the function you choose. Automatic diagnostics require consent.</p>
+        </article>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="code" /></span>
+          <h3>The source can be inspected</h3>
+          <p>The desktop and server application remain open source, including the local data paths and display logic you run.</p>
+        </article>
       </div>
       <div class="inline-actions editorial-actions">
         <a class="action-button" href="/privacy/">Read the privacy design</a>
@@ -101,15 +111,43 @@ import matrixImage from "../assets/screens/shell/matrix.png";
   <section class="section" id="why-relay-is-paid">
     <div class="terminal-frame terminal-grid editorial-pair">
       <div class="editorial-heading" data-reveal>
-        <span class="section-index">05 / OPTIONAL HOSTED ACCESS</span>
+        <span class="section-index">04 / THE ONE PAID PART</span>
         <h2>Why Beacon Relay is paid.</h2>
       </div>
       <div class="editorial-copy" data-reveal>
-        <p>{paidRelayExplanation}</p>
-        {availability.relayAccess === "live"
+        <p>The application stays free and open source. Beacon Relay is a hosted service with real running costs, and charging for it directly is what keeps the project going without advertising, tracking, or putting the software behind an account.</p>
+        {relayLive
           ? <p class="prelaunch-inline" data-release-state="live"><strong>Price:</strong> Relay Access is CHF 8 per year and renews automatically. Companion, Bring Your Own Keys, and VATSIM stay free.</p>
           : <p class="prelaunch-inline"><strong>Prelaunch:</strong> Relay Access purchases are being prepared. No payment can be started yet.</p>}
-        <a class="action-link" href="/local-flight/relay-access/">Understand Beacon Relay Access</a>
+        <a class="action-link" href="/local-flight/relay-access/">See what Relay Access includes</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--compact">
+    <div class="terminal-frame">
+      <figure class="maker-quote" data-reveal>
+        <blockquote><p>{makerNote}</p></blockquote>
+        <figcaption>
+          <span class="icon-badge icon-badge--sm"><Icon name="board" /></span>
+          <div><strong>Why this exists</strong><span>The maker of Local Flight</span></div>
+        </figcaption>
+      </figure>
+      <div class="inline-actions editorial-actions">
+        <a class="action-link" href="https://github.com/tr3y4rch/local-flight">Inspect the source on GitHub</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--compact">
+    <div class="terminal-frame">
+      <div class="cta-band" data-reveal>
+        <h2>Put a flight board on your screen tonight.</h2>
+        <p>Download the free application, then decide later whether you want hosted flight data.</p>
+        <div class="inline-actions">
+          <a class="action-button action-button--primary" href="/local-flight/#downloads">Download Local Flight <span aria-hidden="true">→</span></a>
+          <a class="action-link" href="/local-flight/relay-access/#get-access">{relayLive ? "Get Relay Access · CHF 8/yr" : "Understand Relay Access"}</a>
+        </div>
       </div>
     </div>
   </section>

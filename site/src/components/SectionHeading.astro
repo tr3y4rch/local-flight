@@ -1,6 +1,6 @@
 ---
 interface Props {
-  index: string;
+  index?: string;
   title: string;
   description?: string;
 }
@@ -10,7 +10,7 @@ const { index, title, description } = Astro.props;
 
 <header class="section-heading" data-reveal>
   <div>
-    <span class="section-index">{index}</span>
+    {index && <span class="section-index">{index}</span>}
     <h2>{title}</h2>
   </div>
   {description && <p>{description}</p>}

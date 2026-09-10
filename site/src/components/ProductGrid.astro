@@ -1,0 +1,79 @@
+---
+import Icon from "./Icon.astro";
+import { availability, currentRelease } from "../data/site";
+
+const relayLive = availability.relayAccess === "live";
+
+const products = [
+  {
+    key: "local-flight",
+    icon: "monitor" as const,
+    name: "Local Flight",
+    badge: `Free · open source · ${currentRelease}`,
+    // Kept verbatim from the previous home hero: it is the clearest one-line
+    // description of the product the project actually makes.
+    line: "Airport-style flight boards for screens you own.",
+    points: [
+      "Arrivals and departures boards, radar, and movement history",
+      "Windows, macOS, Linux, and Raspberry Pi",
+      "Feeds browsers, kiosks, and HUB75 LED panels on your network",
+    ],
+    action: "Download Local Flight",
+    href: "/local-flight/",
+    featured: false,
+  },
+  {
+    key: "mobile",
+    icon: "phone" as const,
+    name: "Local Flight Mobile",
+    badge: "iOS + Android · in testing",
+    line: "The same boards, radar, and history in your pocket.",
+    points: [
+      "Companion connects to a Local Flight computer you already run",
+      "Standalone follows VATSIM or real flights on the phone alone",
+      "Home-screen widgets and a pinned-flight Live Activity",
+    ],
+    action: "See the app",
+    href: "/local-flight/mobile/",
+    featured: false,
+  },
+  {
+    key: "relay",
+    icon: "relay" as const,
+    name: "Beacon Relay Access",
+    badge: relayLive ? "CHF 8 per year" : "Prelaunch",
+    line: "Optional hosted real-flight data, with no provider account to arrange.",
+    points: [
+      "Licensed real-flight schedule boards",
+      "One entitlement covers one main device and the screens it serves",
+      "Bring Your Own Keys and VATSIM stay free without it",
+    ],
+    action: relayLive ? "Get Relay Access" : "Understand Relay Access",
+    href: relayLive ? "/local-flight/relay-access/#get-access" : "/local-flight/relay-access/",
+    featured: true,
+  },
+];
+---
+
+<div class="product-grid" data-reveal>
+  {products.map((product) => (
+    <article class:list={["product-card", product.featured && "product-card--featured"]}>
+      <div class="product-card-head">
+        <span class="icon-badge"><Icon name={product.icon} /></span>
+        <h3>{product.name}</h3>
+      </div>
+      <span class:list={["product-badge", product.featured && "product-badge--paid"]}>
+        <i aria-hidden="true"></i>{product.badge}
+      </span>
+      <p>{product.line}</p>
+      <ul class="product-points">
+        {product.points.map((point) => (
+          <li><Icon name="check" />{point}</li>
+        ))}
+      </ul>
+      <div class="product-card-foot">
+        <a href={product.href}>{product.action} <span aria-hidden="true">→</span></a>
+      </div>
+    </article>
+  ))}
+</div>

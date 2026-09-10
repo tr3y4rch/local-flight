@@ -1,11 +1,15 @@
 ---
-import { currentRelease, navItems, type NavKey } from "../data/site";
+import Icon from "./Icon.astro";
+import { availability, currentRelease, navItems, type NavKey } from "../data/site";
 
 interface Props {
   active: NavKey;
 }
 
 const { active } = Astro.props;
+// A closed shop must never render a price prompt, so the call to action follows
+// the same single availability flag the purchase copy does.
+const relayLive = availability.relayAccess === "live";
 ---
 
 <header class="site-header" data-site-header>
@@ -28,6 +32,18 @@ const { active } = Astro.props;
         <a href={item.href} aria-current={active === item.key ? "page" : undefined}>{item.label}</a>
       ))}
     </nav>
+
+    {/* Deliberately a sibling of the nav, not a child: the navigation is
+        contract-tested for exactly the six destination links. */}
+    <a
+      class:list={["header-cta", relayLive && "header-cta--priced"]}
+      href="/local-flight/relay-access/#get-access"
+      aria-label={relayLive ? "Get Beacon Relay Access, CHF 8 per year" : "Understand Beacon Relay Access"}
+    >
+      <Icon name="relay" />
+      <b>Relay Access</b>
+      {relayLive && <span>CHF 8/yr</span>}
+    </a>
 
     <button class="theme-toggle" type="button" aria-label="Switch to light theme" data-theme-toggle>
       <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>

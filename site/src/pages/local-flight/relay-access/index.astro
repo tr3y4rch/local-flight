@@ -2,7 +2,11 @@
 import SiteLayout from "../../../layouts/SiteLayout.astro";
 import SectionHeading from "../../../components/SectionHeading.astro";
 import SafetyNotice from "../../../components/SafetyNotice.astro";
+import PricingCard from "../../../components/PricingCard.astro";
+import Icon from "../../../components/Icon.astro";
 import { availability, paidRelayExplanation, relayOrigin } from "../../../data/site";
+
+const relayLive = availability.relayAccess === "live";
 ---
 
 <SiteLayout
@@ -10,47 +14,52 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
   description="Beacon Relay is optional paid hosted access for real-flight data in Local Flight. The free open-source application, Bring Your Own Keys, and VATSIM remain separate."
   active="relay"
 >
-  <header class="terminal-hero terminal-hero--compact">
+  <header
+    class="terminal-hero terminal-hero--compact"
+    id="get-access"
+    data-access-catalog
+    data-relay-origin={relayOrigin}
+    data-public-state={availability.relayAccess}
+  >
     <div class="terminal-frame terminal-grid hero-grid">
       <div class="hero-copy hero-copy--narrow">
         <div class="eyebrow">Local Flight / Optional hosted service</div>
         <h1 class="hero-title">Beacon Relay is the optional hosted path for real-flight data.</h1>
-        <p class="hero-lede">It gives Local Flight a provider-authorized shared data path without asking you to arrange your own aviation-data accounts. It is separate from the free, open-source application.</p>
+        <p class="hero-lede">It gives Local Flight a provider-authorized shared data path without asking you to arrange your own aviation-data accounts. The application itself stays free and open source.</p>
+        <ul class="stat-row hero-stat-row">
+          <li><Icon name="check" />One main device</li>
+          <li><Icon name="refresh" />Cancel any time</li>
+          <li><Icon name="shield" />No Beacon account</li>
+        </ul>
         <div class="hero-actions">
-          <a class="action-button action-button--primary" href="#how-it-works">See how access works <span aria-hidden="true">↓</span></a>
           <a class="action-link" href="/local-flight/relay-access/manage/">Recover or manage existing access</a>
         </div>
       </div>
       <div class="hero-visual">
-        <div class="relay-route-figure" aria-label="Beacon Relay connects one active main device to hosted real-flight data" data-reveal>
-          <span>YOUR MAIN DEVICE</span><i aria-hidden="true"></i><strong>BEACON RELAY</strong><i aria-hidden="true"></i><span>HOSTED FLIGHT DATA</span>
-          <small>One desktop installation or one mobile real-flight Standalone installation</small>
-        </div>
+        <PricingCard />
       </div>
     </div>
   </header>
 
-  <div class="terminal-frame prelaunch-notice" role="status" data-release-state={availability.relayAccess}>
-    {availability.relayAccess === "live"
-      ? <>
-          <span>ANNUAL PLAN</span>
-          <p><strong>Relay Access is CHF 8 per year.</strong> It renews automatically until you cancel, and Stripe shows the final price and any tax before you pay.</p>
-        </>
-      : <>
-          <span>PRELAUNCH</span>
-          <p><strong>Relay Access purchases are being prepared.</strong> No payment can be started yet.</p>
-        </>}
-  </div>
-
-  <section class="section" id="why-paid">
-    <div class="terminal-frame terminal-grid editorial-pair">
-      <div class="editorial-heading" data-reveal>
-        <span class="section-index">01 / WHY IT IS PAID</span>
-        <h2>The software is free. Hosted service has ongoing costs.</h2>
-      </div>
-      <div class="editorial-copy" data-reveal>
-        <p>{paidRelayExplanation}</p>
-        <a class="action-link" href="/local-flight/#downloads">Download the free application</a>
+  <section class="section" id="includes">
+    <div class="terminal-frame">
+      <SectionHeading index="01 / WHAT YOU GET" title="Hosted flight data, without the provider paperwork." description="Beacon Tools holds the provider agreements, runs the shared cache, and keeps the service online so your setup does not have to." />
+      <div class="feature-grid" data-reveal>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="board" /></span>
+          <h3>Real-flight boards</h3>
+          <p>Licensed arrivals and departures data for the airport you choose, shared through the hosted cache.</p>
+        </article>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="globe" /></span>
+          <h3>Remote Companion</h3>
+          <p>Reach your Local Flight computer from outside the house. Messages are end-to-end encrypted; Beacon Tools cannot read them.</p>
+        </article>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="key" /></span>
+          <h3>No provider account</h3>
+          <p>No separate aviation-data contract, key, or invoice to manage. One annual payment covers the hosted path.</p>
+        </article>
       </div>
     </div>
   </section>
@@ -67,14 +76,12 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
     </div>
   </section>
 
-  <section class="section" id="get-access" data-access-catalog data-relay-origin={relayOrigin} data-public-state={availability.relayAccess}>
+  <section class="section" id="purchase-routes">
     <div class="terminal-frame">
-      <SectionHeading index="03 / PURCHASE ROUTES" title="Web, iOS, and Android use the same annual plan." description={availability.relayAccess === "live" ? "Stripe, the App Store, or Google Play shows the final price and tax before you confirm." : "Purchasing is not open yet. Each provider shows the final price and tax before confirmation."} />
-      <p class="catalog-status" id="accessCatalogStatus" role="status" aria-live="polite">{availability.relayAccess === "live" ? "Checking purchase availability…" : "Prelaunch · no purchase route is open."}</p>
+      <SectionHeading index="03 / PURCHASE ROUTES" title="Web, iOS, and Android use the same annual plan." description={relayLive ? "Stripe, the App Store, or Google Play shows the final price and tax before you confirm." : "Purchasing is not open yet. Each provider shows the final price and tax before confirmation."} />
       <div class="acquisition-table" data-reveal>
-        <div class="acquisition-row acquisition-row--head" aria-hidden="true"><span>Route</span><span>What is purchased</span><span>How Relay Access is provided</span><span>Current state</span></div>
         <article class="acquisition-row" data-purchase-source="stripe">
-          <strong>Web</strong><p>A CHF 8/year Stripe subscription.</p><p>A portable key activates desktop or Pi and can later move to an eligible mobile main device.</p><span class="source-status" data-source-status>{availability.relayAccess === "live" ? "Checking…" : "Prelaunch"}</span>
+          <strong>Web</strong><p>A CHF 8/year Stripe subscription.</p><p>A portable key activates desktop or Pi and can later move to an eligible mobile main device.</p><span class="source-status" data-source-status>{relayLive ? "Checking…" : "Prelaunch"}</span>
         </article>
         <article class="acquisition-row" data-purchase-source="apple_subscription">
           <strong>iOS</strong><p>The app is free; real-flight Standalone uses the annual App Store subscription.</p><p>Restore checks the subscription or eligible founder ownership before offering a purchase.</p><span class="source-status" data-source-status>Testing</span>
@@ -82,10 +89,6 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
         <article class="acquisition-row" data-purchase-source="google_play">
           <strong>Android</strong><p>The app is free; real-flight Standalone uses the annual Google Play subscription.</p><p>Companion, VATSIM, and eligible founder access remain available without a new purchase.</p><span class="source-status" data-source-status>Testing</span>
         </article>
-      </div>
-      <div class="purchase-prelaunch-action">
-        <button class="action-button action-button--primary" type="button" id="relayCheckout" disabled>{availability.relayAccess === "live" ? "Checking availability…" : "Purchases are not open yet"}</button>
-        <p class="form-status" id="relayCheckoutStatus" role="status" aria-live="polite">{availability.relayAccess === "live" ? "Confirming that Beacon Relay can complete a purchase right now." : "No payment can be started in the prelaunch state."}</p>
       </div>
       <p class="terms-note">The price is CHF 8/year. Stripe, the App Store, or Google Play shows the final localized currency and applicable tax before purchase. The <a href="/local-flight/relay-access/terms/">Relay Access terms</a> and <a href="/privacy/">privacy policy</a> apply to every purchase route.</p>
     </div>
@@ -114,9 +117,22 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
     </div>
   </section>
 
-  <section class="section">
+  <section class="section" id="why-paid">
+    <div class="terminal-frame terminal-grid editorial-pair">
+      <div class="editorial-heading" data-reveal>
+        <span class="section-index">05 / WHY IT IS PAID</span>
+        <h2>The software is free. Hosted service has ongoing costs.</h2>
+      </div>
+      <div class="editorial-copy" data-reveal>
+        <p>{paidRelayExplanation}</p>
+        <a class="action-link" href="/local-flight/#downloads">Download the free application</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--raised section--ruled">
     <div class="terminal-frame">
-      <SectionHeading index="05 / PRACTICAL DETAILS" title="Access without a conventional Beacon account." description="Email is used only for web delivery, protection, recovery, or a device move. There is no profile, password, or advertising identity." />
+      <SectionHeading index="06 / PRACTICAL DETAILS" title="Access without a conventional Beacon account." description="Email is used only for web delivery, protection, recovery, or a device move. There is no profile, password, or advertising identity." />
       <div class="summary-lines summary-lines--compact" data-reveal>
         <div class="summary-line"><span>RCV</span><strong>Recover access</strong><p>Request a short-lived private link using the purchase or protection email. You can email the current key again without changing the active device.</p></div>
         <div class="summary-line"><span>MAIL</span><strong>Protect a mobile license</strong><p>Add and verify an email before retrieving a portable key or moving access. Payment receipts come from the payment provider; Beacon Tools sends delivery and recovery emails separately.</p></div>

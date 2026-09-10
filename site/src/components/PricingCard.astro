@@ -1,0 +1,50 @@
+---
+import Icon from "./Icon.astro";
+import { availability } from "../data/site";
+
+const relayLive = availability.relayAccess === "live";
+
+const included = [
+  "Licensed real-flight schedule boards",
+  "Encrypted Remote Companion routing while you are away",
+  "One main device, plus every screen that device serves",
+  "No aviation-data provider account to arrange yourself",
+];
+---
+
+<div class="pricing-card" data-reveal>
+  <div class="pricing-head">
+    <span class="pricing-eyebrow">{relayLive ? "Annual plan" : "Prelaunch"}</span>
+    <p class="catalog-status" id="accessCatalogStatus" role="status" aria-live="polite">
+      {relayLive ? "Checking purchase availability…" : "Prelaunch · no purchase route is open."}
+    </p>
+  </div>
+  {relayLive
+    ? <p class="pricing-price"><strong>CHF 8</strong><span>per year</span></p>
+    : <p class="pricing-price"><strong>Not open yet</strong></p>}
+
+  <ul class="pricing-includes">
+    {included.map((item) => <li><Icon name="check" />{item}</li>)}
+  </ul>
+
+  <p class="pricing-exclusion">
+    <Icon name="radar" />
+    Shared real-aircraft radar is not included. Bring Your Own Keys and VATSIM radar stay free without Relay Access.
+  </p>
+
+  <div class="pricing-action">
+    <button class="action-button action-button--primary" type="button" id="relayCheckout" disabled>
+      {relayLive ? "Checking availability…" : "Purchases are not open yet"}
+    </button>
+    <p class="form-status" id="relayCheckoutStatus" role="status" aria-live="polite">
+      {relayLive ? "Confirming that Beacon Relay can complete a purchase right now." : "No payment can be started in the prelaunch state."}
+    </p>
+  </div>
+
+  <p class="pricing-fine">
+    {relayLive
+      ? "Relay Access is CHF 8 per year. It renews automatically until you cancel, and Stripe shows the final price and any tax before you pay."
+      : "Relay Access purchases are being prepared. No payment can be started yet."}
+    {" "}The <a href="/local-flight/relay-access/terms/">Relay Access terms</a> and <a href="/privacy/">privacy policy</a> apply.
+  </p>
+</div>

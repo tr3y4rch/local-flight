@@ -2,6 +2,7 @@
 import SiteLayout from "../../layouts/SiteLayout.astro";
 import SectionHeading from "../../components/SectionHeading.astro";
 import SafetyNotice from "../../components/SafetyNotice.astro";
+import Icon from "../../components/Icon.astro";
 ---
 
 <SiteLayout
@@ -42,14 +43,69 @@ import SafetyNotice from "../../components/SafetyNotice.astro";
     <div class="terminal-frame">
       <SectionHeading index="02 / MODE COMPARISON" title="See what connects, what leaves, and where history stays." description="Only the row for the mode you use applies. Relay Access is separate from the free Local Flight application." />
       <div class="mode-matrix" data-reveal>
-        <div class="mode-matrix-row mode-matrix-head" aria-hidden="true"><span>Mode</span><span>What connects</span><span>What leaves the device</span><span>Relay Access</span><span>History</span></div>
-        <article class="mode-matrix-row"><strong>Desktop, LAN, matrix, Companion</strong><p>Local screens connect to your Local Flight computer.</p><p>Nothing for the screen connection itself.</p><span>No</span><p>On the Local Flight computer.</p></article>
-        <article class="mode-matrix-row"><strong>Beacon Relay</strong><p>The Local Flight computer connects to Beacon Relay.</p><p>Random service ID, device credential, airport and feature request.</p><span>Yes</span><p>On the Local Flight computer.</p></article>
-        <article class="mode-matrix-row"><strong>Bring Your Own Keys</strong><p>The Local Flight computer connects to your chosen provider.</p><p>The provider key and airport or aircraft request needed for the feature.</p><span>No</span><p>On the Local Flight computer.</p></article>
-        <article class="mode-matrix-row"><strong>Desktop VATSIM</strong><p>The Local Flight computer reads public VATSIM traffic.</p><p>Only the public data request; Local Flight avoids pilot and controller identity fields.</p><span>No</span><p>On the Local Flight computer.</p></article>
-        <article class="mode-matrix-row"><strong>Mobile VATSIM</strong><p>The phone reads public virtual-network data.</p><p>Only the public data request.</p><span>No</span><p>On the phone.</p></article>
-        <article class="mode-matrix-row"><strong>Real-flight Standalone</strong><p>The phone connects directly to Beacon Relay.</p><p>Random service ID, device credential, airport and feature request.</p><span>Yes</span><p>On the phone.</p></article>
-        <article class="mode-matrix-row"><strong>Remote Companion</strong><p>The phone and licensed desktop host exchange messages through Beacon Relay.</p><p>Routing details and unreadable encrypted messages.</p><span>Uses host</span><p>On the Local Flight computer.</p></article>
+        <article class="mode-matrix-row">
+          <div class="mode-card-head"><span class="icon-badge icon-badge--sm"><Icon name="monitor" /></span><strong>Desktop, LAN, matrix, Companion</strong></div>
+          <dl class="mode-card-facts">
+            <div><dt>What connects</dt><dd>Local screens connect to your Local Flight computer.</dd></div>
+            <div><dt>What leaves the device</dt><dd>Nothing for the screen connection itself.</dd></div>
+            <div><dt>Relay Access</dt><dd><span class="mode-relay" data-relay="no">No</span></dd></div>
+            <div><dt>History</dt><dd>On the Local Flight computer.</dd></div>
+          </dl>
+        </article>
+        <article class="mode-matrix-row">
+          <div class="mode-card-head"><span class="icon-badge icon-badge--sm"><Icon name="relay" /></span><strong>Beacon Relay</strong></div>
+          <dl class="mode-card-facts">
+            <div><dt>What connects</dt><dd>The Local Flight computer connects to Beacon Relay.</dd></div>
+            <div><dt>What leaves the device</dt><dd>Random service ID, device credential, airport and feature request.</dd></div>
+            <div><dt>Relay Access</dt><dd><span class="mode-relay" data-relay="yes">Yes</span></dd></div>
+            <div><dt>History</dt><dd>On the Local Flight computer.</dd></div>
+          </dl>
+        </article>
+        <article class="mode-matrix-row">
+          <div class="mode-card-head"><span class="icon-badge icon-badge--sm"><Icon name="key" /></span><strong>Bring Your Own Keys</strong></div>
+          <dl class="mode-card-facts">
+            <div><dt>What connects</dt><dd>The Local Flight computer connects to your chosen provider.</dd></div>
+            <div><dt>What leaves the device</dt><dd>The provider key and airport or aircraft request needed for the feature.</dd></div>
+            <div><dt>Relay Access</dt><dd><span class="mode-relay" data-relay="no">No</span></dd></div>
+            <div><dt>History</dt><dd>On the Local Flight computer.</dd></div>
+          </dl>
+        </article>
+        <article class="mode-matrix-row">
+          <div class="mode-card-head"><span class="icon-badge icon-badge--sm"><Icon name="globe" /></span><strong>Desktop VATSIM</strong></div>
+          <dl class="mode-card-facts">
+            <div><dt>What connects</dt><dd>The Local Flight computer reads public VATSIM traffic.</dd></div>
+            <div><dt>What leaves the device</dt><dd>Only the public data request; Local Flight avoids pilot and controller identity fields.</dd></div>
+            <div><dt>Relay Access</dt><dd><span class="mode-relay" data-relay="no">No</span></dd></div>
+            <div><dt>History</dt><dd>On the Local Flight computer.</dd></div>
+          </dl>
+        </article>
+        <article class="mode-matrix-row">
+          <div class="mode-card-head"><span class="icon-badge icon-badge--sm"><Icon name="phone" /></span><strong>Mobile VATSIM</strong></div>
+          <dl class="mode-card-facts">
+            <div><dt>What connects</dt><dd>The phone reads public virtual-network data.</dd></div>
+            <div><dt>What leaves the device</dt><dd>Only the public data request.</dd></div>
+            <div><dt>Relay Access</dt><dd><span class="mode-relay" data-relay="no">No</span></dd></div>
+            <div><dt>History</dt><dd>On the phone.</dd></div>
+          </dl>
+        </article>
+        <article class="mode-matrix-row">
+          <div class="mode-card-head"><span class="icon-badge icon-badge--sm"><Icon name="phone" /></span><strong>Real-flight Standalone</strong></div>
+          <dl class="mode-card-facts">
+            <div><dt>What connects</dt><dd>The phone connects directly to Beacon Relay.</dd></div>
+            <div><dt>What leaves the device</dt><dd>Random service ID, device credential, airport and feature request.</dd></div>
+            <div><dt>Relay Access</dt><dd><span class="mode-relay" data-relay="yes">Yes</span></dd></div>
+            <div><dt>History</dt><dd>On the phone.</dd></div>
+          </dl>
+        </article>
+        <article class="mode-matrix-row">
+          <div class="mode-card-head"><span class="icon-badge icon-badge--sm"><Icon name="network" /></span><strong>Remote Companion</strong></div>
+          <dl class="mode-card-facts">
+            <div><dt>What connects</dt><dd>The phone and licensed desktop host exchange messages through Beacon Relay.</dd></div>
+            <div><dt>What leaves the device</dt><dd>Routing details and unreadable encrypted messages.</dd></div>
+            <div><dt>Relay Access</dt><dd><span class="mode-relay" data-relay="host">Uses host</span></dd></div>
+            <div><dt>History</dt><dd>On the Local Flight computer.</dd></div>
+          </dl>
+        </article>
       </div>
       <p class="hero-footnote"><a href="/local-flight/relay-access/#why-paid">Why Beacon Relay is a paid hosted option</a>. Bring Your Own Keys and VATSIM remain available without Relay Access.</p>
     </div>

@@ -101,3 +101,39 @@ if (reduceMotion) {
   }, { threshold: 0.05 });
   document.querySelectorAll<HTMLElement>("[data-instrument]").forEach((item) => instrumentObserver.observe(item));
 }
+
+// Policy and terms pages are long; keep the sticky contents list showing which
+// section the reader is actually in.
+const documentNavigation = document.querySelector<HTMLElement>(".document-nav");
+if (documentNavigation) {
+  const links = new Map<string, HTMLAnchorElement>();
+  documentNavigation.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((link) => {
+    const id = decodeURIComponent(link.hash.slice(1));
+    if (id) links.set(id, link);
+  });
+
+  const sections = [...links.keys()]
+    .map((id) => document.getElementById(id))
+    .filter((section): section is HTMLElement => section !== null);
+
+  if (sections.length > 0) {
+    const markCurrent = (id: string): void => {
+      links.forEach((link, key) => {
+        if (key === id) link.setAttribute("aria-current", "true");
+        else link.removeAttribute("aria-current");
+      });
+    };
+
+    const seen = new Set<string>();
+    const sectionObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) seen.add(entry.target.id);
+        else seen.delete(entry.target.id);
+      });
+      const first = sections.find((section) => seen.has(section.id));
+      if (first) markCurrent(first.id);
+    }, { rootMargin: "-150px 0px -55% 0px", threshold: 0 });
+
+    sections.forEach((section) => sectionObserver.observe(section));
+  }
+}
