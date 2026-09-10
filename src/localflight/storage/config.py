@@ -64,6 +64,7 @@ class AppConfig:
     radar_surface_enabled: bool = DEFAULT_RADAR_SURFACE_ENABLED
     radar_surface_mode: str = DEFAULT_RADAR_SURFACE_MODE
     remote_companion_enabled: bool = False
+    reduce_motion: bool = False
 
     def __post_init__(self) -> None:
         route = str(self.data_route or "").strip().lower()
@@ -229,6 +230,7 @@ def load_config() -> AppConfig:
         radar_surface_mode = DEFAULT_RADAR_SURFACE_MODE
     radar_surface_enabled = radar_surface_mode != "off"
     remote_companion_enabled = _to_bool(raw.get("remote_companion_enabled", False), False)
+    reduce_motion = _to_bool(raw.get("reduce_motion", False), False)
     raw_data_route = str(raw.get("data_route") or "").strip().lower()
     migrated_data_route = raw_data_route if raw_data_route in ALLOWED_DATA_ROUTES else _legacy_data_route(path, source=source)
 
@@ -251,6 +253,7 @@ def load_config() -> AppConfig:
         radar_surface_enabled=radar_surface_enabled,
         radar_surface_mode=radar_surface_mode,
         remote_companion_enabled=remote_companion_enabled,
+        reduce_motion=reduce_motion,
     )
     if raw_data_route not in ALLOWED_DATA_ROUTES:
         try:

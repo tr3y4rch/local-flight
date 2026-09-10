@@ -603,7 +603,7 @@ def test_browser_requires_fresh_verification_and_reveals_recovery_field() -> Non
     html = Path("src/localflight/ui/templates/setup.html").read_text(encoding="utf-8")
 
     assert 'mode() === "relay" && !managedVerified)' in html
-    assert 'managedVerified ? "Active on this desktop" : "License activation required"' in html
+    assert 'managedVerified ? "Active on this desktop" : "Activation needed"' in html
     assert 'el("activationToken").dataset.prefix = ""' in html
     assert 'el("activationTokenField").style.display = "block"' in html
 

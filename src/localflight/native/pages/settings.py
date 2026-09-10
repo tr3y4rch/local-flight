@@ -314,6 +314,9 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         form.addRow("Theme", self.theme)
         form.addRow("Skin", self.skin)
         layout.addLayout(form)
+        self.reduce_motion = self.QtWidgets.QCheckBox("Reduce motion")
+        self.reduce_motion.setToolTip("Turn off page transitions, hover lifts, and other decorative animation.")
+        layout.addWidget(self.reduce_motion)
         self.theme_help = label(
             self.QtWidgets,
             THEME_OPTIONS[0].description,
@@ -1247,6 +1250,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
         self.output_matrix.setChecked("matrix" in outputs)
         self.output_hdmi.setChecked("hdmi" in outputs)
         self.remote_companion_enabled.setChecked(bool(cfg.get("remote_companion_enabled")))
+        self.reduce_motion.setChecked(bool(cfg.get("reduce_motion")))
         refresh_value = int(cfg.get("refresh_seconds") or 3600)
         idx = self.refresh_seconds.findData(refresh_value)
         self.refresh_seconds.setCurrentIndex(idx if idx >= 0 else 0)
@@ -1470,6 +1474,7 @@ class SettingsScreen:  # pragma: no cover - optional Qt runtime
             "radar_surface_enabled": self._combo_value(self.surface, "off") != "off",
             "radar_surface_mode": self._combo_value(self.surface, "off"),
             "remote_companion_enabled": bool(self.remote_companion_enabled.isChecked()),
+            "reduce_motion": bool(self.reduce_motion.isChecked()),
             "display_outputs": outputs or ["web"],
         }
 

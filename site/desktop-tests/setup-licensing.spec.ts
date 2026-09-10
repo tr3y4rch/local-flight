@@ -48,10 +48,10 @@ test.beforeEach(async ({ page }) => {
 async function openDataRoutes(page: import("@playwright/test").Page): Promise<void> {
   await page.goto("/setup");
   await expect(page.locator("#airportSelected")).toContainText("ZRH");
-  await page.locator("#nextBtn").click();
+  await page.locator("#startBtn").click();
   await expect(page.getByRole("heading", { name: "Choose your airport" })).toBeVisible();
   await page.locator("#nextBtn").click();
-  await expect(page.getByRole("heading", { name: "Choose how flight data should work" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose where flight data comes from" })).toBeVisible();
 }
 
 test("keeps the three data routes usable when new Relay sales are unavailable", async ({ page }) => {

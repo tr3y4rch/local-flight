@@ -30,7 +30,7 @@ Use this path for the easiest Windows desktop setup.
 1. Choose Windows in the website Downloads section, or download `LocalFlight-0.6.0-Setup.exe` and its checksum from the linked GitHub release. Windows packages are rebuilt and validated on Windows before upload.
 2. Double-click the installer and follow the Local Flight wizard.
 3. Launch Local Flight from the final installer page, Start Menu, or desktop shortcut.
-4. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
+4. Complete the setup wizard: Welcome, Airport, Flight data, Provider keys, Problem reports, and Review and open.
 
 The 0.6.0 Windows installer is intentionally unsigned, so Windows may show an unknown-publisher warning. Only use the official GitHub release and verify its published SHA-256. The checksum shows that your file matches the release; it does not establish a signed publisher identity.
 
@@ -61,7 +61,7 @@ Use this path for the current macOS desktop setup.
 
 1. Choose `LocalFlight-0.6.0-macos-arm64.pkg` for an Apple silicon/M-series Mac or `LocalFlight-0.6.0-macos-x86_64.pkg` for an Intel Mac. Download the matching checksum from the same GitHub release.
 2. Open the package, complete the macOS installer flow, then launch `Local Flight.app` from Applications.
-3. Complete the setup wizard: Welcome, Airport, Flight Data, Optional Keys, Diagnostics, and Review & Open.
+3. Complete the setup wizard: Welcome, Airport, Flight data, Provider keys, Problem reports, and Review and open.
 
 The app launches the native Qt desktop shell. The LAN browser UI remains available from the local server while the app is running.
 The Dock and menu-bar status menu can reopen Local Flight, jump to its main views, open the LAN browser, restart flight updates, or quit cleanly.
@@ -308,9 +308,9 @@ Setup asks for:
 
 1. Welcome
 2. Airport
-3. Data access path
-4. Optional provider keys
-5. Diagnostics/reporting choice
+3. Flight data
+4. Provider keys (only for Bring Your Own Keys)
+5. Problem reports
 6. Review and open
 
 ### Data Access Choices

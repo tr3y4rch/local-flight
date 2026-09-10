@@ -1048,9 +1048,9 @@ def test_native_parity_screens_construct_core_controls(monkeypatch: pytest.Monke
 
     assert app is not None
     assert setup.tabs.count() == 6
-    assert setup.step_names == ["Welcome", "Airport", "Flight Data", "Optional Keys", "Diagnostics", "Review & Launch"]
+    assert setup.step_names == ["Welcome", "Airport", "Flight data", "Provider keys", "Problem reports", "Review and open"]
     assert setup.relay_url.text() == "https://relay.beacontools.cc"
-    assert setup.web_fallback_btn.text().endswith("Open LAN browser setup")
+    assert setup.web_fallback_btn.text() == "Open in browser"
     assert setup.loading_indicator.isVisible() is False
     assert setup.provider_action_status.text()
     assert setup.setup_mode.currentData() == "relay"
@@ -3441,6 +3441,7 @@ def test_native_settings_config_payload_preserves_fields(monkeypatch: pytest.Mon
         "radar_surface_enabled",
         "radar_surface_mode",
         "remote_companion_enabled",
+        "reduce_motion",
         "display_outputs",
     }
     assert payload["airport_iata"] == "SIN"
@@ -3835,8 +3836,8 @@ def test_lan_polish_keeps_skin_tokens_and_compact_controls_wired() -> None:
 def test_setup_guidance_copy_is_shared_and_user_facing() -> None:
     from localflight.ui.setup_guidance import DIAGNOSTICS_OPTIONS, SOURCE_OPTIONS, STEP_NAMES, STEP_SHORT_LABELS, WELCOME_CARDS
 
-    assert STEP_NAMES == ("Welcome", "Airport", "Flight Data", "Optional Keys", "Diagnostics", "Review & Launch")
-    assert STEP_SHORT_LABELS == ("Welcome", "Airport", "Data", "Keys", "Reports", "Launch")
+    assert STEP_NAMES == ("Welcome", "Airport", "Flight data", "Provider keys", "Problem reports", "Review and open")
+    assert STEP_SHORT_LABELS == ("Welcome", "Airport", "Data", "Keys", "Reports", "Finish")
     assert [option["mode"] for option in SOURCE_OPTIONS] == ["relay", "byok", "vatsim"]
     assert [option["title"] for option in SOURCE_OPTIONS] == ["Beacon Relay", "Bring Your Own Keys", "VATSIM"]
     assert {option["mode"] for option in DIAGNOSTICS_OPTIONS} == {"manual", "auto", "auto_logs"}

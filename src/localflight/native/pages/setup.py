@@ -1,6 +1,7 @@
 """Native first-run setup flow."""
 from __future__ import annotations
 
+import time
 import webbrowser
 from concurrent.futures import Future
 from typing import Any, Callable
@@ -20,6 +21,7 @@ from localflight.native.design import (
 )
 from localflight.native.geometry import SETUP_CONTENT_MAX_WIDTH, setup_card_columns, setup_layout_profile
 from localflight.native.identity import localflight_app_icon
+from localflight.native.pages.setup_icons import icon_pixmap, screen_ratio, set_button_icon
 from localflight.native.pages.setup_widgets import (
     build_celebration,
     build_hero,
@@ -29,12 +31,18 @@ from localflight.native.pages.setup_widgets import (
 )
 from localflight.native.service import NativeApiService
 from localflight.ui.setup_guidance import (
+    BUTTON_LABELS,
     DIAGNOSTICS_OPTIONS,
+    PROVIDER_KEY_GROUPS,
     PROVIDER_LINKS as SETUP_PROVIDER_LINKS,
     SOURCE_OPTIONS,
+    STEP_COPY,
     STEP_NAMES,
     STEP_SHORT_LABELS,
+    SUMMARY_LABELS,
+    SUMMARY_VALUES,
     WELCOME_CARDS,
+    WELCOME_TAGLINE,
     diagnostics_option,
     source_option,
 )
@@ -83,6 +91,7 @@ class NativeSetupWindow:  # pragma: no cover - exercised with optional Qt
                     QtGui=QtGui,
                     theme=self.theme,
                     skin=self.skin,
+                    reduce_motion=bool(cfg.get("reduce_motion")),
                 )
                 self.setCentralWidget(self.setup_screen.widget)
 
@@ -116,6 +125,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         QtGui: Any | None = None,
         theme: str = "dark",
         skin: str = "standard",
+        reduce_motion: bool = False,
     ) -> None:
         self.QtCore = QtCore
         self.QtGui = QtGui
@@ -126,6 +136,10 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.on_setup_complete = on_setup_complete
         self.theme = theme if theme in {"dark", "light"} else "dark"
         self.skin = skin or "standard"
+        self.reduce_motion = bool(reduce_motion)
+        self._colors = colors_for(self.theme, self.skin)
+        self._accent_hex = self._colors.get("blue", "#4a9eda")
+        self._dpr = screen_ratio(QtWidgets)
         self._airport_search_future: Future[Any] | None = None
         self._last_airport_query = ""
         self._stored_activation = False
@@ -274,6 +288,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             muted_hex=muted_hex,
             line_hex=line_hex,
             compact=self.compact_setup,
+            reduce_motion=self.reduce_motion,
         )
         stepper.setMaximumWidth(self.setup_max_width)
         stepper.setMinimumWidth(min(540, self.setup_max_width))
@@ -297,48 +312,93 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         return wrap
 
     def _navigation(self) -> Any:
+        """One footer row: status on the left, browser link and step buttons on the right."""
         wrap = self.QtWidgets.QVBoxLayout()
         wrap.setContentsMargins(0, 0, 0, 0)
         wrap.setSpacing(8)
-        self.status.setAlignment(self.QtCore.Qt.AlignCenter)
-        self.status.setMaximumWidth(self.setup_max_width)
-        wrap.addWidget(self.status, 0, self.QtCore.Qt.AlignHCenter)
+        self.status.setAlignment(self.QtCore.Qt.AlignLeft | self.QtCore.Qt.AlignVCenter)
+        self.status.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
         nav_wrap = self.QtWidgets.QWidget()
         nav_wrap.setMinimumWidth(0)
         nav_wrap.setMaximumWidth(self.setup_max_width)
-        nav = self.QtWidgets.QGridLayout(nav_wrap)
-        nav.setContentsMargins(0, 0, 0, 0)
-        nav.setHorizontalSpacing(8)
-        nav.setVerticalSpacing(8)
-        self.web_fallback_btn = self.QtWidgets.QPushButton("\U0001F310  Open LAN browser setup")
+        nav_wrap.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Fixed)
+        self.web_fallback_btn = self.QtWidgets.QPushButton(BUTTON_LABELS["browser"])
         self.web_fallback_btn.setObjectName("Quiet")
-        self.back_btn = self.QtWidgets.QPushButton("◀  Back")
+        self.web_fallback_btn.setToolTip("Continue this setup in a browser on this computer or another screen on your network.")
+        self.back_btn = self.QtWidgets.QPushButton(BUTTON_LABELS["back"])
         self.back_btn.setObjectName("Quiet")
-        self.next_btn = self.QtWidgets.QPushButton("Next  ▶")
+        self.next_btn = self.QtWidgets.QPushButton(BUTTON_LABELS["next"])
         self.next_btn.setObjectName("SetupPrimary")
-        self.finish_btn = self.QtWidgets.QPushButton("✅  Finish setup")
+        self.finish_btn = self.QtWidgets.QPushButton(BUTTON_LABELS["finish"])
         self.finish_btn.setObjectName("SetupPrimary")
         for button in (self.web_fallback_btn, self.back_btn, self.next_btn, self.finish_btn):
-            button.setMinimumHeight(36)
-            button.setSizePolicy(self.QtWidgets.QSizePolicy.MinimumExpanding, self.QtWidgets.QSizePolicy.Fixed)
+            button.setMinimumHeight(38)
+            button.setCursor(self.QtCore.Qt.PointingHandCursor)
+            button.setSizePolicy(self.QtWidgets.QSizePolicy.Preferred, self.QtWidgets.QSizePolicy.Fixed)
+        self._button_icon(self.web_fallback_btn, "globe")
+        self._button_icon(self.back_btn, "arrow_left")
+        self._button_icon(self.next_btn, "arrow_right", trailing=True, on_accent=True)
+        self._button_icon(self.finish_btn, "takeoff", on_accent=True)
         self.back_btn.clicked.connect(self._previous_step)
         self.next_btn.clicked.connect(self._next_step)
         self.finish_btn.clicked.connect(self.finish_setup)
         self.web_fallback_btn.clicked.connect(lambda: webbrowser.open(f"{self.base_url}/setup"))
+        buttons = self.QtWidgets.QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(8)
+        buttons.addWidget(self.web_fallback_btn)
+        buttons.addWidget(self.back_btn)
+        buttons.addWidget(self.next_btn)
+        buttons.addWidget(self.finish_btn)
         if self.compact_setup:
-            nav.addWidget(self.web_fallback_btn, 0, 0, 1, 3)
-            nav.addWidget(self.back_btn, 1, 0)
-            nav.addWidget(self.next_btn, 1, 1)
-            nav.addWidget(self.finish_btn, 1, 2)
+            column = self.QtWidgets.QVBoxLayout(nav_wrap)
+            column.setContentsMargins(0, 0, 0, 0)
+            column.setSpacing(8)
+            column.addWidget(self.status)
+            buttons.insertStretch(0, 1)
+            column.addLayout(buttons)
         else:
-            nav.addWidget(self.web_fallback_btn, 0, 0)
-            spacer = self.QtWidgets.QSpacerItem(20, 1, self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Minimum)
-            nav.addItem(spacer, 0, 1)
-            nav.addWidget(self.back_btn, 0, 2)
-            nav.addWidget(self.next_btn, 0, 3)
-            nav.addWidget(self.finish_btn, 0, 4)
+            row = self.QtWidgets.QHBoxLayout(nav_wrap)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(12)
+            row.addWidget(self.status, 1)
+            row.addLayout(buttons, 0)
         wrap.addWidget(nav_wrap, 0, self.QtCore.Qt.AlignHCenter)
         return wrap
+
+    def _button_icon(self, button: Any, name: str, *, trailing: bool = False, on_accent: bool = False, size: int = 16) -> None:
+        """Attach a shared line icon to a button; no-op in the headless test path."""
+        if self.QtGui is None:
+            return
+        color = self._colors.get("bg", "#080c12") if on_accent else self._accent_hex
+        set_button_icon(self.QtCore, self.QtGui, self.QtWidgets, button, name, color_hex=color, size=size)
+        if trailing:
+            button.setLayoutDirection(self.QtCore.Qt.RightToLeft)
+
+    def _icon_tile(self, name: str, *, size: int = 18) -> Any:
+        """Round accent tile holding a shared icon; used on option cards."""
+        tile = self.QtWidgets.QLabel()
+        tile.setObjectName("SetupIconTile")
+        tile.setAlignment(self.QtCore.Qt.AlignCenter)
+        tile.setFixedSize(34, 34)
+        if self.QtGui is not None:
+            pixmap = icon_pixmap(self.QtCore, self.QtGui, name, color_hex=self._accent_hex, size=size, device_pixel_ratio=self._dpr)
+            if not pixmap.isNull():
+                tile.setPixmap(pixmap)
+        tile.setProperty("icon_name", name)
+        return tile
+
+    def _group(self, title: str, lede: str = "") -> tuple[Any, Any]:
+        """A titled, softly framed section inside a setup page."""
+        frame = self.QtWidgets.QFrame()
+        frame.setObjectName("SetupGroup")
+        layout = self.QtWidgets.QVBoxLayout(frame)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(8)
+        layout.addWidget(label(self.QtWidgets, title, "SetupGroupTitle", wrap=True))
+        if lede:
+            layout.addWidget(label(self.QtWidgets, lede, "SetupGroupLede", wrap=True))
+        return frame, layout
 
     def _page(self, title: str, text: str) -> tuple[Any, Any]:
         page = self.QtWidgets.QFrame()
@@ -347,8 +407,9 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         page.setMaximumWidth(self.setup_max_width)
         page.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
         layout = self.QtWidgets.QVBoxLayout(page)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(9)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(10)
+        page._lf_base_margins = (18, 14, 18, 14)  # type: ignore[attr-defined]
         title_label = label(self.QtWidgets, title, "SetupTitle", wrap=True)
         title_label.setTextFormat(self.QtCore.Qt.RichText)
         layout.addWidget(title_label)
@@ -382,43 +443,87 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         click: Callable[[], None] | None = None,
         selected: bool = False,
     ) -> Any:
-        card = self.QtWidgets.QFrame()
+        QtCore, QtGui, QtWidgets = self.QtCore, self.QtGui, self.QtWidgets
+        screen_ref = self
+
+        class _OptionCard(QtWidgets.QFrame):
+            """QSS-styled card that can flash a short accent ring when chosen."""
+
+            def __init__(self_) -> None:
+                super().__init__()
+                self_._pulse_started = 0.0
+
+            def pulse(self_) -> None:
+                if screen_ref.reduce_motion or QtGui is None:
+                    return
+                self_._pulse_started = time.monotonic()
+                self_.update()
+
+            def paintEvent(self_, event: Any) -> None:  # noqa: N802 - Qt naming
+                super().paintEvent(event)
+                if not self_._pulse_started or QtGui is None:
+                    return
+                t = (time.monotonic() - self_._pulse_started) / 0.42
+                if t >= 1.0:
+                    self_._pulse_started = 0.0
+                    return
+                painter = QtGui.QPainter(self_)
+                try:
+                    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+                    color = QtGui.QColor(screen_ref._accent_hex)
+                    color.setAlphaF(max(0.0, 0.6 * (1.0 - t)))
+                    pen = QtGui.QPen(color, 2.0)
+                    painter.setPen(pen)
+                    painter.setBrush(QtCore.Qt.NoBrush)
+                    inset = 1.0 + 6.0 * t
+                    rect = QtCore.QRectF(self_.rect()).adjusted(inset, inset, -inset, -inset)
+                    painter.drawRoundedRect(rect, max(2.0, 14.0 - inset), max(2.0, 14.0 - inset))
+                finally:
+                    painter.end()
+                QtCore.QTimer.singleShot(16, self_.update)
+
+        card = _OptionCard()
         card.setObjectName("SetupOptionCard")
         card.setProperty("selected", bool(selected))
-        card.setMinimumHeight(122)
+        card.setMinimumHeight(118)
         if click is not None:
-            card.setCursor(self.QtCore.Qt.PointingHandCursor)
-            card.setFocusPolicy(self.QtCore.Qt.StrongFocus)
+            card.setCursor(QtCore.Qt.PointingHandCursor)
+            card.setFocusPolicy(QtCore.Qt.StrongFocus)
             card.setAccessibleName(title)
-        card.setSizePolicy(self.QtWidgets.QSizePolicy.Expanding, self.QtWidgets.QSizePolicy.Preferred)
-        layout = self.QtWidgets.QVBoxLayout(card)
+        card.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        layout = QtWidgets.QVBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(7)
-        row = self.QtWidgets.QHBoxLayout()
+        row = QtWidgets.QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        badge = label(self.QtWidgets, icon, "SetupBadge")
-        badge.setAlignment(self.QtCore.Qt.AlignCenter)
-        row.addWidget(badge, 0, self.QtCore.Qt.AlignLeft | self.QtCore.Qt.AlignVCenter)
+        row.addWidget(self._icon_tile(icon), 0, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
         row.addStretch(1)
         layout.addLayout(row)
-        layout.addWidget(label(self.QtWidgets, title, "SetupCardTitle", wrap=True))
-        layout.addWidget(label(self.QtWidgets, body, "SetupCardBody", wrap=True), 1)
+        layout.addWidget(label(QtWidgets, title, "SetupCardTitle", wrap=True))
+        layout.addWidget(label(QtWidgets, body, "SetupCardBody", wrap=True), 1)
         if click is not None:
             card.mousePressEvent = lambda _event, fn=click: fn()
+
             def _activate_from_keyboard(event: Any, fn: Callable[[], None] = click) -> None:
-                if event.key() in {self.QtCore.Qt.Key_Return, self.QtCore.Qt.Key_Enter, self.QtCore.Qt.Key_Space}:
+                if event.key() in {QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter, QtCore.Qt.Key_Space}:
                     fn()
                     event.accept()
                     return
-                self.QtWidgets.QFrame.keyPressEvent(card, event)
+                QtWidgets.QFrame.keyPressEvent(card, event)
 
             card.keyPressEvent = _activate_from_keyboard
         return card
 
     def _set_card_selected(self, card: Any, selected: bool) -> None:
+        was_selected = bool(card.property("selected"))
         card.setProperty("selected", bool(selected))
         card.setAccessibleDescription("Selected" if selected else "Not selected")
         self._repolish(card)
+        if selected and not was_selected and hasattr(card, "pulse"):
+            try:
+                card.pulse()
+            except Exception:
+                pass
 
     def _summary_card(self, title: str, value: str, *, tone: str = "muted") -> Any:
         card = self.QtWidgets.QFrame()
@@ -434,10 +539,11 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         return card
 
     def _build_welcome_page(self) -> None:
-        _page, layout = self._page(
-            'Welcome to <span style="font-family: Audiowide; font-weight: 400; letter-spacing: 1px;">Local Flight</span>',
-            "A guided first launch for your local airport board. Pick the airport, choose the flight data path, and decide how diagnostics should behave.",
+        heading = STEP_COPY[0]["heading"].replace(
+            "Local Flight",
+            '<span style="font-family: Audiowide; font-weight: 400; letter-spacing: 1px;">Local Flight</span>',
         )
+        _page, layout = self._page(heading, STEP_COPY[0]["lede"])
         # Animated hero block (radar rings + floating logo + tagline). Falls
         # back to a static brand label when QtGui is unavailable.
         if self.QtGui is not None:
@@ -460,10 +566,9 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 accent_hex=colors.get("blue", "#4a9eda"),
                 text_hex=colors.get("text", "#e8f0fe"),
                 muted_hex=colors.get("muted", "#9aa3b2"),
-                tagline=(
-                    "Your local airport board — pixel-perfect, private, and yours."
-                ),
+                tagline=WELCOME_TAGLINE,
                 compact=self.compact_setup,
+                reduce_motion=self.reduce_motion,
             )
             self.logo_label = hero
             layout.addWidget(hero)
@@ -480,9 +585,11 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         welcome_cards = [self._mini_card(card["title"], card["body"], icon=card.get("icon", "")) for card in WELCOME_CARDS]
         self._register_card_grid(cards, welcome_cards)
         layout.addLayout(cards)
-        self.start_btn = self.QtWidgets.QPushButton("\U0001F680  Start setup")
+        self.start_btn = self.QtWidgets.QPushButton(BUTTON_LABELS["start"])
         self.start_btn.setObjectName("SetupPrimary")
         self.start_btn.setMinimumHeight(40)
+        self.start_btn.setCursor(self.QtCore.Qt.PointingHandCursor)
+        self._button_icon(self.start_btn, "arrow_right", trailing=True, on_accent=True)
         self.start_btn.clicked.connect(lambda: self._set_step(1))
         start_row = self.QtWidgets.QHBoxLayout()
         start_row.addStretch(1)
@@ -496,14 +603,26 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         return card
 
     def _build_airport_page(self) -> None:
-        _page, layout = self._page(
-            "Choose Your Airport",
-            "Search by city, airport name, IATA, or ICAO. Pick one result and the technical codes are filled for you.",
-        )
+        _page, layout = self._page(STEP_COPY[1]["heading"], STEP_COPY[1]["lede"])
+        search_box = self.QtWidgets.QFrame()
+        search_box.setObjectName("SetupSearchBox")
+        search_row = self.QtWidgets.QHBoxLayout(search_box)
+        search_row.setContentsMargins(10, 0, 8, 0)
+        search_row.setSpacing(6)
+        search_icon = self.QtWidgets.QLabel()
+        search_icon.setFixedSize(18, 18)
+        if self.QtGui is not None:
+            pixmap = icon_pixmap(self.QtCore, self.QtGui, "search", color_hex=self._colors.get("muted", "#79a7c8"), size=18, device_pixel_ratio=self._dpr)
+            if not pixmap.isNull():
+                search_icon.setPixmap(pixmap)
         self.airport_search = self.QtWidgets.QLineEdit()
-        self.airport_search.setPlaceholderText("Search airport, city, IATA, or ICAO...")
+        self.airport_search.setPlaceholderText("City, airport name, IATA, or ICAO")
+        self.airport_search.setClearButtonEnabled(True)
         self.airport_search.textChanged.connect(lambda _text: self.search_timer.start(250))
+        search_row.addWidget(search_icon)
+        search_row.addWidget(self.airport_search, 1)
         self.airport_results = self.QtWidgets.QListWidget()
+        self.airport_results.setObjectName("SetupResults")
         self.airport_results.setMinimumHeight(120 if self.compact_setup else 135)
         self.airport_results.setMaximumHeight(170 if self.compact_setup else 190)
         self.airport_results.setSizePolicy(
@@ -511,7 +630,22 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             self.QtWidgets.QSizePolicy.Fixed,
         )
         self.airport_results.itemClicked.connect(self._select_airport_item)
-        self.airport_search_status = self._status_chip("Type at least two characters to search the built-in airport database.", "muted")
+        # The list only takes space while it has something to show.
+        self.airport_results.hide()
+        model = self.airport_results.model()
+
+        def _sync_results_visibility(*_args: Any) -> None:
+            try:
+                self.airport_results.setVisible(self.airport_results.count() > 0)
+            except RuntimeError:
+                pass  # the window is closing
+
+        for signal_name in ("rowsInserted", "rowsRemoved", "modelReset"):
+            try:
+                getattr(model, signal_name).connect(_sync_results_visibility)
+            except Exception:
+                pass
+        self.airport_search_status = self._status_chip("Type at least two characters to search the built-in airport list.", "muted")
         self.airport_selected = self._status_chip("Selected: ZRH / LSZH | Europe/Zurich", "good")
         self.display_name = self.QtWidgets.QLineEdit("Local Flight")
         self.display_name.textChanged.connect(lambda _text: self._activation_details_changed())
@@ -520,47 +654,37 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.timezone = self.QtWidgets.QLineEdit("Europe/Zurich")
         for field in (self.airport_iata, self.airport_icao, self.timezone):
             field.setReadOnly(True)
+        selected_group, selected_layout = self._group("Selected airport", "Codes and time zone come from the search result.")
+        selected_layout.addWidget(self.airport_selected)
         form = self.QtWidgets.QFormLayout()
         form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
         form.addRow(
-            self._field_label(
-                "Display name",
-                "Friendly title shown on the FIDS board, e.g. your home airport name.",
-            ),
+            self._field_label("Board name", "Shown on the board, for example your home airport's name."),
             self.display_name,
         )
         form.addRow(
-            self._field_label(
-                "Airport IATA",
-                "3-letter airline code (e.g. ZRH). Filled automatically from the search result.",
-            ),
+            self._field_label("IATA code", "Three-letter airline code, for example ZRH. Filled in from the search result."),
             self.airport_iata,
         )
         form.addRow(
-            self._field_label(
-                "Airport ICAO",
-                "4-letter ICAO code (e.g. LSZH). Used for METAR and ATC lookups. Filled automatically.",
-            ),
+            self._field_label("ICAO code", "Four-letter code, for example LSZH. Used for weather and airport lookups."),
             self.airport_icao,
         )
         form.addRow(
-            self._field_label(
-                "Timezone",
-                "Local timezone of the airport. Used for the FIDS board clock and history grouping.",
-            ),
+            self._field_label("Time zone", "The airport's local time zone, used for the board clock and history."),
             self.timezone,
         )
-        layout.addWidget(self.airport_search)
+        selected_layout.addLayout(form)
+        layout.addWidget(search_box)
         layout.addWidget(self.airport_search_status)
         layout.addWidget(self.airport_results)
-        layout.addWidget(self.airport_selected)
-        layout.addLayout(form)
+        layout.addWidget(selected_group)
+        layout.addStretch(1)
 
     def _build_source_page(self) -> None:
-        _page, layout = self._page(
-            "Choose Flight Data",
-            "Choose Beacon Relay, bring your own provider keys, or use VATSIM virtual traffic.",
-        )
+        _page, layout = self._page(STEP_COPY[2]["heading"], STEP_COPY[2]["lede"])
         self.setup_mode = self.QtWidgets.QComboBox()
         for option in SOURCE_OPTIONS:
             self.setup_mode.addItem(option["title"], option["mode"])
@@ -583,13 +707,13 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.mode_help = self._status_chip("", "muted")
         layout.addWidget(self.mode_help)
 
-        self.relay_box, relay_layout = panel(self.QtWidgets, "Relay Access")
+        self.relay_box, relay_layout = self._group("Relay Access", "One subscription covers one main device: this desktop or one phone.")
         self.relay_url = self.QtWidgets.QLineEdit(DEFAULT_RELAY_URL)
         self.relay_url.setReadOnly(True)
         self.relay_url.setToolTip("Beacon Relay uses the hosted Beacon Tools endpoint.")
         self.activation_token = self.QtWidgets.QLineEdit()
         self.activation_token.setEchoMode(self.QtWidgets.QLineEdit.Password)
-        self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+        self.activation_token.setPlaceholderText("License key or one-time activation code")
         self.activation_token.textChanged.connect(lambda _text: self._activation_details_changed())
         self.token_toggle = self.QtWidgets.QPushButton("Show key")
         self.token_toggle.setObjectName("Quiet")
@@ -606,8 +730,8 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         token_box_layout = self.QtWidgets.QVBoxLayout(self.token_box)
         token_box_layout.setContentsMargins(12, 10, 12, 10)
         token_box_layout.setSpacing(7)
-        token_box_layout.addWidget(label(self.QtWidgets, "Relay Access license key or activation code", "Kicker", wrap=True))
-        token_box_layout.addWidget(label(self.QtWidgets, "Local Flight exchanges this for access on this device and does not save the license key.", "SetupMuted", wrap=True))
+        token_box_layout.addWidget(label(self.QtWidgets, "License key or activation code", "Kicker", wrap=True))
+        token_box_layout.addWidget(label(self.QtWidgets, "Local Flight swaps this for a device credential and does not keep the key itself.", "SetupMuted", wrap=True))
         token_box_layout.addLayout(token_row)
         relay_layout.addWidget(self.token_box)
         relay_actions = self.QtWidgets.QHBoxLayout()
@@ -619,11 +743,18 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.request_activation_btn.clicked.connect(lambda _checked=False: self.request_activation())
         self.check_relay_status_btn.clicked.connect(self.check_activation_status)
         self.test_token_btn.clicked.connect(self.test_activation)
-        for idx, button in enumerate((self.buy_relay_access_btn, self.request_activation_btn, self.check_relay_status_btn, self.test_token_btn)):
-            button.setMinimumHeight(44)
+        for button, icon_name in (
+            (self.buy_relay_access_btn, "external"),
+            (self.request_activation_btn, "check"),
+            (self.check_relay_status_btn, "refresh"),
+            (self.test_token_btn, "flask"),
+        ):
+            button.setMinimumHeight(40)
+            button.setCursor(self.QtCore.Qt.PointingHandCursor)
+            self._button_icon(button, icon_name)
             relay_actions.addWidget(button)
         relay_actions.addStretch(1)
-        self.relay_status = self._status_chip("Relay Access can be active on one desktop or one phone in Standalone mode.", "muted")
+        self.relay_status = self._status_chip("Relay Access covers one main device at a time.", "muted")
         self.relay_action_status = self._status_chip("", "muted")
         self.relay_action_status.hide()
         relay_layout.addLayout(relay_actions)
@@ -640,8 +771,8 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.move_relay_here_btn = self.QtWidgets.QPushButton("Move to this desktop")
         self.keep_relay_there_btn.clicked.connect(self.keep_relay_there)
         self.move_relay_here_btn.clicked.connect(self.move_relay_here)
-        self.keep_relay_there_btn.setMinimumHeight(44)
-        self.move_relay_here_btn.setMinimumHeight(44)
+        self.keep_relay_there_btn.setMinimumHeight(40)
+        self.move_relay_here_btn.setMinimumHeight(40)
         move_actions.addWidget(self.keep_relay_there_btn)
         move_actions.addWidget(self.move_relay_here_btn)
         move_actions.addStretch(1)
@@ -652,17 +783,9 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         layout.addStretch(1)
 
     def _build_keys_page(self) -> None:
-        _page, layout = self._page(
-            "Direct Provider Keys",
-            "BYOK keeps schedule and radar calls on this server install. Use AeroDataBox or AviationStack for schedules, ADS-B Exchange on RapidAPI for radar, and OpenSky only as optional fallback.",
-        )
-        self.keys_hint = self._status_chip("Beacon Relay and VATSIM can skip this page.", "muted")
-        self.provider_path_hint = self._status_chip(
-            "Schedules: AeroDataBox primary, AviationStack fill/fallback. Radar: ADS-B Exchange via RapidAPI.",
-            "muted",
-        )
+        _page, layout = self._page(STEP_COPY[3]["heading"], STEP_COPY[3]["lede"])
+        self.keys_hint = self._status_chip("Beacon Relay and VATSIM do not need provider keys.", "muted")
         layout.addWidget(self.keys_hint)
-        layout.addWidget(self.provider_path_hint)
         self.aerodatabox_key = self.QtWidgets.QLineEdit()
         self.aerodatabox_marketplace = self.QtWidgets.QComboBox()
         self.aerodatabox_marketplace.addItem("API.Market", "apimarket")
@@ -681,76 +804,60 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.rapidapi_key.setPlaceholderText("ADS-B Exchange RapidAPI key")
         self.opensky_id.setPlaceholderText("OpenSky client ID")
         self.opensky_secret.setPlaceholderText("OpenSky client secret")
-        form = self.QtWidgets.QFormLayout()
-        form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
-        form.addRow(
-            self._field_label(
-                "AeroDataBox schedules",
-                "Recommended BYOK schedule provider. Stored locally, primary in auto mode, and used before any schedule relay.",
+        widgets = {
+            "aerodatabox_key": self.aerodatabox_key,
+            "aerodatabox_marketplace": self.aerodatabox_marketplace,
+            "aerodatabox_monthly_limit": self.aerodatabox_monthly_limit,
+            "aviationstack_key": self.aviationstack_key,
+            "rapidapi_key": self.rapidapi_key,
+            "opensky_id": self.opensky_id,
+            "opensky_secret": self.opensky_secret,
+        }
+        tests_by_group = {
+            "schedules": (
+                ("test_adb_btn", "Test AeroDataBox", self.test_aerodatabox),
+                ("test_as_btn", "Test AviationStack", self.test_aviationstack),
             ),
-            self._secret_row(self.aerodatabox_key, "AeroDataBox key"),
-        )
-        form.addRow("AeroDataBox marketplace", self.aerodatabox_marketplace)
-        form.addRow("AeroDataBox monthly unit guard", self.aerodatabox_monthly_limit)
-        form.addRow(
-            self._field_label(
-                "AviationStack fallback",
-                "Optional if AeroDataBox is set. Used as sparse-fill/fallback or as the direct source by itself.",
-            ),
-            self._secret_row(self.aviationstack_key, "AviationStack key"),
-        )
-        form.addRow(
-            self._field_label(
-                "ADS-B Exchange radar",
-                "Optional RapidAPI key for direct live radar positions without the radar relay.",
-            ),
-            self._secret_row(self.rapidapi_key, "ADS-B Exchange key"),
-        )
-        form.addRow(
-            self._field_label(
-                "OpenSky ID",
-                "Optional OpenSky client ID for free anonymous radar enrichment.",
-            ),
-            self.opensky_id,
-        )
-        form.addRow(
-            self._field_label(
-                "OpenSky Secret",
-                "Pair with the OpenSky client ID above. Stored encrypted on this machine only.",
-            ),
-            self._secret_row(self.opensky_secret, "OpenSky secret"),
-        )
-        layout.addLayout(form)
-
+            "radar": (("test_rapidapi_btn", "Test ADS-B Exchange", self.test_rapidapi),),
+        }
+        for group in PROVIDER_KEY_GROUPS:
+            frame, group_layout = self._group(str(group["title"]), str(group.get("lede") or ""))
+            form = self.QtWidgets.QFormLayout()
+            form.setFieldGrowthPolicy(self.QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
+            form.setHorizontalSpacing(12)
+            form.setVerticalSpacing(8)
+            for field in group["fields"]:
+                widget = widgets[str(field["id"])]
+                editor = self._secret_row(widget, str(field["label"])) if field.get("secret") else widget
+                form.addRow(self._field_label(str(field["label"]), str(field["help"])), editor)
+            group_layout.addLayout(form)
+            tests = self.QtWidgets.QHBoxLayout()
+            tests.setSpacing(8)
+            for attr, text, handler in tests_by_group.get(str(group["id"]), ()):
+                button = self.QtWidgets.QPushButton(text)
+                button.setObjectName("Quiet")
+                button.setCursor(self.QtCore.Qt.PointingHandCursor)
+                button.clicked.connect(handler)
+                self._button_icon(button, "flask")
+                setattr(self, attr, button)
+                tests.addWidget(button)
+            tests.addStretch(1)
+            group_layout.addLayout(tests)
+            layout.addWidget(frame)
         link_grid = self.QtWidgets.QGridLayout()
         link_grid.setHorizontalSpacing(8)
         link_grid.setVerticalSpacing(8)
         for idx, (text, url) in enumerate(PROVIDER_LINKS):
             button = self._link_button(text, url)
             self.provider_link_buttons[text] = button
-            link_grid.addWidget(button, idx // 2, idx % 2)
+            link_grid.addWidget(button, idx // 3, idx % 3)
         layout.addLayout(link_grid)
-        tests = self.QtWidgets.QHBoxLayout()
-        self.test_adb_btn = self.QtWidgets.QPushButton("\U0001F9EA  Test AeroDataBox")
-        self.test_as_btn = self.QtWidgets.QPushButton("\U0001F9EA  Test AviationStack")
-        self.test_rapidapi_btn = self.QtWidgets.QPushButton("\U0001F9EA  Test RapidAPI")
-        self.test_adb_btn.clicked.connect(self.test_aerodatabox)
-        self.test_as_btn.clicked.connect(self.test_aviationstack)
-        self.test_rapidapi_btn.clicked.connect(self.test_rapidapi)
-        tests.addWidget(self.test_adb_btn)
-        tests.addWidget(self.test_as_btn)
-        tests.addWidget(self.test_rapidapi_btn)
-        tests.addStretch(1)
-        layout.addLayout(tests)
-        self.provider_action_status = self._status_chip("Provider key checks ready.", "muted")
+        self.provider_action_status = self._status_chip("Provider key checks are ready.", "muted")
         layout.addWidget(self.provider_action_status)
         layout.addStretch(1)
 
     def _build_diagnostics_page(self) -> None:
-        _page, layout = self._page(
-            "Diagnostics",
-            "Choose how Local Flight may help report problems. Manual reports are always available.",
-        )
+        _page, layout = self._page(STEP_COPY[4]["heading"], STEP_COPY[4]["lede"])
         self.diagnostics_mode = self.QtWidgets.QComboBox()
         for option in DIAGNOSTICS_OPTIONS:
             self.diagnostics_mode.addItem(option["title"], option["mode"])
@@ -771,7 +878,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self._register_card_grid(cards, list(self.diagnostics_buttons.values()))
         layout.addLayout(cards)
         self.diagnostics_help = self._status_chip(
-            "Privacy rule: no provider keys, Relay Access credentials, raw install IDs, pilot identities, or internal secrets are shown here or sent from the client UI.",
+            "Reports never include provider keys, Relay Access credentials, install IDs, or pilot identities.",
             "muted",
         )
         layout.addWidget(self.diagnostics_help)
@@ -779,37 +886,38 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self._set_diagnostics_mode("manual")
 
     def _build_finish_page(self) -> None:
-        _page, layout = self._page(
-            "Review & Launch",
-            "Review your launch choices. Finish saves this setup locally and opens Local Flight.",
-        )
+        _page, layout = self._page(STEP_COPY[5]["heading"], STEP_COPY[5]["lede"])
         self.finish_grid = self.QtWidgets.QGridLayout()
         self.finish_grid.setHorizontalSpacing(10)
         self.finish_grid.setVerticalSpacing(10)
         self.finish_cards: dict[str, Any] = {
-            "airport": self._summary_card("Airport", "ZRH / LSZH"),
-            "timezone": self._summary_card("Timezone", "Europe/Zurich"),
-            "source": self._summary_card("Flight data", "Beacon Relay", tone="good"),
-            "relay": self._summary_card("Relay access", "License activation required"),
-            "keys": self._summary_card("Provider keys", "No provider keys saved"),
-            "diagnostics": self._summary_card("Diagnostics", "Manual reports only"),
+            "airport": self._summary_card(SUMMARY_LABELS["airport"], "ZRH / LSZH"),
+            "timezone": self._summary_card(SUMMARY_LABELS["timezone"], "Europe/Zurich"),
+            "source": self._summary_card(SUMMARY_LABELS["source"], "Beacon Relay", tone="good"),
+            "relay": self._summary_card(SUMMARY_LABELS["relay"], SUMMARY_VALUES["relay_required"]),
+            "keys": self._summary_card(SUMMARY_LABELS["keys"], SUMMARY_VALUES["keys_none"]),
+            "diagnostics": self._summary_card(SUMMARY_LABELS["diagnostics"], "Manual reports only"),
         }
         self._register_card_grid(self.finish_grid, list(self.finish_cards.values()), max_columns=2)
         layout.addLayout(self.finish_grid)
         self.finish_summary = label(self.QtWidgets, "", "Muted", wrap=True)
         self.finish_summary.hide()
         self.diagnostics_note = self._status_chip(
-            "Diagnostics can be changed later in Settings. Provider keys and Relay Access credentials are never displayed in this summary.",
+            "You can change any of this later in Settings. Keys and credentials are never shown here.",
             "muted",
         )
         layout.addWidget(self.diagnostics_note)
-        layout.addWidget(self._link_button("Open VATSIM status", "https://network-status.vatsim.net/"))
+        self.vatsim_status_btn = self._link_button("Open VATSIM status", "https://network-status.vatsim.net/")
+        self.vatsim_status_btn.hide()
+        layout.addWidget(self.vatsim_status_btn, 0, self.QtCore.Qt.AlignLeft)
         layout.addStretch(1)
 
     def _link_button(self, text: str, url: str) -> Any:
-        button = self.QtWidgets.QPushButton("\U0001F517  " + text)
+        button = self.QtWidgets.QPushButton(text)
         button.setObjectName("Quiet")
         button.setProperty("url", url)
+        button.setCursor(self.QtCore.Qt.PointingHandCursor)
+        self._button_icon(button, "external", size=14)
         button.clicked.connect(lambda _checked=False, u=url: webbrowser.open(u))
         return button
 
@@ -838,18 +946,25 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         layout.addWidget(field, 1)
         eye = self.QtWidgets.QToolButton()
         eye.setObjectName("SetupEyeButton")
-        eye.setText("\U0001F441")  # 👁
-        eye.setToolTip("Show / hide the value")
+        eye.setToolTip(f"Show the {label_text}")
+        eye.setAccessibleName(f"Show or hide the {label_text}")
         eye.setFixedSize(30, 28)
         eye.setCursor(self.QtCore.Qt.PointingHandCursor)
+        if self.QtGui is not None:
+            self._button_icon(eye, "eye", size=16)
+        else:
+            eye.setText("Show")
 
         def _toggle() -> None:
             is_password = field.echoMode() == self.QtWidgets.QLineEdit.Password
             field.setEchoMode(
                 self.QtWidgets.QLineEdit.Normal if is_password else self.QtWidgets.QLineEdit.Password
             )
-            eye.setText("\U0001F648" if is_password else "\U0001F441")  # 🙈 / 👁
-            eye.setToolTip("Hide the value" if is_password else "Show the value")
+            if self.QtGui is not None:
+                self._button_icon(eye, "eye_off" if is_password else "eye", size=16)
+            else:
+                eye.setText("Hide" if is_password else "Show")
+            eye.setToolTip(f"Hide the {label_text}" if is_password else f"Show the {label_text}")
 
         eye.clicked.connect(_toggle)
         layout.addWidget(eye)
@@ -931,6 +1046,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         current_page = self.tabs.currentWidget()
         if current_page is not None:
             current_page.update()
+            self._animate_page_rise(current_page)
         self._sync_current_page_geometry()
         try:
             def _reset_scroll_position() -> None:
@@ -951,6 +1067,38 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.next_btn.setVisible(not is_first and not is_last)
         self.finish_btn.setVisible(is_last)
         self._update_finish_summary()
+
+    def _animate_page_rise(self, page: Any) -> None:
+        """Slide the new page up a few pixels. Layout-driven, so no opacity effect is needed."""
+        if self.reduce_motion or self.QtGui is None:
+            return
+        layout = page.layout()
+        base = getattr(page, "_lf_base_margins", None)
+        if layout is None or base is None:
+            return
+        try:
+            previous = getattr(page, "_lf_rise", None)
+            if previous is not None:
+                previous.stop()
+            anim = self.QtCore.QVariantAnimation(page)
+            anim.setDuration(220)
+            anim.setStartValue(14.0)
+            anim.setEndValue(0.0)
+            anim.setEasingCurve(self.QtCore.QEasingCurve.OutCubic)
+
+            def _apply(value: Any) -> None:
+                try:
+                    offset = int(float(value))
+                    layout.setContentsMargins(base[0], base[1] + offset, base[2], max(0, base[3] - offset))
+                except RuntimeError:
+                    pass
+
+            anim.valueChanged.connect(_apply)
+            anim.finished.connect(lambda: layout.setContentsMargins(*base))
+            anim.start()
+            page._lf_rise = anim  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     def _next_step(self) -> None:
         index = self.tabs.currentIndex()
@@ -1000,11 +1148,13 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self.relay_box.setVisible(mode == "relay")
         self.mode_help.setText(source_option(mode)["note"])
         if mode == "relay":
-            self._set_chip(self.keys_hint, "Beacon Relay skips provider keys. Relay Access is activated on the previous page.", "good")
+            self._set_chip(self.keys_hint, "Beacon Relay needs no provider keys. Relay Access is activated on the previous step.", "good")
         elif mode == "byok":
-            self._set_chip(self.keys_hint, "Paste an AeroDataBox or AviationStack schedule key. ADS-B Exchange on RapidAPI lives on this same page as the optional radar key.", "warn")
+            self._set_chip(self.keys_hint, "Add an AeroDataBox or AviationStack key for schedules. Radar keys are optional.", "warn")
         else:
-            self._set_chip(self.keys_hint, "VATSIM needs no provider keys. Virtual traffic will be used for this route.", "good")
+            self._set_chip(self.keys_hint, "VATSIM needs no provider keys.", "good")
+        if hasattr(self, "vatsim_status_btn"):
+            self.vatsim_status_btn.setVisible(mode == "vatsim")
 
     def _invalidate_pending_move(self) -> None:
         self._pending_move_token = ""
@@ -1049,9 +1199,9 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             return
         mode = self._current_mode() if hasattr(self, "setup_mode") else "relay"
         source = "virtual" if mode == "vatsim" else "real"
-        relay_state = "active on this desktop" if self._stored_activation else "license activation required"
+        relay_state = SUMMARY_VALUES["relay_active"] if self._stored_activation else SUMMARY_VALUES["relay_required"]
         if mode != "relay":
-            relay_state = "not used"
+            relay_state = SUMMARY_VALUES["relay_not_used"]
         has_adb = mode == "byok" and bool(
             self.aerodatabox_key.text().strip() or self._saved_provider_state.get("aerodatabox_configured")
         )
@@ -1063,13 +1213,13 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         )
         radar_note = " + ADS-B Exchange radar" if has_adsb else ""
         if has_adb and has_as:
-            key_state = f"AeroDataBox primary + AviationStack fill{radar_note}"
+            key_state = f"AeroDataBox + AviationStack{radar_note}"
         elif has_adb:
-            key_state = f"AeroDataBox schedules{radar_note}"
+            key_state = f"AeroDataBox{radar_note}"
         elif has_as:
-            key_state = f"AviationStack schedules{radar_note}"
+            key_state = f"AviationStack{radar_note}"
         else:
-            key_state = "no provider keys saved"
+            key_state = SUMMARY_VALUES["keys_none"]
         diagnostics = self._current_diagnostics_mode()
         rows = {
             "airport": f"{self.airport_iata.text().strip().upper() or 'ZRH'} / {self.airport_icao.text().strip().upper() or 'LSZH'}",
@@ -1085,8 +1235,8 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 if card is not None:
                     card.value_label.setText(value)
             self.finish_cards["source"].setProperty("tone", "good" if mode in {"relay", "vatsim"} else "warn")
-            self.finish_cards["relay"].setProperty("tone", "good" if relay_state == "active on this desktop" else "muted")
-            self.finish_cards["keys"].setProperty("tone", "warn" if mode == "byok" and key_state != "no provider keys saved" else "muted")
+            self.finish_cards["relay"].setProperty("tone", "good" if relay_state == SUMMARY_VALUES["relay_active"] else "muted")
+            self.finish_cards["keys"].setProperty("tone", "warn" if mode == "byok" and key_state != SUMMARY_VALUES["keys_none"] else "muted")
             self.finish_cards["diagnostics"].setProperty("tone", "good" if diagnostics == "manual" else "warn")
             for card in self.finish_cards.values():
                 self._repolish(card)
@@ -1165,11 +1315,11 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             self.token_box.hide()
         elif prefix.startswith("lfr_"):
             self.activation_token.clear()
-            self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+            self.activation_token.setPlaceholderText("License key or one-time activation code")
             self._set_chip(self.relay_status, "The saved credential is not active. Check access or enter a replacement key or activation code.", "warn")
             self.token_box.show()
         else:
-            self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+            self.activation_token.setPlaceholderText("License key or one-time activation code")
             self._set_chip(self.relay_status, "Get Relay Access or enter an existing key or one-time activation code.", "warn")
             self.token_box.show()
         self._catalog_available = bool(catalog.get("ok") and catalog.get("sales_available"))
@@ -1332,7 +1482,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
     def _start_airport_search(self) -> None:
         query = self.airport_search.text().strip()
         if len(query) < 2:
-            self._set_airport_status("Type at least two characters to search the built-in airport database.")
+            self._set_airport_status("Type at least two characters to search the built-in airport list.")
             return
         query_key = query.casefold()
         if query_key == self._last_airport_query:
@@ -1441,7 +1591,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self._pending_move_token = ""
         self.move_warning.hide()
         self.activation_token.clear()
-        self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+        self.activation_token.setPlaceholderText("License key or one-time activation code")
         self.token_box.show()
         self._set_relay_buttons_enabled(True)
         self._set_setup_buttons_enabled(True)
@@ -1508,7 +1658,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
             self._pending_move_token = ""
             self.move_warning.hide()
             self.activation_token.clear()
-            self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+            self.activation_token.setPlaceholderText("License key or one-time activation code")
             self.token_box.show()
         self._set_relay_action_status(status_text, role)
         self._update_finish_summary()
@@ -1538,7 +1688,7 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
         self._pending_move_token = ""
         self.move_warning.hide()
         self.activation_token.clear()
-        self.activation_token.setPlaceholderText("LFRA key or one-time activation code")
+        self.activation_token.setPlaceholderText("License key or one-time activation code")
         self.token_box.show()
         self._set_relay_action_status(self._friendly_relay_text(result), "StatusBad")
         self._update_finish_summary()
@@ -1649,28 +1799,28 @@ class SetupScreen(AsyncFetchMixin):  # pragma: no cover - optional Qt runtime
                 self.service.clear_cache()
             except Exception:
                 pass
-            # Play the celebration overlay before handing off to the main app.
+            # Play the completion overlay, then hand off to the main app.
+            handed_off = False
             if self.QtGui is not None:
                 try:
-                    colors = colors_for(self.theme, self.skin)
+                    colors = self._colors
                     fire = build_celebration(
                         self.QtCore,
                         self.QtGui,
                         self.QtWidgets,
                         self.widget,
-                        accent_hex=colors.get("blue", "#4a9eda"),
+                        accent_hex=self._accent_hex,
                         text_hex=colors.get("text", "#e8f0fe"),
                         bg_hex=colors.get("bg", "#0b0f15"),
+                        pixmap=icon_pixmap(self.QtCore, self.QtGui, "takeoff", color_hex=self._accent_hex, size=72, device_pixel_ratio=self._dpr),
+                        reduce_motion=self.reduce_motion,
                     )
-                    fire()
+                    fire(self.on_setup_complete)
+                    handed_off = True
                 except Exception:
-                    pass
-            if self.on_setup_complete:
-                # Give the celebration a moment to be seen before launching.
-                if self.QtGui is not None and hasattr(self.QtCore, "QTimer"):
-                    self.QtCore.QTimer.singleShot(650, self.on_setup_complete)
-                else:
-                    self.on_setup_complete()
+                    handed_off = False
+            if self.on_setup_complete and not handed_off:
+                self.on_setup_complete()
         else:
             self._set_setup_buttons_enabled(True)
 

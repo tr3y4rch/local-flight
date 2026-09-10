@@ -180,8 +180,8 @@ Setup guides you through:
 1. Welcome
 2. Airport
 3. Flight data
-4. Optional provider keys
-5. Diagnostics choice
+4. Provider keys (only for Bring Your Own Keys)
+5. Problem reports
 6. Review and open
 
 Beacon Relay is the optional hosted real-flight path. New Relay Access is an

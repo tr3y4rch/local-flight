@@ -596,6 +596,79 @@ QFrame#SetupOptionCard[selected="true"] {{
 QFrame#SetupOptionCard[selected="true"]:hover {{
   background: {_rgba(accent, 0.22)};
 }}
+QFrame#SetupOptionCard:focus {{
+  border-color: {colors["cyan"]};
+}}
+QLabel#SetupIconTile {{
+  background: {accent_soft};
+  border: 1px solid {accent_border};
+  border-radius: 17px;
+  min-width: 34px;
+  max-width: 34px;
+  min-height: 34px;
+  max-height: 34px;
+}}
+QFrame#SetupOptionCard[selected="true"] QLabel#SetupIconTile {{
+  background: {accent};
+  border-color: {accent};
+}}
+QFrame#SetupGroup {{
+  background: {subtle_surface};
+  border: 1px solid {soft_surface};
+  border-radius: 14px;
+}}
+QLabel#SetupGroupTitle {{
+  color: {colors["text"]};
+  font-size: 14px;
+  font-weight: 900;
+}}
+QLabel#SetupGroupLede {{
+  color: {muted_panel_text};
+  font-size: 12px;
+}}
+QFrame#SetupSearchBox {{
+  background: {colors["input_bg"]};
+  border: 1px solid {control_colors["line"]};
+  border-radius: 10px;
+}}
+QFrame#SetupSearchBox[active="true"] {{
+  border-color: {accent};
+}}
+QFrame#SetupSearchBox QLineEdit {{
+  background: transparent;
+  border: none;
+  padding: 8px 6px;
+  font-size: 14px;
+}}
+QListWidget#SetupResults {{
+  background: {colors["input_bg"]};
+  border: 1px solid {control_colors["line"]};
+  border-radius: 10px;
+  padding: 4px;
+  outline: none;
+}}
+QListWidget#SetupResults::item {{
+  padding: 8px 10px;
+  border-radius: 8px;
+}}
+QListWidget#SetupResults::item:hover {{
+  background: {_rgba(accent, 0.12)};
+}}
+QListWidget#SetupResults::item:selected {{
+  background: {_rgba(accent, 0.22)};
+  color: {colors["text"]};
+}}
+QPushButton#SetupPrimary:pressed {{
+  background: {_mix_hex(accent, colors["bg"], 0.18)};
+}}
+QPushButton#Quiet:pressed {{
+  background: {strong_surface};
+}}
+QLabel#SetupTagline {{
+  color: {muted_panel_text};
+  font-size: 13px;
+  font-style: italic;
+}}
 QFrame#SetupSpinner {{
   background: {_rgba(accent, 0.10)};
   border: 1px solid {_rgba(accent, 0.32)};

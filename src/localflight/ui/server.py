@@ -679,6 +679,11 @@ def _request_is_loopback(request: Request | None) -> bool:
 def setup_page(request: Request) -> HTMLResponse:
     from localflight.ui.setup_guidance import guidance_context
 
+    try:
+        cfg = load_config()
+        appearance = {"theme": cfg.theme, "skin": cfg.skin, "reduce_motion": bool(cfg.reduce_motion)}
+    except Exception:
+        appearance = {"theme": "dark", "skin": "standard", "reduce_motion": False}
     return templates.TemplateResponse(
         request=request,
         name="setup.html",
@@ -686,6 +691,7 @@ def setup_page(request: Request) -> HTMLResponse:
             "relay_url_default": _relay_url_default(),
             "setup_guidance": guidance_context(),
             "allow_license_key": _request_is_loopback(request),
+            "appearance": appearance,
         },
     )
 
@@ -2160,6 +2166,7 @@ async def save_settings(
     radar_surface_enabled: Optional[str] = Form(None),
     radar_surface_mode: Optional[str] = Form(DEFAULT_RADAR_SURFACE_MODE),
     remote_companion_enabled: Optional[str] = Form(None),
+    reduce_motion: Optional[str] = Form(None),
 ) -> RedirectResponse:
     old_cfg = load_config()
     data_route = old_cfg.data_route
@@ -2183,6 +2190,7 @@ async def save_settings(
         raw_surface_mode = "relay" if str(radar_surface_enabled or "").strip().lower() in {"1", "true", "yes", "on"} else DEFAULT_RADAR_SURFACE_MODE
     surface_enabled = raw_surface_mode != "off"
     remote_enabled = str(remote_companion_enabled or "").strip().lower() in {"1", "true", "yes", "on"}
+    reduce_motion_enabled = str(reduce_motion or "").strip().lower() in {"1", "true", "yes", "on"}
 
     form_data = await request.form()
     raw_outputs = form_data.getlist("display_outputs")
@@ -2210,6 +2218,7 @@ async def save_settings(
         radar_surface_enabled=surface_enabled,
         radar_surface_mode=raw_surface_mode,
         remote_companion_enabled=remote_enabled,
+        reduce_motion=reduce_motion_enabled,
     )
     config_changed = asdict(old_cfg) != asdict(cfg)
     if config_changed:

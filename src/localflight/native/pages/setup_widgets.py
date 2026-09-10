@@ -15,6 +15,7 @@ Widgets exposed:
 from __future__ import annotations
 
 import math
+import time
 from typing import Any, Callable, Iterable
 
 
@@ -35,6 +36,7 @@ def build_stepper(
     muted_hex: str,
     line_hex: str,
     compact: bool = False,
+    reduce_motion: bool = False,
 ) -> Any:
     """Create an animated stepper widget.
 
@@ -59,16 +61,18 @@ def build_stepper(
             self._muted = QtGui.QColor(muted_hex)
             self._line = QtGui.QColor(line_hex)
             self._hover_index = -1
+            self._pops: dict[int, float] = {}  # step index -> monotonic start of its check pop
             self.setMinimumHeight(62 if not compact else 54)
             self.setMouseTracking(True)
             self.setCursor(QtCore.Qt.PointingHandCursor)
             self._anim = QtCore.QPropertyAnimation(self, b"progress")
-            self._anim.setDuration(360)
+            self._anim.setDuration(0 if reduce_motion else 360)
             self._anim.setEasingCurve(QtCore.QEasingCurve.OutCubic)
             self._pulse_timer = QtCore.QTimer(self)
             self._pulse_timer.setInterval(60)
             self._pulse_timer.timeout.connect(self._tick_pulse)
-            self._pulse_timer.start()
+            if not reduce_motion:
+                self._pulse_timer.start()
 
         def sizeHint(self) -> Any:  # noqa: N802 - Qt naming
             return QtCore.QSize(max(540, self._count * 130), 62 if not compact else 54)
@@ -85,6 +89,10 @@ def build_stepper(
 
         def set_active(self, index: int) -> None:
             index = max(0, min(int(index), self._count - 1))
+            if not reduce_motion:
+                now = time.monotonic()
+                for done in range(self._active, index):
+                    self._pops[done] = now
             self._active = index
             self._anim.stop()
             self._anim.setStartValue(self._progress)
@@ -101,6 +109,18 @@ def build_stepper(
         def _tick_pulse(self) -> None:
             self._pulse_phase = (self._pulse_phase + 0.05) % 1.0
             self.update()
+
+        def _pop_scale(self, idx: int) -> float:
+            """Return a brief overshoot scale for a freshly completed step."""
+            started = self._pops.get(idx)
+            if started is None:
+                return 1.0
+            t = (time.monotonic() - started) / 0.32
+            if t >= 1.0:
+                self._pops.pop(idx, None)
+                return 1.0
+            # ease out with a small overshoot: 1 -> 1.35 -> 1
+            return 1.0 + 0.35 * math.sin(t * math.pi)
 
         def _centers(self) -> list[float]:
             if self._count <= 1:
@@ -207,13 +227,20 @@ def build_stepper(
                     font = QtGui.QFont()
                     font.setBold(True)
                     if state == "done":
-                        font.setPointSize(11 if not compact else 10)
-                        painter.setFont(font)
-                        painter.drawText(
-                            QtCore.QRectF(cx - radius, cy - radius, radius * 2, radius * 2),
-                            QtCore.Qt.AlignCenter,
-                            "✓",
-                        )
+                        # Paint the check as a stroke so it is identical on
+                        # every platform, with a brief pop when just completed.
+                        scale = self._pop_scale(idx)
+                        check_pen = QtGui.QPen(glyph_color, 2.4 * scale)
+                        check_pen.setCapStyle(QtCore.Qt.RoundCap)
+                        check_pen.setJoinStyle(QtCore.Qt.RoundJoin)
+                        painter.setPen(check_pen)
+                        unit = radius * 0.34 * scale
+                        path = QtGui.QPainterPath()
+                        path.moveTo(cx - unit * 1.35, cy + unit * 0.05)
+                        path.lineTo(cx - unit * 0.35, cy + unit * 1.0)
+                        path.lineTo(cx + unit * 1.45, cy - unit * 0.95)
+                        painter.setBrush(QtCore.Qt.NoBrush)
+                        painter.drawPath(path)
                     else:
                         font.setPointSize(10 if not compact else 9)
                         painter.setFont(font)
@@ -235,6 +262,8 @@ def build_stepper(
                     rect = QtCore.QRectF(cx - 60, cy + radius + 6, 120, 18)
                     painter.drawText(rect, QtCore.Qt.AlignCenter, label_text)
                     painter.setPen(QtCore.Qt.NoPen)
+                if self._pops and not self._pulse_timer.isActive():
+                    QtCore.QTimer.singleShot(16, self.update)
             finally:
                 painter.end()
 
@@ -311,6 +340,7 @@ def build_hero(
     muted_hex: str,
     tagline: str = "Your local airport board, right here on this machine.",
     compact: bool = False,
+    reduce_motion: bool = False,
 ) -> Any:
     """Build the welcome-page hero block (animated logo + radar rings + tagline)."""
 
@@ -331,7 +361,8 @@ def build_hero(
             self._timer = QtCore.QTimer(self)
             self._timer.setInterval(60)
             self._timer.timeout.connect(self._tick)
-            self._timer.start()
+            if not reduce_motion:
+                self._timer.start()
 
             layout = QtWidgets.QVBoxLayout(self)
             layout.setContentsMargins(0, 0, 0, 0)
@@ -472,13 +503,27 @@ def build_celebration(
     accent_hex: str,
     text_hex: str,
     bg_hex: str,
-) -> Callable[[], None]:
-    """Return a function that, when called, shows a brief ✅ celebration overlay.
+    pixmap: Any | None = None,
+    caption: str = "Setup complete. Opening Local Flight…",
+    reduce_motion: bool = False,
+) -> Callable[[Callable[[], None] | None], None]:
+    """Return ``fire(on_done)``: show a brief completion overlay, then call ``on_done``.
 
-    The overlay covers ``parent`` and auto-fades out.
+    The overlay covers ``parent``, fades in, holds, fades out, and only then
+    hands off. With ``reduce_motion`` it appears instantly and hands off after
+    a short hold.
     """
 
-    def _fire() -> None:
+    def _fire(on_done: Callable[[], None] | None = None) -> None:
+        finished = {"done": False}
+
+        def _finish() -> None:
+            if finished["done"]:
+                return
+            finished["done"] = True
+            if on_done is not None:
+                on_done()
+
         try:
             overlay = QtWidgets.QFrame(parent)
             overlay.setObjectName("SetupCelebration")
@@ -490,17 +535,26 @@ def build_celebration(
             layout = QtWidgets.QVBoxLayout(overlay)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.addStretch(1)
-            mark = QtWidgets.QLabel("✅")
+            mark = QtWidgets.QLabel()
             mark.setAlignment(QtCore.Qt.AlignCenter)
-            mark.setStyleSheet("font-size: 96px;")
+            if pixmap is not None and not pixmap.isNull():
+                mark.setPixmap(pixmap)
+            else:
+                mark.setText("✓")
+                mark.setStyleSheet(f"color: {accent_hex}; font-size: 72px; font-weight: 900;")
             layout.addWidget(mark)
-            caption = QtWidgets.QLabel("Setup complete — opening Local Flight…")
-            caption.setAlignment(QtCore.Qt.AlignCenter)
-            caption.setStyleSheet(
+            caption_label = QtWidgets.QLabel(caption)
+            caption_label.setAlignment(QtCore.Qt.AlignCenter)
+            caption_label.setStyleSheet(
                 f"color: {text_hex}; font-size: 18px; font-weight: 900; letter-spacing: 0.04em;"
             )
-            layout.addWidget(caption)
+            layout.addWidget(caption_label)
             layout.addStretch(1)
+            overlay.show()
+            if reduce_motion:
+                QtCore.QTimer.singleShot(500, _finish)
+                overlay._lf_keep = overlay  # type: ignore[attr-defined]
+                return
             opacity = QtWidgets.QGraphicsOpacityEffect(overlay)
             overlay.setGraphicsEffect(opacity)
             opacity.setOpacity(0.0)
@@ -509,13 +563,20 @@ def build_celebration(
             fade_in.setStartValue(0.0)
             fade_in.setEndValue(1.0)
             fade_in.setEasingCurve(QtCore.QEasingCurve.OutCubic)
-            overlay.show()
+            fade_out = QtCore.QPropertyAnimation(opacity, b"opacity", overlay)
+            fade_out.setDuration(320)
+            fade_out.setStartValue(1.0)
+            fade_out.setEndValue(0.0)
+            fade_out.setEasingCurve(QtCore.QEasingCurve.InCubic)
+            fade_out.finished.connect(_finish)
+            fade_in.finished.connect(lambda: QtCore.QTimer.singleShot(650, fade_out.start))
             fade_in.start()
-
-            # Keep the overlay around until the host hides it or window goes away.
             overlay._lf_fade_in = fade_in  # type: ignore[attr-defined]
+            overlay._lf_fade_out = fade_out  # type: ignore[attr-defined]
+            # Safety net: never leave the app stuck behind the overlay.
+            QtCore.QTimer.singleShot(2000, _finish)
         except Exception:
-            pass
+            _finish()
 
     return _fire
 

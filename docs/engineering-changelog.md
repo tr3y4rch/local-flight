@@ -7,6 +7,16 @@ hashes, and personal build identifiers belong outside Git.
 
 ## 0.7.0 annual Relay Access candidate
 
+- Refreshed both first-launch setup wizards. `setup_guidance.py` now holds
+  every step name, heading, lede, card body, button label, summary label, and
+  a shared monochrome SVG icon set; the Qt wizard rasterizes the icons through
+  QtSvg and the browser page inlines them, so emoji no longer differ per OS.
+  Provider keys are grouped into Schedules and Radar, the airport step keeps
+  its result list hidden until there are results, review values are
+  title-cased, and the footer is one row: status, browser link, Back,
+  Continue. Subtle motion (page rise, selection pulse, stepper check pop,
+  completion fade-out) is controlled by a new `reduce_motion` setting exposed
+  in both Settings pages and honoured by `prefers-reduced-motion` on the web.
 - The native Qt shell now loads static DM Sans weights
   (`DMSans-{Regular,Bold,ExtraBold,Black}.ttf`, generated from the variable
   font by `scripts/build_static_ui_fonts.py`) instead of the variable

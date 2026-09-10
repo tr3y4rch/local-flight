@@ -794,6 +794,7 @@ class ConfigPatch(BaseModel):
     radar_surface_enabled: Optional[bool] = None
     radar_surface_mode: Optional[Literal["off", "estimated", "relay"]] = None
     remote_companion_enabled: Optional[bool] = None
+    reduce_motion: Optional[bool] = None
 
 
 class FIDSRowOut(BaseModel):

@@ -6634,7 +6634,7 @@ def test_setup_copy_uses_friendlier_relay_and_launch_terms() -> None:
     assert "Verify relay path" not in template
     assert "Launch Local Flight" not in template
     assert "Beacon Relay" in guidance
-    assert "Review & Launch" in guidance
+    assert "Review and open" in guidance
     assert "Device code" in template
     assert "Test access" in template
     assert "Open Local Flight" in template
