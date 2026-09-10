@@ -45,7 +45,16 @@ monitor type cannot be changed after a monitor is created, so a monitor made as
 HTTP(s) has to be deleted and recreated; selecting the HTTP method directly is a
 paid feature and is not a route around this on the free plan.
 
-Set each one to alert when the keyword is **not** found. The two Cloudflare-served
+Set each one to alert when the keyword is **not** found — in the UptimeRobot UI,
+"Start incident when keyword does not exist". Getting this backwards is the single
+easiest mistake to make here, and it is deceptive from the outside: an inverted
+monitor goes down precisely when the service is healthy, and the API still records
+the failure reason as `Keyword Not Found`, which reads like the keyword was genuinely
+missing. Check this setting first when a keyword monitor is down but the endpoint
+plainly serves the keyword. It is `keyword_type` in the API: `1` is "incident when
+it exists" (wrong for us), `2` is "incident when it does not exist" (correct).
+
+The two Cloudflare-served
 monitors would pass as HTTP(s) checks, because Cloudflare does answer HEAD, but
 they belong on keywords too: `/api/releases/latest` returns HTTP 200 with
 `"ok":false` when the GitHub proxy fails, so a HEAD check would miss precisely
