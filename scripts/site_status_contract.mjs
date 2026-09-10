@@ -451,6 +451,18 @@ assert.doesNotMatch(
   /relay(-staging)?\.beacontools\.cc/,
   "The status page must reach the relay through the site origin only.",
 );
-assert.doesNotMatch(page, /uptimerobot/i);
+// The published status page is linked on purpose: it is the only status surface that
+// survives this site being unreachable. What must never appear is the monitoring API
+// or any vendor script, since the vendor stays behind the Worker and out of browsers.
+assert.doesNotMatch(
+  page,
+  /api\.uptimerobot\.com/i,
+  "The monitoring API must never be reachable from the browser.",
+);
+assert.doesNotMatch(
+  page,
+  /<script[^>]*uptimerobot/i,
+  "No vendor script may be loaded into the page.",
+);
 
 console.log("Beacon Tools service status contract passed.");

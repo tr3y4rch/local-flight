@@ -40,8 +40,8 @@ export const relayOrigin = resolveDeployment().relayOrigin;
 
 // The externally hosted status page published by the uptime monitor. It is the only
 // status surface that survives this site being unreachable, so /status/ links to it.
-// Empty until that monitor is published; the page hides the link while it is blank.
-export const statusFallbackUrl = "";
+// Empty hides the link; the page copy adapts either way.
+export const statusFallbackUrl = "https://stats.uptimerobot.com/dRHAaZ8NcH";
 
 export const availability = {
   relayAccess: "live",
