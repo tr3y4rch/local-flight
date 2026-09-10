@@ -99,10 +99,16 @@ therefore works with no secrets configured.
 
 ## What the page reports
 
-Service rows come from the monitors, except where a signal can be derived from
-the request itself — serving the response proves the website is reachable, and
-the live `/health` probe is fresher than a five-minute poll, so it wins for the
-relay and licensing rows.
+Service rows combine two sources that answer different questions. The live
+`/health` probe says the relay responds to the Worker; the monitor says it
+responds from outside our own hosting. Where only one exists, it is used. Where
+both exist and agree, that is the state. Where they disagree, the row reports
+`degraded` and a notice explains which side saw what.
+
+That last case matters: preferring the live probe would hide a relay that answers
+from inside Cloudflare's network but is unreachable from the public internet,
+which is the exact failure external monitoring exists to catch. A paused or
+not-yet-checked monitor reports `unknown` and is not treated as disagreement.
 
 Component rows come from `access.*` in the relay's `/health`. Two mappings are
 deliberate and should not be "simplified":

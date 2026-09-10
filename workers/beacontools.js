@@ -287,6 +287,16 @@ function liveServiceState(key, health) {
   return null;
 }
 
+// A live probe and an external monitor answer different questions: ours says the
+// relay responds to this Worker, theirs says it responds from outside our hosting.
+// When they disagree, one of them is wrong and we do not know which, so the honest
+// answer is degraded rather than quietly preferring our own view.
+export function reconcileState(liveState, observedState) {
+  if (!liveState) return observedState || "unknown";
+  if (!observedState || observedState === "unknown") return liveState;
+  return liveState === observedState ? liveState : "degraded";
+}
+
 function overallState(states) {
   const known = states.filter((state) => state !== "unknown");
   if (!known.length) return "unknown";
@@ -298,17 +308,33 @@ function overallState(states) {
 export function buildStatusPayload({ health, monitors, now }) {
   const live = health?.ok === true;
   const history = monitors && Object.keys(monitors).length > 0 ? monitors : null;
+  const disagreements = [];
   const services = STATUS_SERVICES.map((service) => {
     const observed = history?.[service.key] || null;
+    const liveState = liveServiceState(service.key, health);
+    const observedState = observed?.state || null;
+    if (liveState && observedState && observedState !== "unknown" && liveState !== observedState) {
+      disagreements.push({ service, liveState, observedState });
+    }
     return {
       key: service.key,
       label: service.label,
-      state: liveServiceState(service.key, health) || observed?.state || "unknown",
+      state: reconcileState(liveState, observedState),
+      checks: { live: liveState, monitor: observedState },
       uptime: observed?.uptime || null,
     };
   });
   const components = live ? relayComponentRows(health) : [];
   const notices = live ? relayNotices(health) : [];
+  for (const { service, liveState, observedState } of disagreements) {
+    notices.push({
+      key: `disagreement_${service.key}`,
+      tone: "degraded",
+      text: observedState === "operational"
+        ? `${service.label} answers external monitoring but not our own checks. Treat it as unconfirmed until the two agree.`
+        : `${service.label} answers our own checks, but external monitoring cannot reach it from outside. Treat it as unconfirmed until the two agree.`,
+    });
+  }
 
   return {
     ok: true,

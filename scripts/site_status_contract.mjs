@@ -121,8 +121,10 @@ assert.equal(healthy.generated_at, "2026-07-20T12:34:00.000Z");
 assert.deepEqual(healthy.sources, { live: true, history: true });
 assert.deepEqual(healthy.build, { version: "0.7.1", revision: "55c33d5900ef", environment: "production" });
 assert.equal(healthy.build.revision.length, 12, "The published revision stays a short prefix.");
-// The live probe outranks the monitor: it is fresher than a five-minute poll.
-assert.equal(healthy.services.find((service) => service.key === "relay_api").state, "operational");
+// The monitor in this fixture reports relay-api down while the live probe sees it
+// up, so the row reports the disagreement rather than preferring either view.
+assert.equal(healthy.services.find((service) => service.key === "relay_api").state, "degraded");
+assert.ok(healthy.notices.some((notice) => notice.key === "disagreement_relay_api"));
 assert.equal(healthy.services.find((service) => service.key === "downloads").state, "degraded");
 assert.equal(healthy.overall, "degraded");
 
@@ -155,6 +157,60 @@ assert.equal(
   "operational",
   "Serving this response proves the website is reachable.",
 );
+
+// --- Live and monitor disagreement ----------------------------------------
+
+assert.equal(workerModule.reconcileState("operational", "operational"), "operational");
+assert.equal(workerModule.reconcileState("outage", "outage"), "outage");
+// A monitor with no verdict yet must not drag a healthy live probe down.
+assert.equal(workerModule.reconcileState("operational", "unknown"), "operational");
+assert.equal(workerModule.reconcileState("operational", null), "operational");
+// Nor may a live probe invent a verdict where there is none.
+assert.equal(workerModule.reconcileState(null, "outage"), "outage");
+assert.equal(workerModule.reconcileState(null, null), "unknown");
+// Disagreement is the case this exists for.
+assert.equal(workerModule.reconcileState("operational", "outage"), "degraded");
+assert.equal(workerModule.reconcileState("outage", "operational"), "degraded");
+
+// The live probe must not be able to hide a monitor that cannot reach the relay,
+// which is precisely the outage external monitoring exists to catch.
+const unreachableFromOutside = build(healthyRelay, {
+  relay_api: { state: "outage", uptime: { day: 0, week: 0, month: 0, quarter: 0 } },
+  licensing: { state: "operational", uptime: { day: 100, week: 100, month: 100, quarter: 100 } },
+});
+const relayRow = unreachableFromOutside.services.find((service) => service.key === "relay_api");
+assert.equal(
+  relayRow.state,
+  "degraded",
+  "A relay that answers us but not the outside world must not read as operational.",
+);
+assert.deepEqual(relayRow.checks, { live: "operational", monitor: "outage" });
+assert.equal(unreachableFromOutside.overall, "degraded");
+const disagreement = unreachableFromOutside.notices.find((notice) => notice.key === "disagreement_relay_api");
+assert.ok(disagreement, "A disagreement must be explained, not just scored.");
+assert.match(disagreement.text, /external monitoring cannot reach it/);
+// The agreeing row stays clean and raises no notice.
+assert.equal(unreachableFromOutside.services.find((s) => s.key === "licensing").state, "operational");
+assert.equal(
+  unreachableFromOutside.notices.filter((n) => n.key.startsWith("disagreement_")).length,
+  1,
+);
+
+// The mirror image: reachable from outside but not from us.
+const unreachableFromHere = build(null, {
+  relay_api: { state: "operational", uptime: { day: 100 } },
+});
+const mirroredRow = unreachableFromHere.services.find((service) => service.key === "relay_api");
+assert.equal(mirroredRow.state, "degraded");
+assert.match(
+  unreachableFromHere.notices.find((n) => n.key === "disagreement_relay_api").text,
+  /answers external monitoring but not our own checks/,
+);
+
+// A paused or not-yet-checked monitor is not a disagreement.
+const notCheckedYet = build(healthyRelay, { relay_api: { state: "unknown", uptime: {} } });
+assert.equal(notCheckedYet.services.find((s) => s.key === "relay_api").state, "operational");
+assert.equal(notCheckedYet.notices.filter((n) => n.key.startsWith("disagreement_")).length, 0);
 
 // --- Monitor history caching ----------------------------------------------
 
