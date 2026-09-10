@@ -383,7 +383,7 @@ def _run_native_gui(*, fullscreen: bool = False) -> None:
     browser_proc_ref: list[None] = [None]
 
     if first_launch:
-        print("First launch â€” native setup screen will open")
+        print("First launch — native setup screen will open")
     else:
         scheduler_ref[0] = _start_scheduler()
         print("Scheduler started")

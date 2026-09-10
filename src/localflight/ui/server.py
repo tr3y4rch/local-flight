@@ -584,11 +584,11 @@ class ConnectionManager:
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
         self._connections.add(ws)
-        logger.debug("WS connect â€” %d active", len(self._connections))
+        logger.debug("WS connect — %d active", len(self._connections))
 
     def disconnect(self, ws: WebSocket) -> None:
         self._connections.discard(ws)
-        logger.debug("WS disconnect â€” %d active", len(self._connections))
+        logger.debug("WS disconnect — %d active", len(self._connections))
 
     async def _broadcast(self, message: str) -> None:
         dead: Set[WebSocket] = set()
@@ -1269,7 +1269,7 @@ async def _test_rapidapi_key(key: str) -> Dict[str, Any]:
         if r.status_code == 403:
             return {"ok": False, "error": "API key invalid or not subscribed to ADS-B Exchange on RapidAPI"}
         if r.status_code == 429:
-            return {"ok": False, "error": "Rate limit hit â€” try again shortly"}
+            return {"ok": False, "error": "Rate limit hit — try again shortly"}
         if r.status_code >= 400:
             return {"ok": False, "error": "This connection key could not be verified."}
         return {"ok": True}
@@ -1707,7 +1707,7 @@ async def setup_test_activation(body: ActivationTokenTestIn) -> Dict[str, Any]:
 
 @app.post("/api/setup/complete")
 async def setup_complete(request: Request, background_tasks: BackgroundTasks) -> Dict[str, Any]:
-    """Save setup wizard results â€” write .env, save config, mark setup complete."""
+    """Save setup wizard results — write .env, save config, mark setup complete."""
     try:
         data = await request.json()
     except Exception:
@@ -2525,7 +2525,7 @@ def api_setup_reset() -> dict:
         marker.unlink(missing_ok=True)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    logger.info("Setup reset via UI â€” setup_complete marker removed")
+    logger.info("Setup reset via UI — setup_complete marker removed")
     return {"ok": True}
 
 

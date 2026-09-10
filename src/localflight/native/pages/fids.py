@@ -2444,7 +2444,7 @@ def _split_codeshare_text(value: str) -> list[str]:
     text = re.sub(r"(?i)\balso\b", " ", text)
     text = re.sub(r"(?i)\bsold\s+as\b", " ", text)
     text = re.sub(r"\+\s*\d+\b", " ", text)
-    return [part.strip() for part in re.split(r"[/,;|Â·]+", text) if part.strip()]
+    return [part.strip() for part in re.split(r"[/,;|·]+", text) if part.strip()]
 
 
 def _split_display_delay(value: str) -> tuple[str, str]:

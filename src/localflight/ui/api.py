@@ -2313,7 +2313,7 @@ def api_radar(
                         source_used = "opensky_live_cached"
                         log.debug("OpenSky radar: serving cached blips for %s", cache_key)
                     else:
-                        log.info("No position data in snapshot â€” falling back to live OpenSky fetch")
+                        log.info("No position data in snapshot — falling back to live OpenSky fetch")
                         source_used = "opensky_live"
                         try:
                             from localflight.sources.web.opensky_radar import fetch_radar_blips
@@ -2962,7 +2962,7 @@ def api_admin_scheduler_restart() -> Dict[str, Any]:
     """
     Stop the sleeping scheduler loop, reload config/env, and start a fresh cycle.
     Rate-limited to one restart per 60 seconds. The actual fetch is also gated
-    by run_snapshot_job._fetch_is_due â€” a restart never burns an API call if the
+    by run_snapshot_job._fetch_is_due — a restart never burns an API call if the
     snapshot is already fresh.
     """
     state = load_state()
@@ -2975,7 +2975,7 @@ def api_admin_scheduler_restart() -> Dict[str, Any]:
                 return {
                     "ok": False,
                     "status": "rate_limited",
-                    "message": f"Last fetch was {int(age_s)}s ago â€” wait {int(_RESTART_COOLDOWN_S - age_s)}s before restarting.",
+                    "message": f"Last fetch was {int(age_s)}s ago — wait {int(_RESTART_COOLDOWN_S - age_s)}s before restarting.",
                 }
         except Exception:
             pass
@@ -2990,7 +2990,7 @@ def api_admin_ping(
     version: str = Query("unknown"),
 ) -> Dict[str, Any]:
     """
-    Device ping endpoint â€” called by matrix client on boot and periodically.
+    Device ping endpoint — called by matrix client on boot and periodically.
     Records last-seen timestamp for each device.
     """
     import json as _json
