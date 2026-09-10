@@ -8,7 +8,7 @@ const dist = path.join(siteRoot, "dist");
 const projectSource = fs.readFileSync(path.join(siteRoot, "..", "pyproject.toml"), "utf8");
 const projectVersion = projectSource.match(/^version = "([^"]+)"$/m)?.[1];
 assert.ok(projectVersion, "pyproject.toml must declare the candidate version");
-const publishedVersion = "0.6.0";
+const publishedVersion = "0.7.0";
 const routes = [
   "index.html",
   "local-flight/index.html",
@@ -283,7 +283,11 @@ assert.match(themeSource, /saved === "light" \|\| saved === "dark"/);
 const siteDataSource = fs.readFileSync(path.join(siteRoot, "src/data/site.ts"), "utf8");
 assert.match(siteDataSource, /pyproject\.toml/);
 assert.match(siteDataSource, /candidateRelease = projectVersion/);
-assert.match(siteDataSource, /currentRelease = "0\.6\.0"/, "Downloads must remain at the published package version");
+assert.match(
+  siteDataSource,
+  new RegExp(`currentRelease = "${publishedVersion.replaceAll(".", "\\.")}"`),
+  "Downloads must match the published package version",
+);
 assert.match(siteDataSource, /relayAccess:\s*"(?:prelaunch|live)"/);
 
 const relayHtml = fs.readFileSync(path.join(siteRoot, "..", "relay", "public", "index.html"), "utf8");

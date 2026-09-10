@@ -1,9 +1,9 @@
-# Local Flight 0.7.0 release candidate
+# Local Flight 0.7.0
 
-Local Flight 0.7.0 prepares a simpler Relay Access model while keeping the
-software local-first and the free routes intact. Public desktop, Linux, and
-Raspberry Pi downloads remain at 0.6.0 until rebuilt 0.7.0 packages complete
-their platform checks.
+Local Flight 0.7.0 introduces a simpler Relay Access model while keeping the
+software local-first and the free routes intact. It is the published desktop,
+Linux, and Raspberry Pi download. Mobile 0.7.0 remains in TestFlight and Play
+internal testing.
 
 ## Relay Access
 

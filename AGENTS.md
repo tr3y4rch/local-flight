@@ -28,9 +28,9 @@ Public links:
 
 - `pyproject.toml` is the version source of truth. The active desktop,
   Linux server, Raspberry Pi, relay-compatibility, and mobile testing line is
-  `0.7.0` candidate. Public native downloads remain `0.6.0` until the full
-  replacement matrix is published. Source, submitted builds, tester access,
-  and public availability are distinct states; do not infer one from another.
+  `0.7.0`. Public native downloads are `0.7.0`. Mobile remains in store
+  testing. Source, submitted builds, tester access, and public availability are
+  distinct states; do not infer one from another.
 - Windows, separate Apple silicon/Intel macOS packages, x86-64/ARM64 Linux
   AppImages, Ubuntu/Debian desktop and headless packages, and Raspberry Pi are
   public package targets. Mobile is in TestFlight/Google Play testing and uses

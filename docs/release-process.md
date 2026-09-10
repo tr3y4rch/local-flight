@@ -9,9 +9,9 @@ details.
 
 `pyproject.toml` is the version source of truth. The shared runtime helper,
 installer metadata, mobile metadata, and bundled documentation must agree with
-it. Public website and Worker versions remain at 0.6.0 until all replacement
-packages are published; a candidate bump is not a download promotion. Run the version consistency test
-before packaging.
+it. Public website and Worker versions advance only once the complete replacement
+package matrix is published; a candidate bump is not a download promotion. Run
+the version consistency test before packaging.
 
 The planned 0.7.0 native release consists of ten packages and ten adjacent checksum files:
 

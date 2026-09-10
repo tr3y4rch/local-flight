@@ -34,7 +34,7 @@ if (!projectVersion) {
 
 export const candidateRelease = projectVersion;
 // Public downloads advance only after the complete signed package matrix is published.
-export const currentRelease = "0.6.0";
+export const currentRelease = "0.7.0";
 export const releaseUrl = `${githubUrl}/releases/tag/v${currentRelease}`;
 export const relayOrigin = resolveDeployment().relayOrigin;
 

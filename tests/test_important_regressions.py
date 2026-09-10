@@ -6825,7 +6825,11 @@ def test_public_downloads_use_checksum_gated_github_release_assets() -> None:
     assert "download.checksum_url" in downloads_client
 
     assert 'GITHUB_REPOSITORY = "tr3y4rch/local-flight"' in worker
-    assert 'MINIMUM_PUBLIC_VERSION = "0.6.0"' in worker
+    # The manifest floor tracks the published download version rather than a
+    # frozen literal, so a real release does not have to edit this test.
+    from tests.test_release_version import PUBLISHED_VERSION
+
+    assert f'MINIMUM_PUBLIC_VERSION = "{PUBLISHED_VERSION}"' in worker
     assert 'pathname === "/api/releases/latest"' in worker
     assert "LocalFlight-${version}-Setup.exe" in worker
     assert "LocalFlight-${version}-macos-arm64.pkg" in worker

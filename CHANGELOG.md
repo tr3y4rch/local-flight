@@ -1,10 +1,10 @@
 # Local Flight changelog
 
-This is the public, user-facing changelog. The current candidate overview is
-[Local Flight 0.7.0](docs/release-notes-0.7.0.md). Public downloads remain 0.6.0
-until rebuilt packages are published.
+This is the public, user-facing changelog. The current release overview is
+[Local Flight 0.7.0](docs/release-notes-0.7.0.md), which is the published
+desktop, Linux server, and Raspberry Pi download.
 
-## 0.7.0 - Release candidate
+## 0.7.0
 
 - Replaces the unreleased one-time Relay Access proposal with one portable
   annual entitlement at a CHF 8/year launch price.

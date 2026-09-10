@@ -10,11 +10,15 @@ from localflight.version import FALLBACK_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "0.7.0"
-PUBLISHED_VERSION = "0.6.0"
+PUBLISHED_VERSION = "0.7.0"
 
 
 def _json(path: str) -> dict:
     return json.loads((ROOT / path).read_text(encoding="utf-8"))
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in value.split("."))
 
 
 def test_release_version_is_consistent_across_desktop_mobile_and_worker() -> None:
@@ -53,7 +57,11 @@ def test_release_version_is_consistent_across_desktop_mobile_and_worker() -> Non
     assert 'resolve(process.cwd(), "..", "pyproject.toml")' in site_data
     assert "candidateRelease = projectVersion" in site_data
     assert f'currentRelease = "{PUBLISHED_VERSION}"' in site_data
-    assert f'currentRelease = "{EXPECTED_VERSION}"' not in site_data
+    # Public downloads may equal the source version once that release is
+    # actually published, which is the normal state right after a release
+    # ships. What must never happen is the website advertising a version
+    # that has not been built, so the published version may not run ahead.
+    assert _version_tuple(PUBLISHED_VERSION) <= _version_tuple(EXPECTED_VERSION)
     assert f'MINIMUM_PUBLIC_VERSION = "{PUBLISHED_VERSION}"' in worker
     assert f'#define AppVersion "{EXPECTED_VERSION}"' in windows
     assert f'version = "{EXPECTED_VERSION}"' in paid_app_gradle

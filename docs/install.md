@@ -17,9 +17,9 @@ The website [Downloads section](https://beacontools.cc/local-flight#downloads) r
 - Desktop offers exactly **Beacon Relay**, **Bring Your Own Keys**, and **VATSIM**.
 - The official hosted relay is `https://relay.beacontools.cc`.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
-- Public desktop, Linux server, and Raspberry Pi packages are `0.6.0`.
-  Source and mobile-testing candidate `0.7.0` is described in the
-  [candidate notes](release-notes-0.7.0.md); it is not yet a public package update.
+- Public desktop, Linux server, and Raspberry Pi packages are `0.7.0`, described
+  in the [release notes](release-notes-0.7.0.md). Mobile `0.7.0` remains in
+  TestFlight and Play internal testing.
 
 ---
 
