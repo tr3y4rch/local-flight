@@ -8,7 +8,7 @@ const dist = path.join(siteRoot, "dist");
 const projectSource = fs.readFileSync(path.join(siteRoot, "..", "pyproject.toml"), "utf8");
 const projectVersion = projectSource.match(/^version = "([^"]+)"$/m)?.[1];
 assert.ok(projectVersion, "pyproject.toml must declare the candidate version");
-const publishedVersion = "0.7.0";
+const publishedVersion = "0.7.1";
 const routes = [
   "index.html",
   "local-flight/index.html",

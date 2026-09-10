@@ -10,7 +10,7 @@ from localflight.version import FALLBACK_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "0.7.1"
-PUBLISHED_VERSION = "0.7.0"
+PUBLISHED_VERSION = "0.7.1"
 
 
 def _json(path: str) -> dict:
