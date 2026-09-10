@@ -4,7 +4,7 @@ import SectionHeading from "../../components/SectionHeading.astro";
 import MediaStage from "../../components/MediaStage.astro";
 import DownloadBoard from "../../components/DownloadBoard.astro";
 import SafetyNotice from "../../components/SafetyNotice.astro";
-import { currentRelease, releaseUrl } from "../../data/site";
+import { availability, currentRelease, releaseUrl } from "../../data/site";
 import fidsImage from "../../assets/screens/shell/fids-0.5.1.png";
 import radarImage from "../../assets/screens/shell/radar-0.5.1.png";
 import matrixImage from "../../assets/screens/shell/matrix.png";
@@ -30,14 +30,14 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
         <p class="hero-footnote">Free and open source · No account required · Windows · macOS · Linux · Raspberry Pi</p>
       </div>
       <div class="hero-visual hero-visual--wide">
-        <MediaStage src={fidsImage} alt="Local Flight departures board in the desktop application" label="FIDS / DEPARTURES" meta={`0.5.1 capture · interface unchanged in ${currentRelease}`} loading="eager" widths={[720, 1100, 1500]} sizes="(max-width: 920px) 90vw, 55vw" />
+        <MediaStage src={fidsImage} alt="Local Flight departures board in the desktop application" label="FIDS / DEPARTURES" meta={`Real desktop capture · same in ${currentRelease}`} loading="eager" widths={[720, 1100, 1500]} sizes="(max-width: 920px) 90vw, 55vw" />
       </div>
     </div>
   </header>
 
   <div class="terminal-frame release-signal" aria-label="Current release">
     <i aria-hidden="true"></i>
-    <div><strong>Current version: {currentRelease}.</strong><br /><span>Each direct download appears after its package and verification file pass the release checks.</span></div>
+    <div><strong>Current version: {currentRelease}.</strong><br /><span>Every package has a SHA-256 checksum file so you can verify your download.</span></div>
     <a class="action-link" href={releaseUrl}>Release notes</a>
   </div>
 
@@ -67,7 +67,7 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
           </ul>
         </div>
         <div class="split-story-media">
-          <MediaStage src={radarImage} alt="Local Flight radar with nearby aircraft, runway, and airport ground context" label="RADAR / AIRPORT CONTEXT" meta={`0.5.1 capture · interface unchanged in ${currentRelease}`} />
+          <MediaStage src={radarImage} alt="Local Flight radar with nearby aircraft, runway, and airport ground context" label="RADAR / AIRPORT CONTEXT" meta={`Real desktop capture · same in ${currentRelease}`} />
         </div>
       </div>
 
@@ -96,7 +96,7 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
         <h2>Choose where your flight data comes from.</h2>
         <p>Desktop setup offers three clear routes. Only Beacon Relay needs paid Relay Access; Bring Your Own Keys and VATSIM remain available without it.</p>
         <div class="data-path-table">
-          <article><strong>Beacon Relay</strong><p>Optional hosted real-flight data. Beacon Tools handles provider access, shared caching, and service operation. Relay Access purchases are currently in prelaunch.</p><span>Paid hosted path</span></article>
+          <article><strong>Beacon Relay</strong><p>Optional hosted real-flight data. Beacon Tools handles provider access, shared caching, and service operation. {availability.relayAccess === "live" ? "Relay Access is CHF 8 per year." : "Relay Access purchases are currently in prelaunch."}</p><span>Paid hosted path</span></article>
           <article><strong>Bring Your Own Keys</strong><p>Use your own appropriately licensed aviation-data provider account. The keys stay on the Local Flight computer and go only to that provider.</p><span>No Relay Access</span></article>
           <article><strong>VATSIM</strong><p>Use public virtual-network callsigns and flight plans while excluding pilot and controller identities.</p><span>Free virtual traffic</span></article>
         </div>
@@ -107,7 +107,7 @@ import historyImage from "../../assets/screens/shell/history-0.5.1.png";
         </div>
       </div>
       <div class="split-story-media">
-        <MediaStage src={historyImage} alt="Local Flight movement history and statistics" label="HISTORY / MOVEMENTS" meta="0.5.1 capture · saved on your computer" />
+        <MediaStage src={historyImage} alt="Local Flight movement history and statistics" label="HISTORY / MOVEMENTS" meta="Real desktop capture · saved on your computer" />
       </div>
     </div>
   </section>

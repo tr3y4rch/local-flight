@@ -32,7 +32,7 @@ import matrixImage from "../assets/screens/shell/matrix.png";
         <p class="hero-footnote">Free and open source · No required account · No subscription for the software · Optional online service</p>
       </div>
       <div class="hero-visual hero-visual--wide">
-        <MediaStage src={fidsImage} alt="Local Flight airport-style departures board in the desktop application" label="LOCAL FLIGHT / DEPARTURES" meta={`Real application capture · current ${currentRelease} interface`} loading="eager" widths={[720, 1100, 1500]} sizes="(max-width: 920px) 90vw, 55vw" />
+        <MediaStage src={fidsImage} alt="Local Flight airport-style departures board in the desktop application" label="LOCAL FLIGHT / DEPARTURES" meta={`Real desktop capture · ${currentRelease}`} loading="eager" widths={[720, 1100, 1500]} sizes="(max-width: 920px) 90vw, 55vw" />
       </div>
     </div>
   </header>
@@ -73,7 +73,7 @@ import matrixImage from "../assets/screens/shell/matrix.png";
     <div class="terminal-frame terminal-grid editorial-pair">
       <div class="editorial-heading" data-reveal>
         <span class="section-index">03 / WHY IT EXISTS</span>
-        <h2>A small project for displays that stay yours.</h2>
+        <h2>Built for displays that stay yours.</h2>
       </div>
       <div class="editorial-copy maker-note" data-reveal>
         <p>{makerNote}</p>
@@ -107,7 +107,7 @@ import matrixImage from "../assets/screens/shell/matrix.png";
       <div class="editorial-copy" data-reveal>
         <p>{paidRelayExplanation}</p>
         {availability.relayAccess === "live"
-          ? <p class="prelaunch-inline"><strong>Available:</strong> Relay Access is CHF 8 per year and renews automatically. Companion, Bring Your Own Keys, and VATSIM stay free.</p>
+          ? <p class="prelaunch-inline" data-release-state="live"><strong>Price:</strong> Relay Access is CHF 8 per year and renews automatically. Companion, Bring Your Own Keys, and VATSIM stay free.</p>
           : <p class="prelaunch-inline"><strong>Prelaunch:</strong> Relay Access purchases are being prepared. No payment can be started yet.</p>}
         <a class="action-link" href="/local-flight/relay-access/">Understand Beacon Relay Access</a>
       </div>

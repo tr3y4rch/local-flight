@@ -33,7 +33,7 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
   <div class="terminal-frame prelaunch-notice" role="status" data-release-state={availability.relayAccess}>
     {availability.relayAccess === "live"
       ? <>
-          <span>AVAILABLE</span>
+          <span>ANNUAL PLAN</span>
           <p><strong>Relay Access is CHF 8 per year.</strong> It renews automatically until you cancel, and Stripe shows the final price and any tax before you pay.</p>
         </>
       : <>
@@ -69,12 +69,12 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
 
   <section class="section" id="get-access" data-access-catalog data-relay-origin={relayOrigin} data-public-state={availability.relayAccess}>
     <div class="terminal-frame">
-      <SectionHeading index="03 / PURCHASE ROUTES" title="Web, iOS, and Android use the same annual plan." description="Purchasing is not open yet. When it launches, each provider shows the final localized price and tax before confirmation." />
-      <p class="catalog-status" id="accessCatalogStatus" role="status" aria-live="polite">Prelaunch · no purchase route is open.</p>
+      <SectionHeading index="03 / PURCHASE ROUTES" title="Web, iOS, and Android use the same annual plan." description={availability.relayAccess === "live" ? "Stripe, the App Store, or Google Play shows the final price and tax before you confirm." : "Purchasing is not open yet. Each provider shows the final price and tax before confirmation."} />
+      <p class="catalog-status" id="accessCatalogStatus" role="status" aria-live="polite">{availability.relayAccess === "live" ? "Checking purchase availability…" : "Prelaunch · no purchase route is open."}</p>
       <div class="acquisition-table" data-reveal>
         <div class="acquisition-row acquisition-row--head" aria-hidden="true"><span>Route</span><span>What is purchased</span><span>How Relay Access is provided</span><span>Current state</span></div>
         <article class="acquisition-row" data-purchase-source="stripe">
-          <strong>Web</strong><p>A CHF 8/year Stripe subscription.</p><p>A portable key activates desktop or Pi and can later move to an eligible mobile main device.</p><span class="source-status" data-source-status>Prelaunch</span>
+          <strong>Web</strong><p>A CHF 8/year Stripe subscription.</p><p>A portable key activates desktop or Pi and can later move to an eligible mobile main device.</p><span class="source-status" data-source-status>{availability.relayAccess === "live" ? "Checking…" : "Prelaunch"}</span>
         </article>
         <article class="acquisition-row" data-purchase-source="apple_subscription">
           <strong>iOS</strong><p>The app is free; real-flight Standalone uses the annual App Store subscription.</p><p>Restore checks the subscription or eligible founder ownership before offering a purchase.</p><span class="source-status" data-source-status>Testing</span>
@@ -87,7 +87,7 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
         <button class="action-button action-button--primary" type="button" id="relayCheckout" disabled>{availability.relayAccess === "live" ? "Checking availability…" : "Purchases are not open yet"}</button>
         <p class="form-status" id="relayCheckoutStatus" role="status" aria-live="polite">{availability.relayAccess === "live" ? "Confirming that Beacon Relay can complete a purchase right now." : "No payment can be started in the prelaunch state."}</p>
       </div>
-      <p class="terms-note">The launch price is CHF 8/year. Stripe, the App Store, or Google Play shows the final localized currency and applicable tax before purchase. The <a href="/local-flight/relay-access/terms/">Relay Access terms</a> and <a href="/privacy/">privacy policy</a> remain available now.</p>
+      <p class="terms-note">The price is CHF 8/year. Stripe, the App Store, or Google Play shows the final localized currency and applicable tax before purchase. The <a href="/local-flight/relay-access/terms/">Relay Access terms</a> and <a href="/privacy/">privacy policy</a> apply to every purchase route.</p>
     </div>
   </section>
 
@@ -170,11 +170,16 @@ import { availability, paidRelayExplanation, relayOrigin } from "../../../data/s
             && sources?.stripe?.available === true;
           button.disabled = !salesReady;
           button.textContent = salesReady ? "Continue to Stripe Checkout" : "Purchases are not open yet";
-          setSourceStatus("stripe", salesReady ? "Available" : "Prelaunch", salesReady ? "ok" : "pending");
-          setSourceStatus("apple_subscription", sources?.apple_subscription?.available ? "Available" : sources?.apple_subscription?.testing_available ? "Testing" : "Prelaunch", sources?.apple_subscription?.available ? "ok" : "pending");
+          checkoutStatus.textContent = salesReady
+            ? "Stripe shows the final price before you pay."
+            : publicState === "live"
+              ? "Purchases are paused right now. Try again later."
+              : "No payment can be started in the prelaunch state.";
+          setSourceStatus("stripe", salesReady ? "Available" : publicState === "live" ? "Paused" : "Prelaunch", salesReady ? "ok" : "pending");
+          setSourceStatus("apple_subscription", sources?.apple_subscription?.available ? "Available" : sources?.apple_subscription?.testing_available ? "Testing" : "Not open yet", sources?.apple_subscription?.available ? "ok" : "pending");
           const google = sources?.google_play || sources?.google_app;
-          setSourceStatus("google_play", google?.available ? "Available" : google?.testing_available ? "Testing" : "Prelaunch", google?.available ? "ok" : "pending");
-          catalogStatus.textContent = salesReady ? "Web purchasing is available." : "Prelaunch · no purchase route is open.";
+          setSourceStatus("google_play", google?.available ? "Available" : google?.testing_available ? "Testing" : "Not open yet", google?.available ? "ok" : "pending");
+          catalogStatus.textContent = salesReady ? "Web purchasing is available." : publicState === "live" ? "Purchases are paused · no purchase route is open." : "Prelaunch · no purchase route is open.";
           catalogStatus.dataset.tone = salesReady ? "ok" : "pending";
         } catch {
           /* Keep the intentional prelaunch message. Network state must not become sales copy. */

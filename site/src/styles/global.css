@@ -47,6 +47,7 @@
   --accent: #4a9eda;
   --accent-2: #7ce7ff;
   --good: #00c040;
+  --good-ink: #00c040;
   --warn: #f0b429;
   --bad: #ff6060;
   --header-bg: rgba(8, 12, 18, 0.94);
@@ -76,6 +77,7 @@ html[data-theme="light"] {
   --accent: #1e6cb4;
   --accent-2: #075f70;
   --good: #087f4f;
+  --good-ink: #077546;
   --warn: #8b5d00;
   --bad: #b4233c;
   --header-bg: rgba(244, 247, 251, 0.94);
@@ -685,6 +687,14 @@ html[data-theme="light"] .action-button--primary {
 
 .prelaunch-inline strong {
   color: var(--warn);
+}
+
+.prelaunch-inline[data-release-state="live"] {
+  border-left-color: var(--good);
+}
+
+.prelaunch-inline[data-release-state="live"] strong {
+  color: var(--good-ink);
 }
 
 .principle-list {
@@ -2860,6 +2870,14 @@ html[data-theme="light"] .action-button--primary {
 .prelaunch-notice p {
   margin: 0;
   color: var(--muted);
+}
+
+.prelaunch-notice[data-release-state="live"] {
+  border-color: var(--good);
+}
+
+.prelaunch-notice[data-release-state="live"] > span {
+  color: var(--good-ink);
 }
 
 .entitlement-map {

@@ -49,7 +49,7 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
 
   <section class="section section--raised section--ruled" id="screens">
     <div class="terminal-frame">
-      <SectionHeading index="02 / REAL APP SCREENS" title="The same useful views, designed for a phone." description={`These ${candidateRelease} testing-build captures show the real iOS app in dark appearance and Android app in light appearance.`} />
+      <SectionHeading index="02 / REAL APP SCREENS" title="The same useful views, designed for a phone." description={`Captured from the Local Flight ${candidateRelease} apps: iOS in dark, Android in light.`} />
       <div class="preview-strip" data-reveal>
         <figure class="preview-phone"><Picture src={iosFids} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight flight board on iOS in dark appearance" /><figcaption>iOS / BOARD · DARK APPEARANCE</figcaption></figure>
         <figure class="preview-phone"><Picture src={androidRadar} formats={["avif", "webp"]} widths={[260, 420]} sizes="(max-width: 680px) 44vw, 22vw" alt="Local Flight nearby-aircraft radar on Android in light appearance" /><figcaption>ANDROID / RADAR · LIGHT APPEARANCE</figcaption></figure>
@@ -70,11 +70,11 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
       <div class="extension-showcase" data-reveal>
         <figure class="extension-preview">
           <img src="/assets/previews/mobile/localflight-ios-widgets-marketing.svg" width="1600" height="1200" loading="lazy" alt="Local Flight iOS widgets and a pinned-flight Lock Screen Live Activity" />
-          <figcaption><strong>iOS / WIDGETS + LIVE ACTIVITY</strong><span>Native testing extension · illustrative device context</span></figcaption>
+          <figcaption><strong>iOS / WIDGETS + LIVE ACTIVITY</strong><span>Native iOS extension · illustrative device context</span></figcaption>
         </figure>
         <figure class="extension-preview">
           <img src="/assets/previews/mobile/localflight-android-widgets-marketing.svg" width="1600" height="1200" loading="lazy" alt="Local Flight Android compact pinned-flight and expanded airport-board widgets" />
-          <figcaption><strong>ANDROID / HOME SCREEN WIDGETS</strong><span>Native testing widget · illustrative device context</span></figcaption>
+          <figcaption><strong>ANDROID / HOME SCREEN WIDGETS</strong><span>Native Android widget · illustrative device context</span></figcaption>
         </figure>
       </div>
       <p class="hero-footnote extension-note">Widgets show saved app information. They do not contact your Local Flight computer, Beacon Relay, or an aviation-data provider by themselves. Device, operating-system, launcher, theme, and available data can change the final appearance.</p>
@@ -110,11 +110,11 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
       <div class="split-story-copy" data-reveal>
         <span class="section-index">06 / AVAILABILITY</span>
         <h2 id="mobileAvailabilityTitle">The mobile apps are currently in testing.</h2>
-        <p id="mobileAvailabilityLead">Public store or testing links appear here only after Beacon Tools has verified that they are open to the intended audience.</p>
+        <p id="mobileAvailabilityLead">Store and testing links appear here once they are confirmed open.</p>
         <ul class="data-list">
-          <li><b>iOS</b><span id="iosAvailabilityText">The free iOS app and annual Relay Access plan are still in testing.</span></li>
-          <li><b>Android</b><span id="androidAvailabilityText">The free Android app and annual Relay Access plan are still in testing.</span></li>
-          <li><b>Relay</b><span>Relay Access purchasing is in prelaunch. No payment can be started yet.</span></li>
+          <li><b>iOS</b><span id="iosAvailabilityText">Free iOS app in testing. App Store purchases open with the public release.</span></li>
+          <li><b>Android</b><span id="androidAvailabilityText">Free Android app in testing. Google Play purchases open with the public release.</span></li>
+          <li><b>Relay</b><span>{availability.relayAccess === "live" ? "Relay Access is CHF 8 per year on the web. In-app purchases open when the apps leave testing." : "Relay Access purchasing is in prelaunch. No payment can be started yet."}</span></li>
         </ul>
         <div class="inline-actions editorial-actions">
           <a class="action-button action-button--primary" href="/support/#message">Ask about mobile testing</a>
@@ -130,7 +130,7 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
       <div class="split-story-media">
         <div class="media-stage" data-reveal>
           <Picture src={androidFids} formats={["avif", "webp"]} widths={[420, 640, 860]} sizes="(max-width: 680px) 90vw, 46vw" alt="Local Flight Android flight board in light appearance" />
-          <div class="media-caption"><strong>ANDROID / FLIGHT BOARD</strong><span>Current testing build · light appearance</span></div>
+          <div class="media-caption"><strong>ANDROID / FLIGHT BOARD</strong><span>{`Local Flight ${candidateRelease} · light appearance`}</span></div>
         </div>
       </div>
     </div>
@@ -191,7 +191,7 @@ import androidHistory from "../../../assets/screens/mobile/android/current/histo
               : "The mobile apps are currently in testing.";
           lead.textContent = states.some((value) => value !== "prelaunch")
             ? "Use only the verified store or testing links shown here; availability can differ by platform."
-            : "Public store or testing links appear here only after Beacon Tools has verified that they are open to the intended audience.";
+            : "Store and testing links appear here once they are confirmed open.";
           status.textContent = states.some((value) => value === "live" || value === "testing")
             ? "Verified links are shown for the platforms currently open."
             : "No public store link is currently published.";

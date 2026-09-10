@@ -1,5 +1,5 @@
 ---
-import { currentRelease } from "../data/site";
+import { availability, currentRelease } from "../data/site";
 
 const destinations = [
   {
@@ -20,7 +20,7 @@ const destinations = [
     code: "RLY",
     name: "Understand optional Relay Access",
     summary: "See what the paid hosted service provides, why it is separate from the free application, and how one license is used.",
-    state: "Prelaunch",
+    state: availability.relayAccess === "live" ? "CHF 8 per year" : "Prelaunch",
     href: "/local-flight/relay-access/",
   },
   {
