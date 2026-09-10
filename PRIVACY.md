@@ -8,7 +8,7 @@ This policy explains what stays on your device, when Local Flight connects onlin
 
 Last updated: September 9, 2026.
 
-The 0.7.0 candidate retains these data boundaries. Described purchase and
+The 0.7.1 candidate retains these data boundaries. Described purchase and
 recovery paths apply when that service is available; their presence in the app
 does not mean sales have opened or email delivery has been certified. New
 optional support purchases can be paused without discarding an unfinished

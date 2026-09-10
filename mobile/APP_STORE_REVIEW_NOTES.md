@@ -1,11 +1,11 @@
 # App Store Review Notes
 
-This is the working checklist for the Local Flight `0.7.0` TestFlight/review candidate. It must stay aligned with the exact submitted archive and App Store Connect configuration.
+This is the working checklist for the Local Flight `0.7.1` TestFlight/review candidate. It must stay aligned with the exact submitted archive and App Store Connect configuration.
 
 ## Build
 
 - Bundle ID: `cc.beacontools.localflight`
-- Version: `0.7.0`
+- Version: `0.7.1`
 - Build: `15`
 - Minimum iOS/iPadOS: 16
 - Distribution: free download

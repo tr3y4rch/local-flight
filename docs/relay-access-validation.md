@@ -1,4 +1,4 @@
-# Relay Access 0.7.0 validation
+# Relay Access 0.7.1 validation
 
 This document is the public-safe release gate for Relay Access. It contains no
 credentials, private hostnames, customer records, or operator commands.
@@ -99,7 +99,7 @@ Use TestFlight sandbox and App Store Server Notifications V2:
 - The earlier paid app restores permanent founder access after signed
   `AppTransaction` verification and never opens an unnecessary subscription
   sheet first.
-- The first annual subscription is submitted with the 0.7.0 app version and
+- The first annual subscription is submitted with the 0.7.1 app version and
   all store metadata, review instructions, and localized pricing are present.
 - Family Sharing remains disabled unless a later entitlement design explicitly
   supports it.
@@ -155,7 +155,7 @@ Use a local SMTP capture service, then one production transactional provider:
 4. Dry-run and execute the founder snapshot after reviewed backup.
 5. Deploy production in `migration` mode with schedule and Remote Companion on,
    shared real radar off, and all new sales still closed.
-6. Publish tested 0.7.0 clients and verify founder upgrades.
+6. Publish tested 0.7.1 clients and verify founder upgrades.
 7. Open Stripe, Apple, and Google separately only after each channel passes.
 8. After 12 months, stop runtime `lfm_` access while retaining founder claims.
 

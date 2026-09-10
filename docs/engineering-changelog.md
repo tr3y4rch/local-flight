@@ -5,7 +5,7 @@ contributors. It is intentionally not bundled or linked as end-user help.
 Private deployment records, service credentials, admin topology, artifact
 hashes, and personal build identifiers belong outside Git.
 
-## 0.7.0 annual Relay Access candidate
+## 0.7.1 setup wizard refresh
 
 - Refreshed both first-launch setup wizards. `setup_guidance.py` now holds
   every step name, heading, lede, card body, button label, summary label, and
@@ -30,6 +30,9 @@ hashes, and personal build identifiers belong outside Git.
   than the raw screen, re-flows the card grids on resize, and is centred
   explicitly, so ultrawide displays and scaled Windows laptops get a normal,
   readable window instead of cramped three-column grids.
+
+## 0.7.0 annual Relay Access candidate
+
 - Desktop, Pi, and LAN clients now honor provider-confirmed `grace` and
   `cancelled_active` subscription states, surface `past_due`/`expired` with
   renew, restore, BYOK, or VATSIM actions, and cache period end, renewal

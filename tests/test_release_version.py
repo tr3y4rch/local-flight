@@ -9,7 +9,7 @@ from localflight.version import FALLBACK_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.7.0"
+EXPECTED_VERSION = "0.7.1"
 PUBLISHED_VERSION = "0.7.0"
 
 
@@ -80,13 +80,13 @@ def test_mobile_native_build_counters_match_070_contract() -> None:
     assert "assert.equal(app.android.versionCode, 18)" in contract
 
 
-def test_current_release_help_and_notes_point_to_070() -> None:
-    notes = ROOT / "docs/release-notes-0.7.0.md"
+def test_current_release_help_and_notes_point_to_071() -> None:
+    notes = ROOT / "docs/release-notes-0.7.1.md"
     server = (ROOT / "src/localflight/ui/server.py").read_text(encoding="utf-8")
     spec = (ROOT / "LocalFlight.spec").read_text(encoding="utf-8")
 
     assert notes.exists()
-    assert "# Local Flight 0.7.0" in notes.read_text(encoding="utf-8")
-    assert '"filename": "release-notes-0.7.0.md"' in server
+    assert "# Local Flight 0.7.1" in notes.read_text(encoding="utf-8")
+    assert '"filename": "release-notes-0.7.1.md"' in server
     assert 'f"release-notes-{_VERSION}.md"' in spec
     assert re.search(r'current_release_notes[^\n]*localflight/ui/docs', spec, re.DOTALL)

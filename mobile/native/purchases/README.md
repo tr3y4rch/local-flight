@@ -1,6 +1,6 @@
 # Mobile Purchase Architecture
 
-Local Flight `0.7.0` has two deliberately separate native purchase paths.
+Local Flight `0.7.1` has two deliberately separate native purchase paths.
 
 ## Relay Access
 

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Local Flight",
     "slug": "localflight-mobile",
-    "version": "0.7.0",
+    "version": "0.7.1",
     "scheme": "localflight",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
@@ -110,7 +110,7 @@
     },
     "extra": {
       "localFlightServerHint": "http://192.168.1.10:8000",
-      "localFlightVersion": "0.7.0",
+      "localFlightVersion": "0.7.1",
       "localFlightDeployment": "staging",
       "localFlight": {
         "deploymentEnvironment": "staging",

@@ -28,18 +28,18 @@ Public links:
 
 - `pyproject.toml` is the version source of truth. The active desktop,
   Linux server, Raspberry Pi, relay-compatibility, and mobile testing line is
-  `0.7.0`. Public native downloads are `0.7.0`. Mobile remains in store
+  `0.7.1`. Public native downloads are `0.7.1`. Mobile remains in store
   testing. Source, submitted builds, tester access, and public availability are
   distinct states; do not infer one from another.
 - Windows, separate Apple silicon/Intel macOS packages, x86-64/ARM64 Linux
   AppImages, Ubuntu/Debian desktop and headless packages, and Raspberry Pi are
   public package targets. Mobile is in TestFlight/Google Play testing and uses
   the permanent application identifier `cc.beacontools.localflight`.
-- `0.7.0` is the platform-wide Windows, macOS, Linux, Raspberry Pi, LAN, relay,
+- `0.7.1` is the platform-wide Windows, macOS, Linux, Raspberry Pi, LAN, relay,
   and mobile-testing release line. Native artifacts are built on matching
   architecture runners and uploaded with matching checksums. macOS artifacts
   additionally require Developer ID signing, notarization, and stapling.
-- Current public release copy lives in `docs/release-notes-0.7.0.md` and the
+- Current public release copy lives in `docs/release-notes-0.7.1.md` and the
   public `CHANGELOG.md`. Detailed implementation history belongs in
   `docs/engineering-changelog.md` and is not bundled as end-user help.
 - Public-safe build, validation, and publication gates live in

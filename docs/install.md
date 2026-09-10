@@ -17,8 +17,8 @@ The website [Downloads section](https://beacontools.cc/local-flight#downloads) r
 - Desktop offers exactly **Beacon Relay**, **Bring Your Own Keys**, and **VATSIM**.
 - The official hosted relay is `https://relay.beacontools.cc`.
 - Diagnostics are optional. Manual reports stay available even if automatic diagnostics are off.
-- Public desktop, Linux server, and Raspberry Pi packages are `0.7.0`, described
-  in the [release notes](release-notes-0.7.0.md). Mobile `0.7.0` remains in
+- Public desktop, Linux server, and Raspberry Pi packages are `0.7.1`, described
+  in the [release notes](release-notes-0.7.1.md). Mobile `0.7.1` remains in
   TestFlight and Play internal testing.
 
 ---
@@ -228,7 +228,7 @@ lf update
 
 ## Mobile App
 
-The next mobile testing target is `0.7.0`, iOS build 15 and Android versionCode 18.
+The next mobile testing target is `0.7.1`, iOS build 15 and Android versionCode 18.
 Submission and tester availability must be confirmed separately. Both mobile
 apps are free downloads. Real-flight Standalone uses the platform's annual Relay
 Access subscription, while Companion and VATSIM remain free. Eligible early users

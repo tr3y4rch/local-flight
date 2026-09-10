@@ -177,7 +177,7 @@ if (generatedPrivacyManifest || generatedXcodeProject) {
   assert.match(mainResources[1], /PrivacyInfo\.xcprivacy in Resources/);
 }
 
-assert.match(readme, /iOS `0\.7\.0 \(15\)` and Android `0\.7\.0 \(18\)`/);
+assert.match(readme, /iOS `0\.7\.1 \(15\)` and Android `0\.7\.1 \(18\)`/);
 assert.match(appStoreReviewNotes, /Build: `15`/);
 assert.match(appStoreReviewNotes, /auto-renewable annual subscription/);
 assert.match(appStoreReviewNotes, /signed AppTransaction verification/);

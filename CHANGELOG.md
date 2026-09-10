@@ -1,8 +1,18 @@
 # Local Flight changelog
 
 This is the public, user-facing changelog. The current release overview is
-[Local Flight 0.7.0](docs/release-notes-0.7.0.md), which is the published
+[Local Flight 0.7.1](docs/release-notes-0.7.1.md), which is the published
 desktop, Linux server, and Raspberry Pi download.
+
+## 0.7.1
+
+- Refreshes both setup wizards with shared wording, clearer steps, line icons
+  that look the same on every platform, and gentle motion with a new Reduce
+  motion setting.
+- Fixes unreadable setup text on Windows by shipping static DM Sans weights,
+  and sizes the setup window from the window it actually gets so scaled and
+  ultrawide displays lay out correctly.
+- Fixes a handful of mangled dash characters in interface text.
 
 ## 0.7.0
 

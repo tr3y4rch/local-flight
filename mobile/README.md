@@ -2,7 +2,7 @@
 
 React Native / Expo mobile app for Local Flight.
 
-The mobile app is aligned to Local Flight `0.7.0` for TestFlight and Google Play internal testing. It supports two first-run paths:
+The mobile app is aligned to Local Flight `0.7.1` for TestFlight and Google Play internal testing. It supports two first-run paths:
 
 - **Connect to a Local Flight host:** pair with Local Flight on Windows, macOS, Linux, or Raspberry Pi over the same Wi-Fi. This is called Companion mode after setup; it uses the nearby host first and can use encrypted Remote Companion fallback after a relay-linked host grants this device access.
 - **Use without a Local Flight host:** choose real airline data or VATSIM and run without a computer. This is called Standalone mode after setup. Both mobile apps are free downloads. VATSIM needs no Relay purchase; real-flight Standalone uses the annual native-store Relay Access subscription. One entitlement can power one main device: a phone using real-flight Standalone or one Local Flight desktop/Pi host.
@@ -150,7 +150,7 @@ npm run android
 
 ### Store Testing / Release Path
 
-Store identity and the current `0.7.0` testing counters are:
+Store identity and the current `0.7.1` testing counters are:
 
 - iOS bundle ID: `cc.beacontools.localflight`
 - iOS `buildNumber`: `15`
@@ -159,7 +159,7 @@ Store identity and the current `0.7.0` testing counters are:
 
 Do not upload a store build with any old `com.localflight.*` identifier. App Store bundle IDs and Google Play package names are effectively permanent after first upload.
 
-The current widget- and store-proof-enabled source targets iOS `0.7.0 (15)` and Android `0.7.0 (18)`. Native proof, manifest, subscription, widget, and launcher changes require a new store binary and cannot be delivered through an over-the-air JavaScript update alone.
+The current widget- and store-proof-enabled source targets iOS `0.7.1 (15)` and Android `0.7.1 (18)`. Native proof, manifest, subscription, widget, and launcher changes require a new store binary and cannot be delivered through an over-the-air JavaScript update alone.
 
 ```bash
 cd mobile

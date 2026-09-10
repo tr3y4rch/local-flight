@@ -1,11 +1,11 @@
 # Google Play Review Notes
 
-This is the working checklist for the Local Flight `0.7.0` internal-testing/review candidate. It must stay aligned with the exact submitted AAB and Play Console configuration.
+This is the working checklist for the Local Flight `0.7.1` internal-testing/review candidate. It must stay aligned with the exact submitted AAB and Play Console configuration.
 
 ## Build
 
 - Package: `cc.beacontools.localflight`
-- Version name: `0.7.0`
+- Version name: `0.7.1`
 - Version code: `18`
 - Distribution: free download
 - Relay Access product: annual auto-renewing subscription `cc.beacontools.localflight.relay_access.annual`
