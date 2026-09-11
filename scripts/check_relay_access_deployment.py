@@ -125,8 +125,12 @@ def validate_payloads(
     ):
         raise RuntimeError("Relay Access catalog does not expose the annual pricing contract")
     capabilities = catalog.get("capabilities")
-    if not isinstance(capabilities, dict) or capabilities.get("radar") is not False:
-        raise RuntimeError("Relay Access catalog must explicitly disable shared real radar")
+    # Shared real radar is part of what the annual entitlement sells, so a relay
+    # that cannot serve it must not be accepted as a deployment. The identity
+    # check is deliberate: a missing or null capability fails too, because the
+    # catalog has to state the answer rather than leave it to be inferred.
+    if not isinstance(capabilities, dict) or capabilities.get("radar") is not True:
+        raise RuntimeError("Relay Access catalog must explicitly enable shared real radar")
 
 
 def main() -> int:

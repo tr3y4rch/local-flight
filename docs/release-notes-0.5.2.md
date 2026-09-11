@@ -225,6 +225,6 @@ history, and logs are not intentionally removed by a normal 0.5.2 upgrade.
 
 Use only the downloads linked from
 [beacontools.cc/local-flight](https://beacontools.cc/local-flight) or the official
-[GitHub Releases page](https://github.com/tr3y4rch/local-flight/releases).
+[GitHub Releases page](https://github.com/BeaconTools/local-flight/releases).
 Confirm that the package name, version, architecture, and matching `.sha256`
 file all belong to the same 0.5.2 release.

@@ -17,7 +17,7 @@ This is the working checklist for the Local Flight `0.7.1` TestFlight/review can
 - **Companion** connects to a Local Flight desktop, Linux server, or Raspberry Pi host. LAN is preferred. Explicitly paired Remote Companion uses end-to-end encrypted relay routing while that host remains online.
 - **VATSIM Standalone** uses sanitized virtual-flight data without a Relay Access subscription.
 - Companion and VATSIM do not start a subscription check or purchase.
-- Shared real-aircraft radar is not included in Relay Access. Companion can follow its host's appropriately licensed BYOK or VATSIM radar; Standalone VATSIM Radar remains available.
+- Shared real-aircraft radar is included in Relay Access, on a licensed monthly allowance. Companion can follow its host's appropriately licensed BYOK radar; Standalone VATSIM Radar remains available without Relay Access.
 
 ## Annual Relay Access
 
@@ -53,7 +53,7 @@ This is the working checklist for the Local Flight `0.7.1` TestFlight/review can
 2. Choose real-flight Standalone, use **Get or restore Relay Access**, and verify the annual StoreKit product and localized price appear.
 3. Test purchase, restore after reinstall, cancellation through period end, grace/billing retry, expiry, refund/revocation, and repeated verification.
 4. Restore an eligible paid-app founder owner and confirm no annual subscription is created.
-5. Confirm real-flight Standalone shows schedule boards but hides shared real-aircraft Radar; VATSIM Radar remains usable.
+5. Confirm real-flight Standalone shows schedule boards and shared real-aircraft Radar; VATSIM Radar remains usable without Relay Access.
 6. Move the main device and confirm the former credential stays active until the new credential is securely stored and committed.
 7. Test an email outage: verified access must remain durable while delivery reports `pending` or `needs_attention` and offers resend/recovery.
 8. Test all three support consumables independently and confirm they change no entitlement or feature.

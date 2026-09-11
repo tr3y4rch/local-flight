@@ -101,7 +101,7 @@ def access_stack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("RELAY_ACCESS_SALES_ENABLED", "1")
     monkeypatch.setenv("RELAY_ACCESS_STRIPE_SALES_ENABLED", "1")
     monkeypatch.setenv("RELAY_ACCESS_SCHEDULE_ENABLED", "1")
-    monkeypatch.setenv("RELAY_ACCESS_RADAR_ENABLED", "0")
+    monkeypatch.setenv("RELAY_ACCESS_RADAR_ENABLED", "1")
     monkeypatch.setenv("RELAY_ACCESS_REMOTE_COMPANION_ENABLED", "1")
     monkeypatch.setenv("RELAY_ACCESS_AERODATABOX_ENABLED", "1")
     monkeypatch.setenv("RELAY_ACCESS_AVIATIONSTACK_ENABLED", "1")

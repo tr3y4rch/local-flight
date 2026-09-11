@@ -4,6 +4,20 @@ This is the public, user-facing changelog. The current release overview is
 [Local Flight 0.7.1](docs/release-notes-0.7.1.md), which is the published
 desktop, Linux server, and Raspberry Pi download.
 
+## Unreleased
+
+- Adds shared real-aircraft radar to Beacon Relay Access. Radar refreshes about
+  every three minutes while it is open, on desktop Beacon Relay and in
+  real-flight Standalone. Bring Your Own Keys and VATSIM radar remain free.
+- Serves radar on a licensed monthly allowance for each entitlement, sized for
+  regular viewing rather than a screen left on radar all day. When the allowance
+  is spent, radar shows the last known traffic instead of failing, and says so.
+- Caps shared provider spending centrally so one busy airport cannot exhaust the
+  plan for everyone, and reports a provider rate limit as a retryable state
+  rather than an outage.
+- Restores the shared airport ground and runway layer, which had been closed for
+  every caller because it resolved through the same radar policy.
+
 ## 0.7.1
 
 - Refreshes both setup wizards with shared wording, clearer steps, line icons

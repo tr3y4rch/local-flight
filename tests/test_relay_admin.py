@@ -1504,7 +1504,7 @@ def test_relay_root_serves_safe_browser_landing_page(tmp_path: Path, monkeypatch
     assert "https://beacontools.cc/local-flight/" in response.text
     assert "https://beacontools.cc/privacy/" in response.text
     assert "https://beacontools.cc/support/" in response.text
-    assert "https://github.com/tr3y4rch/local-flight" in response.text
+    assert "https://github.com/BeaconTools/local-flight" in response.text
     assert "network.beacontools.cc" not in response.text
     assert "provider_revision" not in response.text
     assert "<script" not in response.text

@@ -14,7 +14,7 @@ export const navItems: Array<{ key: NavKey; label: string; href: string }> = [
   { key: "support", label: "Support", href: "/support/" },
 ];
 
-export const githubUrl = "https://github.com/tr3y4rch/local-flight";
+export const githubUrl = "https://github.com/BeaconTools/local-flight";
 export const releasesUrl = `${githubUrl}/releases`;
 const projectFile = [
   resolve(process.cwd(), "pyproject.toml"),
@@ -54,6 +54,20 @@ export const availability = {
   "relayAccess" | "ios" | "android",
   AvailabilityState
 >;
+
+// The operator disclosure behind /legal/. Swiss online-selling rules and the EU
+// equivalent both expect a seller to be identifiable with a real address and a
+// direct contact route, so every field here is published verbatim.
+// A sole proprietorship carries no UID unless it is VAT-registered; leave `uid`
+// empty and the page omits that row rather than printing a blank one.
+export const operator = {
+  legalName: "Philipp Schumacher",
+  legalForm: "Sole proprietorship",
+  addressLines: ["Willenhofstrasse 6", "8182 Hochfelden"],
+  country: "Switzerland",
+  uid: "",
+  contactEmail: "privacy@beacontools.cc",
+} as const;
 
 export const publicFacts = {
   software: "Local Flight itself remains free and open source.",

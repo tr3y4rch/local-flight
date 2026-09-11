@@ -12,7 +12,7 @@ New Relay Access is one accountless, portable annual entitlement:
 - Companion phones connected through a licensed host occupy no extra place.
 - Included hosted capabilities: shared real-flight schedules and encrypted
   Remote Companion while the host is online.
-- Shared real-aircraft radar is excluded. BYOK and VATSIM radar remain free.
+- Shared real-aircraft radar is included, on a licensed monthly allowance. BYOK and VATSIM radar remain free.
 - The software, LAN Companion, BYOK, and VATSIM remain free.
 
 The website uses Stripe subscriptions. iOS and Android are free downloads and
@@ -45,7 +45,7 @@ Before any sales channel opens, health and deployment smoke tests must confirm:
 - Provider-specific verification and reconciliation readiness.
 - Isolated staging data, credentials, domains, and provider environments.
 - Shared schedule and Remote Companion policy enabled only where permitted.
-- Shared real radar policy disabled.
+- Shared real radar policy enabled, with `RAPIDAPI_KEY` provisioned and the shared upstream budget configured.
 
 Generic `/health` success is insufficient. The catalog must identify
 `beacon_relay_annual_v1`, one receiver, annual billing, provider-owned localized
@@ -154,7 +154,7 @@ Use a local SMTP capture service, then one production transactional provider:
 3. Pass Stripe, Apple, and Google sandbox gates independently.
 4. Dry-run and execute the founder snapshot after reviewed backup.
 5. Deploy production in `migration` mode with schedule and Remote Companion on,
-   shared real radar off, and all new sales still closed.
+   shared real radar on, and all new sales still closed.
 6. Publish tested 0.7.1 clients and verify founder upgrades.
 7. Open Stripe, Apple, and Google separately only after each channel passes.
 8. After 12 months, stop runtime `lfm_` access while retaining founder claims.

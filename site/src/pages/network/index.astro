@@ -26,7 +26,7 @@ import Icon from "../../components/Icon.astro";
 
   <section class="section" id="paths">
     <div class="terminal-frame">
-      <SectionHeading index="01 / CONNECTION MAP" title="Your Local Flight computer remains the centre of a home setup." description="Local screens connect directly. The selected flight-data path sits on the other side of the app, and optional Remote Companion passes only encrypted messages while you are away." />
+      <SectionHeading index="01 / CONNECTION MAP" title="Your Local Flight computer remains the center of a home setup." description="Local screens connect directly. The selected flight-data path sits on the other side of the app, and optional Remote Companion passes only encrypted messages while you are away." />
       <div class="network-flow" data-reveal aria-label="Local Flight connections from a selected data source through the Local Flight computer to local and remote screens">
         <div class="network-flow-source"><span>CHOOSE ONE DATA PATH</span><strong>Beacon Relay</strong><strong>Your own provider keys</strong><strong>VATSIM</strong></div>
         <i aria-hidden="true"></i>
@@ -56,7 +56,7 @@ import Icon from "../../components/Icon.astro";
           <div class="mode-card-head"><span class="icon-badge icon-badge--sm"><Icon name="relay" /></span><strong>Beacon Relay</strong></div>
           <dl class="mode-card-facts">
             <div><dt>What connects</dt><dd>The Local Flight computer connects to Beacon Relay.</dd></div>
-            <div><dt>What leaves the device</dt><dd>Random service ID, device credential, airport and feature request.</dd></div>
+            <div><dt>What leaves the device</dt><dd>Random service ID, device credential, airport and feature request. A radar view also sends the coordinates and range being shown.</dd></div>
             <div><dt>Relay Access</dt><dd><span class="mode-relay" data-relay="yes">Yes</span></dd></div>
             <div><dt>History</dt><dd>On the Local Flight computer.</dd></div>
           </dl>
@@ -92,7 +92,7 @@ import Icon from "../../components/Icon.astro";
           <div class="mode-card-head"><span class="icon-badge icon-badge--sm"><Icon name="phone" /></span><strong>Real-flight Standalone</strong></div>
           <dl class="mode-card-facts">
             <div><dt>What connects</dt><dd>The phone connects directly to Beacon Relay.</dd></div>
-            <div><dt>What leaves the device</dt><dd>Random service ID, device credential, airport and feature request.</dd></div>
+            <div><dt>What leaves the device</dt><dd>Random service ID, device credential, airport and feature request. A radar view also sends the coordinates and range being shown.</dd></div>
             <div><dt>Relay Access</dt><dd><span class="mode-relay" data-relay="yes">Yes</span></dd></div>
             <div><dt>History</dt><dd>On the phone.</dd></div>
           </dl>
@@ -117,9 +117,9 @@ import Icon from "../../components/Icon.astro";
       <div class="cadence-line" data-reveal>
         <article class="cadence-item"><strong>30 min</strong><h3>Desktop Beacon Relay board</h3><p>A Beacon Relay setup requests a new schedule board no more often than every 30 minutes.</p></article>
         <article class="cadence-item"><strong>About 1 h</strong><h3>Standalone board</h3><p>Real-flight Standalone requests new shared airline-schedule data about once an hour.</p></article>
-        <article class="cadence-item"><strong>About 3 min</strong><h3>Standalone radar</h3><p>Nearby traffic can refresh about every three minutes while Radar is open.</p></article>
+        <article class="cadence-item"><strong>About 3 min</strong><h3>Shared radar</h3><p>Nearby traffic can refresh about every three minutes while Radar is open, on a Beacon Relay desktop or in real-flight Standalone.</p></article>
       </div>
-      <p class="hero-footnote">Between schedule checks, Standalone re-evaluates its saved board locally without requesting new airline data. VATSIM Standalone targets about one-minute board and Radar checks. Provider delays can keep an older board visible with its freshness time.</p>
+      <p class="hero-footnote">Between schedule checks, Standalone re-evaluates its saved board locally without requesting new airline data. VATSIM Standalone targets about one-minute board and Radar checks. Provider delays can keep an older board visible with its freshness time, and radar shows the last known traffic when its licensed allowance is briefly spent.</p>
     </div>
   </section>
 

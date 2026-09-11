@@ -1,0 +1,98 @@
+---
+import SiteLayout from "../../layouts/SiteLayout.astro";
+import { operator } from "../../data/site";
+---
+
+<SiteLayout
+  title="Legal and operator information"
+  description="Who operates Beacon Tools, the governing law and liability terms for Relay Access, the refund policy for website purchases, and the EU right of withdrawal."
+>
+  <header class="document-hero terminal-frame">
+    <div class="eyebrow">Beacon Tools / Legal</div>
+    <h1>Legal and operator information.</h1>
+    <p class="hero-lede">Who you are buying from, which law applies, what is promised and what is not, how to get a refund for a website purchase, and how EU customers withdraw within fourteen days.</p>
+    <p class="hero-footnote">Effective September 11, 2026 · Applies to Beacon Relay Access bought on this website</p>
+  </header>
+
+  <div class="terminal-frame document-layout">
+    <aside class="document-nav" aria-label="Legal sections">
+      <strong>On this page</strong>
+      <a href="#operator">Operator</a>
+      <a href="#law">Governing law</a>
+      <a href="#liability">Warranty and liability</a>
+      <a href="#refunds">Website purchases and refunds</a>
+      <a href="#withdrawal">Right of withdrawal (EU)</a>
+      <a href="#prices">Price changes</a>
+    </aside>
+
+    <article class="document-content">
+      <section class="policy-section" id="operator">
+        <span class="section-index">01 / OPERATOR</span>
+        <h2>Beacon Tools is operated by one person.</h2>
+        <p>Beacon Tools is the name under which the operator below publishes Local Flight and runs the Beacon Relay hosted service. It is not a separate legal entity.</p>
+        <div class="summary-lines summary-lines--compact">
+          <div class="summary-line">
+            <span>NAME</span>
+            <strong>{operator.legalName}</strong>
+            <p>{operator.legalForm}, trading as Beacon Tools.</p>
+          </div>
+          <div class="summary-line">
+            <span>ADDR</span>
+            <strong>Postal address</strong>
+            <p>{operator.addressLines.join(", ")}, {operator.country}.</p>
+          </div>
+          <div class="summary-line">
+            <span>MAIL</span>
+            <strong>Contact</strong>
+            <p><a href={`mailto:${operator.contactEmail}`}>{operator.contactEmail}</a> reaches the operator directly, including for the refund and withdrawal rights below. <a href="/support/">Beacon Tools support</a> handles product questions.</p>
+          </div>
+          {operator.uid && (
+            <div class="summary-line">
+              <span>UID</span>
+              <strong>Business identification number</strong>
+              <p>{operator.uid}</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section class="policy-section" id="law">
+        <span class="section-index">02 / GOVERNING LAW</span>
+        <h2>Swiss law applies, without taking away your local protections.</h2>
+        <p>These terms, the <a href="/local-flight/relay-access/terms/">Relay Access terms</a>, and any purchase made on this website are governed by Swiss law. The ordinary place of jurisdiction is the operator’s domicile.</p>
+        <p>If you buy as a consumer, this does not remove the protections of the mandatory consumer law of the country you live in, and it does not remove your right to bring a claim in the courts that law gives you. Where the two conflict, the protection that favours you applies.</p>
+      </section>
+
+      <section class="policy-section" id="liability">
+        <span class="section-index">03 / WARRANTY AND LIABILITY</span>
+        <h2>An informational display, provided without a performance promise.</h2>
+        <p>Local Flight and Beacon Relay show flight information for interest and display. They are not for navigation, dispatch, operational control, flight planning, professional aviation work, or safety decisions, and nothing here is warranted as accurate, complete, or current. Aviation data is supplied by third parties and can be delayed, cached, wrong, or missing.</p>
+        <p>The hosted service is provided as it stands. No uptime level is promised unless Beacon Tools publishes a separate written service-level agreement, and the <a href="/local-flight/relay-access/terms/#availability">Relay Access terms</a> describe what can interrupt it.</p>
+        <p>To the extent the law allows, the operator is not liable for indirect or consequential loss, lost profit, or lost data arising from use of the software or the hosted service. Liability that cannot lawfully be excluded is not excluded: this includes liability for death or personal injury, and liability for intent or gross negligence, neither of which is limited by anything on this page. For everything else, liability is limited to the amount you paid for Relay Access in the twelve months before the claim.</p>
+        <p>Local Flight itself is free and open source and is separately covered by its MIT license, which carries its own warranty disclaimer.</p>
+      </section>
+
+      <section class="policy-section" id="refunds">
+        <span class="section-index">04 / WEBSITE PURCHASES AND REFUNDS</span>
+        <h2>For a purchase made here, Beacon Tools is the seller.</h2>
+        <p>Stripe processes the payment and issues the receipt, but the seller is the operator named above, and refund requests for a website purchase come to Beacon Tools rather than to Stripe. Purchases made through the App Store or Google Play are refunded under those stores’ own policies instead, which the <a href="/local-flight/relay-access/terms/#refunds">Relay Access terms</a> cover.</p>
+        <p>If the hosted service does not work for you, email <a href={`mailto:${operator.contactEmail}`}>{operator.contactEmail}</a> within fourteen days of a payment and the year will be refunded in full. You do not need to give a reason. This is offered to every customer, not only in the EU, and it runs alongside the statutory withdrawal right below rather than replacing it.</p>
+        <p>After fourteen days, cancelling stops the next renewal and access continues to the end of the period already paid for. A refund ends hosted access; Local Flight, Bring Your Own Keys, VATSIM, your settings, and your history are unaffected.</p>
+      </section>
+
+      <section class="policy-section" id="withdrawal">
+        <span class="section-index">05 / RIGHT OF WITHDRAWAL (EU)</span>
+        <h2>Fourteen days, unless you ask to start immediately.</h2>
+        <p>If you are a consumer in the European Union, you may withdraw from the purchase within fourteen days of concluding it, without giving a reason. To withdraw, send a clear statement to <a href={`mailto:${operator.contactEmail}`}>{operator.contactEmail}</a> or to the postal address above. Sending it before the fourteen days are up is enough. Any payment received is refunded without undue delay, and within fourteen days of the withdrawal reaching the operator, using the means of payment you originally used.</p>
+        <p>Relay Access is digital content delivered at once: a license key is issued the moment checkout completes, so the service starts before the fourteen days are over. By completing checkout you expressly ask for that immediate performance and acknowledge that you lose the right of withdrawal once the license has been delivered in full. The fourteen-day refund above is offered regardless, so a purchase that does not work for you is still refundable.</p>
+      </section>
+
+      <section class="policy-section" id="prices">
+        <span class="section-index">06 / PRICE CHANGES</span>
+        <h2>A renewal never costs more without warning.</h2>
+        <p>CHF 8/year is a launch price and may rise for future terms. If the price of your renewal changes, you will be told by email at least 30 days before that renewal is charged, and the notice will say the new price and the date. Cancelling before the renewal date avoids the new price entirely, and access continues to the end of the period you have already paid for.</p>
+        <p>A price change never applies retroactively to a period already paid for, and existing permanent founder, lifetime, and complimentary access is not converted into a paid subscription. App Store and Google Play subscribers are additionally notified by their store under its own rules.</p>
+      </section>
+    </article>
+  </div>
+</SiteLayout>

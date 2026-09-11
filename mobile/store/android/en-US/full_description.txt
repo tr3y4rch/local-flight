@@ -10,13 +10,13 @@ NO HOST? USE STANDALONE.
 
 Choose “Use without a Local Flight host” for a simpler airport board. VATSIM virtual traffic works without buying Relay Access. Real airline schedules use the optional annual Beacon Relay Access subscription. Relay Access can be active on one phone using real-flight Standalone or one Local Flight desktop/Pi host. Restore checks existing annual or eligible founder access before offering a purchase, and Mobile never asks for or displays an LFRA key during setup.
 
-Companion and VATSIM are free to use and do not require or consume Relay Access. Remote Companion requires Relay Access on its desktop host; a phone subscription cannot replace access on an unlicensed host. Moving access to a different main device always requires a named confirmation; it then stops direct Relay use on the previous main device. A Relay Access license bought elsewhere can be moved to this official Android app through an explicit, integrity-protected transfer without another Google Play purchase.
+Companion and VATSIM are free to use and do not require or consume Relay Access. Remote Companion requires Relay Access on its desktop host; a phone subscription cannot replace access on an unlicensed host. Moving access to a different main device always requires a named confirmation, which then stops direct Relay use on the previous one. A Relay Access license bought elsewhere can be moved to this official Android app through an explicit, integrity-protected transfer without another Google Play purchase.
 
 BUILT FOR DAILY GLANCES
 
 • Arrivals and departures with airport-local times
 • Status, delay, terminal, and gate details when supplied by the selected source
-• A responsive radar-style view through Companion or VATSIM
+• A responsive radar-style view through Relay Access or VATSIM
 • Deduplicated movement history
 • Flight detail sheets using available movement data
 • Pinned-flight and airport-board home-screen widgets
@@ -26,7 +26,7 @@ BUILT FOR DAILY GLANCES
 
 FOR AVIATION ENTHUSIASTS
 
-Companion can reflect real-flight sources configured on your host or a VATSIM-focused virtual view. Standalone can show licensed airline schedules or free VATSIM traffic without running Local Flight elsewhere. Shared real-aircraft radar is not included in Relay Access.
+Companion reflects the real-flight or VATSIM sources configured on your host. Standalone shows licensed airline schedules or free VATSIM traffic without running Local Flight elsewhere. Shared real-aircraft radar is included in Relay Access on a licensed monthly allowance.
 
 LOCAL-FIRST BY DESIGN
 

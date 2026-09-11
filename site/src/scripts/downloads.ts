@@ -13,7 +13,7 @@ type ReleaseManifest = {
   downloads?: Record<string, ReleaseDownload | null>;
 };
 
-const releasesUrl = "https://github.com/tr3y4rch/local-flight/releases";
+const releasesUrl = "https://github.com/BeaconTools/local-flight/releases";
 
 function sizeLabel(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "";

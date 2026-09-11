@@ -213,7 +213,7 @@ is a cutover gate, not a substitute for that matrix.
   production and production evidence is rejected by staging.
 - Migration mode issues no new anonymous Community credential. Licensed
   schedules and Remote Companion accept an active annual, permanent, or founder
-  device credential. Shared real radar remains disabled; BYOK and VATSIM radar
+  device credential. Shared real radar is served on a licensed allowance; BYOK and VATSIM radar
   remain available. Managed credentials stay restricted to operator diagnostics.
 - The operator surface can search and page through more than 600 licenses,
   inspect masked purchase/activation/delivery/reconciliation history, retry safe

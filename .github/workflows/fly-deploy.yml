@@ -190,6 +190,7 @@ jobs:
             --env RELAY_PUBLIC_HOST=localhost \
             --env RELAY_ADMIN_HOST=localhost \
             --env RELAY_ACCESS_DEPLOYMENT_ENVIRONMENT=staging \
+            --env RELAY_ACCESS_RADAR_ENABLED=1 \
             --env RELAY_ACCESS_SITE_URL=https://staging.beacontools.cc \
             --env RELAY_ACCESS_HASH_SECRET=ci-only-fake-hash-secret-00000001 \
             --env RELAY_ACCESS_KEY_SECRET=ci-only-fake-key-secret-000000002 \

@@ -2418,6 +2418,16 @@ def _aviationstack_upstream_monthly_limit() -> int:
     return _int_env("RELAY_AVIATIONSTACK_UPSTREAM_MONTHLY_LIMIT", 10_000, minimum=0)
 
 
+def _adsbexchange_upstream_monthly_limit() -> int:
+    """The ADS-B Exchange RapidAPI plan ceiling, shared across every install.
+
+    This is the binding constraint on shared radar, not the per-license quota:
+    one airport polled continuously at the 180 s cache TTL is ~14,400 upstream
+    calls a month on its own, so the cap has to be enforced upstream rather than
+    inferred from per-subject allowances."""
+    return _int_env("RELAY_ADSBEXCHANGE_UPSTREAM_MONTHLY_LIMIT", 10_000, minimum=0)
+
+
 def _ceil_monthly_daily(monthly: int) -> int:
     return max(0, (max(0, int(monthly)) + 29) // 30)
 
@@ -2430,6 +2440,12 @@ def _aerodatabox_upstream_daily_units_limit() -> int:
 def _aviationstack_upstream_daily_limit() -> int:
     monthly = _aviationstack_upstream_monthly_limit()
     return _int_env("RELAY_AVIATIONSTACK_UPSTREAM_DAILY_LIMIT", _ceil_monthly_daily(monthly), minimum=0)
+
+
+def _adsbexchange_upstream_daily_limit() -> int:
+    """A daily sub-cap so a single busy day cannot spend the whole month."""
+    monthly = _adsbexchange_upstream_monthly_limit()
+    return _int_env("RELAY_ADSBEXCHANGE_UPSTREAM_DAILY_LIMIT", _ceil_monthly_daily(monthly), minimum=0)
 
 
 def _provider_failure_cooldown_seconds() -> int:
@@ -3005,12 +3021,16 @@ def _resolve_access(
             "activation_row": None,
             "license_id": "",
         }
+    # Shared real radar is part of the annual entitlement. This branch is no
+    # longer a product statement: it is the operator switch for a provider
+    # agreement or outage that makes the shared path unservable, so the message
+    # describes a service state rather than something the subscription excludes.
     if service == "radar" and _access_mode() != "legacy" and not _provider_access_policy().allows("radar"):
         raise HTTPException(
             status_code=503,
             detail={
                 "code": "shared_radar_unavailable",
-                "message": "Shared real-aircraft radar is not included. Use VATSIM or a provider key on your Local Flight host.",
+                "message": "Shared real-aircraft radar is not available right now. Use VATSIM or a provider key on your Local Flight host.",
                 "retryable": False,
             },
         )
@@ -5357,6 +5377,32 @@ def _reserve_aviationstack_request() -> None:
     _check_and_increment_usage_counters(provider="aviationstack", counters=counters)
 
 
+def _reserve_adsbexchange_request() -> None:
+    """Claim one shared ADS-B Exchange call, or raise UpstreamBudgetExceeded (429).
+
+    Mirrors _reserve_aviationstack_request. Called only on a cache miss, so a
+    served-from-cache radar response costs nothing against the plan."""
+    counters = [
+        {
+            "subject_key": "shared:upstream",
+            "service": "adsbexchange_upstream",
+            "period": _month_key(),
+            "n_calls": 1,
+            "limit": _adsbexchange_upstream_monthly_limit(),
+            "budget_period_label": "monthly",
+        },
+        {
+            "subject_key": "shared:upstream",
+            "service": "adsbexchange_upstream:day",
+            "period": _day_key(),
+            "n_calls": 1,
+            "limit": _adsbexchange_upstream_daily_limit(),
+            "budget_period_label": "daily",
+        },
+    ]
+    _check_and_increment_usage_counters(provider="adsbexchange", counters=counters)
+
+
 def _aviationstack_upstream_payload(params: Dict[str, Any]) -> Dict[str, Any]:
     _provider_circuit_raise_if_open("aviationstack")
     from relay.schedule_transport import ProviderTransport, current_transport
@@ -7298,21 +7344,69 @@ async def _automatic_ground_warm_loop() -> None:
 
 
 _radar_cache: Dict[str, tuple[float, bytes]] = {}
+_radar_cache_guard = threading.Lock()
+# Each distinct airport/radius holds a raw provider payload, so the map is
+# swept rather than left to grow for the lifetime of the process on a 512 MB VM.
+_RADAR_CACHE_MAX_ENTRIES = 512
+
+
+def _radar_cache_get(cache_key: str, now: float) -> Optional[bytes]:
+    ttl = _radar_cache_seconds()
+    with _radar_cache_guard:
+        cached = _radar_cache.get(cache_key)
+        if cached is None:
+            return None
+        # Expired entries are reported as a miss but deliberately kept: they are
+        # the fallback served when the shared provider allowance is spent.
+        # Eviction is the store path's job, not this one's.
+        if (now - cached[0]) >= ttl:
+            return None
+        return cached[1]
+
+
+def _radar_cache_store(cache_key: str, now: float, payload: bytes) -> None:
+    ttl = _radar_cache_seconds()
+    with _radar_cache_guard:
+        _radar_cache[cache_key] = (now, payload)
+        if len(_radar_cache) <= _RADAR_CACHE_MAX_ENTRIES:
+            return
+        for key in [k for k, (ts, _) in _radar_cache.items() if (now - ts) >= ttl]:
+            _radar_cache.pop(key, None)
+        # Still oversized once expired entries are gone: drop the coldest.
+        while len(_radar_cache) > _RADAR_CACHE_MAX_ENTRIES:
+            oldest = min(_radar_cache, key=lambda k: _radar_cache[k][0])
+            _radar_cache.pop(oldest, None)
+
+
+def _radar_cache_key(lat: float, lon: float, radius_nm: float) -> str:
+    # Radii of 1, 3 and 5 NM all request dist 5 upstream, so they share one entry.
+    return f"{round(lat, 4)}:{round(lon, 4)}:{max(5, int(radius_nm))}"
+
+
+def _radar_cache_get_stale(cache_key: str) -> Optional[bytes]:
+    """The last payload for this key regardless of age, or None if never fetched."""
+    with _radar_cache_guard:
+        cached = _radar_cache.get(cache_key)
+        return None if cached is None else cached[1]
 
 
 def _fetch_adsbx_payload(lat: float, lon: float, radius_nm: float) -> bytes:
     _require_licensed_provider_allowed("radar", "adsbexchange")
     dist_nm = max(5, int(radius_nm))
-    cache_key = f"{round(lat, 4)}:{round(lon, 4)}:{dist_nm}"
-    cached = _radar_cache.get(cache_key)
+    cache_key = _radar_cache_key(lat, lon, radius_nm)
     now = time.monotonic()
-    if cached and (now - cached[0]) < _radar_cache_seconds():
-        return cached[1]
+    cached = _radar_cache_get(cache_key, now)
+    if cached is not None:
+        return cached
 
     try:
         rapidapi_key = _rapidapi_key()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+    # Claimed only on a cache miss, and before the call is made, so the shared
+    # plan cannot be overspent by concurrent requests for different airports.
+    _reserve_adsbexchange_request()
 
     response = _req.get(
         f"{ADSBX_URL}/lat/{lat}/lon/{lon}/dist/{dist_nm}/",
@@ -7322,10 +7416,47 @@ def _fetch_adsbx_payload(lat: float, lon: float, radius_nm: float) -> bytes:
         },
         timeout=20,
     )
+    # A provider rate-limit is a budget state, not an outage. Reported as 429 so
+    # clients back off on their own Retry-After rather than treating it as a fault.
+    if response.status_code == 429:
+        raise HTTPException(
+            status_code=429,
+            detail="ADS-B upstream rate limit reached; shared radar will retry shortly.",
+            headers={"Retry-After": str(_radar_cache_seconds())},
+        )
     if response.status_code >= 400:
         raise HTTPException(status_code=502, detail=f"ADS-B upstream HTTP {response.status_code}")
-    _radar_cache[cache_key] = (now, response.content)
+    _radar_cache_store(cache_key, now, response.content)
     return response.content
+
+
+def _fetch_adsbx_payload_with_state(
+    lat: float, lon: float, radius_nm: float
+) -> tuple[bytes, bool]:
+    """Fetch radar, returning (payload, stale).
+
+    When the shared ADS-B Exchange plan is spent, the last known payload is
+    served past its TTL rather than failing the request, and the caller attaches
+    a freshness notice. Terms of sale already allow showing known cached data
+    while a live source is unavailable, and a degraded board beats a dead one.
+    Delegates to _fetch_adsbx_payload so its signature stays monkeypatchable."""
+    try:
+        return _fetch_adsbx_payload(lat, lon, radius_nm), False
+    except UpstreamBudgetExceeded:
+        stale = _radar_cache_get_stale(_radar_cache_key(lat, lon, radius_nm))
+        if stale is None:
+            # Nothing cached for this airport, so there is nothing honest to show.
+            raise
+        return stale, True
+
+
+def _radar_budget_notice():
+    return make_notice(
+        "radar.shared_budget_reached",
+        "warning",
+        "Shared radar is showing the last known traffic while its data allowance refreshes.",
+        next_step="Live updates resume automatically. VATSIM radar and your own provider key are unaffected.",
+    )
 
 
 def _admin_auth_key(request: Request) -> str:
@@ -13617,13 +13748,26 @@ def _standalone_config_payload(
         "web_rotation_seconds": _STANDALONE_DISPLAY_PAGE_SECONDS,
         "display_grace_minutes": 15,
         "display_horizon_hours": 12,
-        "radar_surface_enabled": False,
+        # Follows the live policy rather than a literal: the shared ground layer
+        # is served by /v1/airport-ground, which resolves service="radar" and so
+        # was closed for everyone while shared radar was off.
+        "radar_surface_enabled": _airport_ground_enabled() and _provider_access_policy().allows("radar"),
     }
 
 
-def _standalone_policy_payload(source_mode: str = "real") -> Dict[str, Any]:
-    """One additive, client-readable policy for Mobile V2 Standalone."""
+def _standalone_policy_payload(
+    source_mode: str = "real",
+    *,
+    limits: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """One additive, client-readable policy for Mobile V2 Standalone.
+
+    ``limits`` carries the allowances actually enforced for this caller. Without
+    it the payload falls back to the standalone defaults, which is right for an
+    unidentified client but wrong for a licensed one — the phone would show an
+    allowance it does not have."""
     virtual = source_mode == "virtual"
+    resolved = limits or {}
     return {
         "source": "virtual" if virtual else "real",
         "board_refresh_seconds": 60 if virtual else _standalone_schedule_min_refresh_seconds(),
@@ -13631,8 +13775,8 @@ def _standalone_policy_payload(source_mode: str = "real") -> Dict[str, Any]:
         "radar_refresh_seconds": 60 if virtual else _standalone_radar_min_refresh_seconds(),
         "rows_per_direction": _STANDALONE_ROWS_PER_DIRECTION,
         "display_page_seconds": _STANDALONE_DISPLAY_PAGE_SECONDS,
-        "schedule_access_limit": _standalone_schedule_limit(),
-        "radar_access_limit": _standalone_radar_limit(),
+        "schedule_access_limit": int(resolved.get("schedule") or _standalone_schedule_limit()),
+        "radar_access_limit": int(resolved.get("radar") or _standalone_radar_limit()),
     }
 
 
@@ -14844,7 +14988,7 @@ def relay_mobile_summary(
             "last_success_utc": None if source_mode == "virtual" else (status.get("schedule_cache") or {}).get("updated_at"),
             "last_error": None,
         },
-        "standalone_policy": _standalone_policy_payload(source_mode),
+        "standalone_policy": _standalone_policy_payload(source_mode, limits=status.get("limits")),
         "system": {
             "version": _localflight_version_label(),
             "python": "relay",
@@ -14864,7 +15008,7 @@ def relay_mobile_summary(
                 "active_mode": "standalone",
                 "min_refresh_seconds": 60 if source_mode == "virtual" else _standalone_schedule_min_refresh_seconds(),
             },
-            "standalone_policy": _standalone_policy_payload(source_mode),
+            "standalone_policy": _standalone_policy_payload(source_mode, limits=status.get("limits")),
             "shared_schedule_budget": status.get("shared_schedule_budget") or {},
             "schedule_access_budget": status.get("schedule_access_budget") or {},
             "aviationstack": {
@@ -15263,7 +15407,9 @@ def relay_mobile_radar(
     center_lat = float(airport["lat"])
     center_lon = float(airport["lon"])
     started = time.monotonic()
-    raw_payload = _fetch_adsbx_payload(center_lat, center_lon, float(radius_nm))
+    raw_payload, radar_budget_stale = _fetch_adsbx_payload_with_state(
+        center_lat, center_lon, float(radius_nm)
+    )
     latency_ms = int((time.monotonic() - started) * 1000)
     try:
         raw = json.loads(raw_payload.decode("utf-8") if isinstance(raw_payload, bytes) else str(raw_payload))
@@ -15301,7 +15447,7 @@ def relay_mobile_radar(
         "generated_at": _utc_now(),
         "center": {"lat": center_lat, "lon": center_lon},
         "radius_nm": int(radius_nm),
-        "source": "adsbexchange_relay",
+        "source": "adsbexchange_relay_cached" if radar_budget_stale else "adsbexchange_relay",
         "refresh_after_s": _standalone_radar_min_refresh_seconds(),
         "count": len(blips),
         "radar_mode": "surface" if int(radius_nm) <= 5 else "airborne",
@@ -15318,8 +15464,13 @@ def relay_mobile_radar(
         "radar_map_error": radar_map_error,
         "blips": blips,
     }
-    _mobile_cache_store(install_id="shared:mobile-radar", service="radar", cache_key=cache_key, payload=payload)
+    # A budget-stale payload must not be written back to the shared cache: doing
+    # so would restamp old traffic as fresh for every other install.
+    if not radar_budget_stale:
+        _mobile_cache_store(install_id="shared:mobile-radar", service="radar", cache_key=cache_key, payload=payload)
     notices = []
+    if radar_budget_stale:
+        notices.append(_radar_budget_notice())
     if radar_map_error:
         notices.append(
             make_notice(
@@ -16602,7 +16753,7 @@ def relay_radar(
         )
 
     t0 = time.monotonic()
-    raw_payload = _fetch_adsbx_payload(lat, lon, radius_nm)
+    raw_payload, radar_budget_stale = _fetch_adsbx_payload_with_state(lat, lon, radius_nm)
     latency_ms = int((time.monotonic() - t0) * 1000)
     try:
         decoded = json.loads(raw_payload.decode("utf-8") if isinstance(raw_payload, bytes) else str(raw_payload))
@@ -16622,7 +16773,9 @@ def relay_radar(
         "generated_at": _utc_now(),
         "center": {"lat": float(lat), "lon": float(lon)},
         "radius_nm": float(radius_nm),
-        "source": "adsbexchange_relay",
+        # The _cached suffix keeps the adsbexchange prefix the desktop client
+        # matches on (_radar_refresh_after_s), while naming the degraded state.
+        "source": "adsbexchange_relay_cached" if radar_budget_stale else "adsbexchange_relay",
         "count": len(blips),
         "blips": blips,
     }

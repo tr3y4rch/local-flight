@@ -9,7 +9,7 @@ The recommended desktop client is now the native Qt app. The LAN browser UI, Pi 
 - **Website:** [beacontools.cc/local-flight](https://beacontools.cc/local-flight)
 - **Privacy:** [beacontools.cc/privacy](https://beacontools.cc/privacy)
 - **Public relay:** `https://relay.beacontools.cc`
-- **Source:** [github.com/tr3y4rch/local-flight](https://github.com/tr3y4rch/local-flight)
+- **Source:** [github.com/BeaconTools/local-flight](https://github.com/BeaconTools/local-flight)
 - **Support:** [beacontools.cc/support](https://beacontools.cc/support) for messages and bug reports; privacy requests start at [beacontools.cc/privacy/choices](https://beacontools.cc/privacy/choices)
 
 ---
@@ -68,7 +68,7 @@ Historical release notes remain under [`docs/`](docs/), including the archived `
 - VATSIM mode uses a pilot/ATC display contract instead of passenger/codeshare fields: callsign-first rows, filed route/flight rules, aircraft, altitude/speed, XPDR, VATSIM freshness, and strict suppression of pilot/controller personal identifiers
 - Four switchable FIDS board styles in the native shell — **Classic**, **PAX**, **VATSIM**, **Nerd** — each with its own chrome, palette, column set, status styling, and viewport-aware scaling
 - Native Qt dark/reduced-glare and light/high-visibility themes cover pages, dialogs, menus, controls, and all board skins with contrast-checked text and status colors. Windows and macOS also provide a small Local Flight status menu for opening core views, the LAN browser, and app controls.
-- Radar with BYOK real traffic or VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, a synchronized 15-second sweep-and-fade presentation, and dismissible aircraft details that do not trigger extra provider calls. Shared hosted real-aircraft radar is not included in Relay Access.
+- Radar with BYOK real traffic or VATSIM traffic, METAR weather, range controls, optional runway/surface/map/terrain context, a synchronized 15-second sweep-and-fade presentation, and dismissible aircraft details that do not trigger extra provider calls. Shared hosted real-aircraft radar is included in Relay Access.
 - Native Qt desktop shell with Display, FIDS, Radar, Matrix, Settings, Admin, History, Logs, Report, and local docs
 - Settings page built from clear disclosure cards instead of opaque checkbox-titled groups; the LAN browser Settings page now follows the same folder rhythm and includes Pair Mobile QR/manual pairing controls.
 - LAN browser UI for headless installs, remote screens, tablets, phones, and browser-mode displays, with compact layouts for 7" Pi touch screens and browser-side access to the same Companion pairing tools as the Qt shell
@@ -115,7 +115,7 @@ Open [docs/previews/index.html](docs/previews/index.html) locally for the standa
 
 ## Quick Install
 
-Use the **Downloads** section at [beacontools.cc/local-flight](https://beacontools.cc/local-flight#downloads) for the `0.7.1` Windows, macOS, Linux, Linux server, and Raspberry Pi packages. The page links to the official [GitHub Releases page](https://github.com/tr3y4rch/local-flight/releases) and enables each file only when its matching SHA-256 checksum is present.
+Use the **Downloads** section at [beacontools.cc/local-flight](https://beacontools.cc/local-flight#downloads) for the `0.7.1` Windows, macOS, Linux, Linux server, and Raspberry Pi packages. The page links to the official [GitHub Releases page](https://github.com/BeaconTools/local-flight/releases) and enables each file only when its matching SHA-256 checksum is present.
 
 ### Windows
 
@@ -188,7 +188,7 @@ Beacon Relay is the optional hosted real-flight path. New Relay Access is an
 automatically renewing annual entitlement with a CHF 8/year launch price. It
 can be active on one main device: a desktop/Pi host using Beacon Relay or one
 phone using real-flight Standalone. It includes shared real-flight schedules
-and encrypted Remote Companion. It does not include shared real-aircraft radar.
+encrypted Remote Companion, and shared real-aircraft radar.
 
 Desktop exchanges the portable `LFRA-…` key for a revocable `lfr_…` device
 credential and does not retain the master key. Mobile verifies its native-store

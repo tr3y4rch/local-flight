@@ -80,7 +80,7 @@ from localflight.version import app_version as _app_version
 
 COFFEE_URL = "https://buymeacoffee.com/localflight"
 WEBSITE_URL = "https://beacontools.cc/local-flight"
-GITHUB_URL = "https://github.com/tr3y4rch/local-flight"
+GITHUB_URL = "https://github.com/BeaconTools/local-flight"
 
 
 def _env_truthy(name: str) -> bool:

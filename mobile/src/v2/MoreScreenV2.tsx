@@ -190,7 +190,7 @@ function HelpPanel({ styles }: { styles: ReturnType<typeof makeStyles> }) {
           <Text style={styles.linkText}>Relay Access terms</Text>
           <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
         </Pressable>
-        <Pressable style={styles.linkButton} onPress={() => open("https://github.com/tr3y4rch/local-flight/blob/main/THIRD_PARTY_NOTICES.md")} {...accessibleButton({ label: "Open Local Flight third-party notices" })}>
+        <Pressable style={styles.linkButton} onPress={() => open("https://github.com/BeaconTools/local-flight/blob/main/THIRD_PARTY_NOTICES.md")} {...accessibleButton({ label: "Open Local Flight third-party notices" })}>
           <Text style={styles.linkText}>Third-party notices</Text>
           <LocalFlightIcon name="open-in-new" size={16} color={styles.linkText.color as string} />
         </Pressable>
@@ -284,7 +284,7 @@ function BoardDisplayPanel({
         <Text style={styles.informationTitle}>{standalone ? "Standalone availability" : "Connected host availability"}</Text>
         <Text style={styles.informationBody}>
           {standalone
-            ? [englishCopy.standalone.boardCadence, englishCopy.standalone.rowAvailability, englishCopy.standalone.cacheCaveat].join(" ")
+            ? [englishCopy.standalone.boardCadence, englishCopy.standalone.radarCadence, englishCopy.standalone.rowAvailability, englishCopy.standalone.cacheCaveat].join(" ")
             : "Board follows the update timing configured on your Local Flight host. Display pages advance every eight seconds unless paused."}
         </Text>
       </View>

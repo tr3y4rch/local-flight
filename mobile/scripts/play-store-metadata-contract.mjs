@@ -32,7 +32,9 @@ assert.match(metadata.fullDescription, /without another Google Play purchase/i);
 assert.match(metadata.fullDescription, /never asks for or displays an LFRA key/i);
 assert.match(metadata.fullDescription, /No Local Flight account required/);
 assert.match(metadata.fullDescription, /support choices.*unlock nothing, do not extend the annual plan, and never create Relay Access/is);
-assert.match(metadata.fullDescription, /Shared real-aircraft radar is not included in Relay Access/);
+assert.match(metadata.fullDescription, /Shared real-aircraft radar is included in Relay Access/);
+// Radar is sold with a licensed allowance, so the store listing must disclose it.
+assert.match(metadata.fullDescription, /licensed monthly allowance/);
 assert.match(metadata.fullDescription, /Do not use Local Flight for navigation, dispatch, operational control/);
 assert.doesNotMatch(metadata.fullDescription, /paid Google Play download|included Relay Access|access included|no extra purchase/i);
 assert.doesNotMatch(metadata.fullDescription, /App Store|StoreKit|TestFlight|Stripe checkout|activation token/i);

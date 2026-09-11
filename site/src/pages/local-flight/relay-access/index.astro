@@ -48,7 +48,12 @@ const relayLive = availability.relayAccess === "live";
         <article class="feature-tile">
           <span class="icon-badge icon-badge--sm"><Icon name="board" /></span>
           <h3>Real-flight boards</h3>
-          <p>Licensed arrivals and departures data for the airport you choose, shared through the hosted cache.</p>
+          <p>Licensed arrivals and departures data for the airport you choose, shared through the hosted cache. How complete a board is depends on what the provider returns for that airport.</p>
+        </article>
+        <article class="feature-tile">
+          <span class="icon-badge icon-badge--sm"><Icon name="radar" /></span>
+          <h3>Real-aircraft radar</h3>
+          <p>Nearby traffic around your airport, refreshing about every three minutes while Radar is open. It draws on a licensed allowance, so it suits regular viewing rather than a board left on radar all day.</p>
         </article>
         <article class="feature-tile">
           <span class="icon-badge icon-badge--sm"><Icon name="globe" /></span>
@@ -76,9 +81,21 @@ const relayLive = availability.relayAccess === "live";
     </div>
   </section>
 
+  <section class="section section--quiet" id="update-timing">
+    <div class="terminal-frame">
+      <SectionHeading index="03 / UPDATE TIMING" title="How fresh the data is." description="Aviation sources have update limits, so Local Flight keeps the last known view on screen and shows when it was updated. These are target intervals, not guarantees." />
+      <div class="cadence-line" data-reveal>
+        <article class="cadence-item"><strong>30 min</strong><h3>Desktop board</h3><p>A Beacon Relay setup requests a new schedule board no more often than every 30 minutes.</p></article>
+        <article class="cadence-item"><strong>About 1 h</strong><h3>Standalone board</h3><p>Real-flight Standalone requests new shared airline-schedule data about once an hour.</p></article>
+        <article class="cadence-item"><strong>About 3 min</strong><h3>Radar</h3><p>Nearby traffic can refresh about every three minutes while Radar is open.</p></article>
+      </div>
+      <p class="hero-footnote">Boards suit a screen left running all day. Radar draws on a licensed allowance and suits regular viewing instead; when the allowance is spent it keeps showing the last known traffic until it refreshes. <a href="/network/">How It Connects</a> covers each mode in full.</p>
+    </div>
+  </section>
+
   <section class="section" id="purchase-routes">
     <div class="terminal-frame">
-      <SectionHeading index="03 / PURCHASE ROUTES" title="Web, iOS, and Android use the same annual plan." description={relayLive ? "Stripe, the App Store, or Google Play shows the final price and tax before you confirm." : "Purchasing is not open yet. Each provider shows the final price and tax before confirmation."} />
+      <SectionHeading index="04 / PURCHASE ROUTES" title="Web, iOS, and Android use the same annual plan." description={relayLive ? "Stripe, the App Store, or Google Play shows the final price and tax before you confirm." : "Purchasing is not open yet. Each provider shows the final price and tax before confirmation."} />
       <div class="acquisition-table" data-reveal>
         <article class="acquisition-row" data-purchase-source="stripe">
           <strong>Web</strong><p>A CHF 8/year Stripe subscription.</p><p>A portable key activates desktop or Pi and can later move to an eligible mobile main device.</p><span class="source-status" data-source-status>{relayLive ? "Checking…" : "Prelaunch"}</span>
@@ -97,7 +114,7 @@ const relayLive = availability.relayAccess === "live";
   <section class="section section--quiet section--ruled">
     <div class="terminal-frame terminal-grid split-story">
       <div class="split-story-copy" data-reveal>
-        <span class="section-index">04 / USE AND MOVE</span>
+        <span class="section-index">05 / USE AND MOVE</span>
         <h2>Keep hosted access separate from the free app.</h2>
         <p>iOS and Android downloads are free. A Stripe, App Store, or Google Play subscription creates its own Relay Access entitlement; unrelated purchases are not silently merged. Existing permanent licenses and eligible founder access remain permanent.</p>
         <ol class="action-checklist action-checklist--compact">
@@ -109,8 +126,8 @@ const relayLive = availability.relayAccess === "live";
       <aside class="split-story-media relay-access-note" data-reveal>
         <span class="section-index">OTHER DATA PATHS</span>
         <ul class="data-list relay-route-list">
-          <li><b>Own keys</b><span>Bring Your Own Keys uses an appropriately licensed provider account and no Relay Access.</span></li>
-          <li><b>VATSIM</b><span>Public virtual-network data remains available without Relay Access.</span></li>
+          <li><b>Own keys</b><span>Bring Your Own Keys uses an appropriately licensed provider account and no Relay Access, with radar refresh set by your own plan.</span></li>
+          <li><b>VATSIM</b><span>Public virtual-network boards and radar remain available without Relay Access.</span></li>
           <li><b>Local</b><span>LAN screens and Companion devices use the desktop host rather than separate hosted access.</span></li>
         </ul>
       </aside>
@@ -120,7 +137,7 @@ const relayLive = availability.relayAccess === "live";
   <section class="section" id="why-paid">
     <div class="terminal-frame terminal-grid editorial-pair">
       <div class="editorial-heading" data-reveal>
-        <span class="section-index">05 / WHY IT IS PAID</span>
+        <span class="section-index">06 / WHY IT IS PAID</span>
         <h2>The software is free. Hosted service has ongoing costs.</h2>
       </div>
       <div class="editorial-copy" data-reveal>
@@ -132,8 +149,10 @@ const relayLive = availability.relayAccess === "live";
 
   <section class="section section--raised section--ruled">
     <div class="terminal-frame">
-      <SectionHeading index="06 / PRACTICAL DETAILS" title="Access without a conventional Beacon account." description="Email is used only for web delivery, protection, recovery, or a device move. There is no profile, password, or advertising identity." />
-      <div class="summary-lines summary-lines--compact" data-reveal>
+      <SectionHeading index="07 / PRACTICAL DETAILS" title="Access without a conventional Beacon account." description="Email is used only for web delivery, protection, recovery, or a device move. There is no profile, password, or advertising identity." />
+      <details class="technical-details" data-reveal>
+        <summary>Recovery, renewal, and moving between devices</summary>
+      <div class="summary-lines summary-lines--compact">
         <div class="summary-line"><span>RCV</span><strong>Recover access</strong><p>Request a short-lived private link using the purchase or protection email. You can email the current key again without changing the active device.</p></div>
         <div class="summary-line"><span>MAIL</span><strong>Protect a mobile license</strong><p>Add and verify an email before retrieving a portable key or moving access. Payment receipts come from the payment provider; Beacon Tools sends delivery and recovery emails separately.</p></div>
         <div class="summary-line"><span>TIP</span><strong>Optional support</strong><p>Support purchases are one-time tips. They unlock nothing and do not create Relay Access or another license.</p></div>
@@ -141,6 +160,7 @@ const relayLive = availability.relayAccess === "live";
         <div class="summary-line"><span>MOV</span><strong>Move the main device</strong><p>Create a one-use desktop activation code or verified mobile handoff.</p></div>
         <div class="summary-line"><span>KEY</span><strong>Replace a lost key</strong><p>Rotating a lost master key also revokes its old key and active device credential.</p></div>
       </div>
+      </details>
       <div class="inline-actions editorial-actions">
         <a class="action-button" href="/local-flight/relay-access/manage/">Recover or manage existing access</a>
         <a class="action-link" href="/local-flight/relay-access/terms/">Read the complete terms</a>
@@ -174,13 +194,14 @@ const relayLive = availability.relayAccess === "live";
           if (!response.ok || !data?.ok || data?.catalog_contract_version !== 2 || product?.product_code !== "beacon_relay_annual_v1" || product?.billing_period !== "P1Y" || product?.independent_receivers !== 1) return;
           const sources = product?.purchase_sources;
           // Never offer checkout unless the relay confirms it can actually serve
-          // what the subscription pays for. Selling hosted schedules or Remote
-          // Companion while the relay reports them unavailable would take money
-          // for a capability the buyer could not use.
+          // what the subscription pays for. Selling hosted schedules, radar, or
+          // Remote Companion while the relay reports them unavailable would take
+          // money for a capability the buyer could not use.
           const capabilities = data?.capabilities;
           const salesReady = publicState === "live"
             && capabilities?.sales === true
             && capabilities?.schedule === true
+            && capabilities?.radar === true
             && capabilities?.remote_companion === true
             && product?.sales_available === true
             && sources?.stripe?.available === true;

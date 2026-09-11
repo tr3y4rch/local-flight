@@ -51,7 +51,9 @@ assert.match(metadata.description, /previous main device stays active until the 
 assert.match(metadata.description, /No advertising SDKs or cross-app tracking/);
 assert.match(metadata.description, /Three one-time App Store support choices/);
 assert.match(metadata.description, /They unlock nothing, do not extend Relay Access/);
-assert.match(metadata.description, /Shared real-aircraft radar is not included in Relay Access/);
+assert.match(metadata.description, /Shared real-aircraft radar is included in Relay Access/);
+// Radar is sold with a licensed allowance, so the store listing must disclose it.
+assert.match(metadata.description, /licensed monthly allowance/);
 assert.match(metadata.description, /Do not use Local Flight for navigation, dispatch, operational control/);
 
 for (const [label, value] of Object.entries(metadata)) {

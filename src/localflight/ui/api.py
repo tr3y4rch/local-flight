@@ -3297,7 +3297,7 @@ def api_admin_updates() -> Dict[str, Any]:
     """Check GitHub releases for a newer version. Cached 1 hour."""
     import time
 
-    REPO = "tr3y4rch/local-flight"
+    REPO = "BeaconTools/local-flight"
     CACHE_TTL = 3600
 
     current = app_version()

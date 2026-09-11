@@ -12,7 +12,7 @@ BUILT FOR DAILY GLANCES
 
 • Arrivals and departures with airport-local times
 • Status, delay, terminal, and gate details when supplied by the selected data source
-• A responsive radar-style view through Companion or VATSIM
+• A responsive radar-style view through Relay Access, Companion, or VATSIM
 • Deduplicated movement history
 • Flight detail sheets using available movement data
 • Pinned-flight and airport-board Home Screen widgets
@@ -45,7 +45,7 @@ WHAT YOU NEED
 
 Companion requires a Local Flight desktop, Linux server, or Raspberry Pi host. Remote Companion additionally requires explicit pairing, Relay Access on that host, and an online host. Companion follows the host and consumes no additional place. Moving Relay Access to a different main device requires verified ownership and a named confirmation; the previous main device stays active until the receiving device stores and commits its new credential.
 
-Standalone requires internet access and intentionally refreshes less frequently than Companion. Shared real-aircraft radar is not included in Relay Access; use Companion with your own appropriately licensed source or VATSIM Radar.
+Standalone requires internet access and intentionally refreshes less frequently than Companion. Shared real-aircraft radar is included in Relay Access on a licensed monthly allowance, suiting regular viewing rather than a screen left on radar all day. VATSIM Radar remains available without it.
 
 IMPORTANT
 

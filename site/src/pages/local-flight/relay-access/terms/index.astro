@@ -11,7 +11,7 @@ import SiteLayout from "../../../../layouts/SiteLayout.astro";
     <div class="eyebrow">Beacon Relay Access / Terms</div>
     <h1>Beacon Relay Access terms.</h1>
     <p class="hero-lede">A short summary comes first: Local Flight remains free and open source; new Relay Access is an automatically renewing annual hosted service for one active main device; eligible earlier users retain permanent access. Hosted service and provider availability are not guaranteed. The complete terms follow below.</p>
-    <p class="hero-footnote">Effective September 9, 2026 · CHF 8/year launch price · One main device per entitlement</p>
+    <p class="hero-footnote">Effective September 11, 2026 · CHF 8/year launch price · One main device per entitlement</p>
   </header>
 
   <div class="terminal-frame document-layout">
@@ -31,8 +31,14 @@ import SiteLayout from "../../../../layouts/SiteLayout.astro";
         <span class="section-index">01 / THE PRODUCT</span>
         <h2>Beacon Relay Access is optional hosted access.</h2>
         <p>Local Flight desktop and server software remains free and open source. Bring Your Own Keys and VATSIM remain available without a Relay Access purchase. Relay Access pays for Beacon Tools’ hosted relay; it does not sell or restrict the Local Flight source code.</p>
-        <p>Every completed new purchase creates one separate <code>beacon_relay_annual_v1</code> entitlement. It renews automatically each year until cancelled through Stripe, the App Store, or Google Play. The launch price is CHF 8/year on the website; mobile stores show their localized price and applicable tax before confirmation. Existing verified lifetime purchases, complimentary grants, and eligible founder installs retain permanent access under their earlier terms.</p>
-        <p>Relay Access includes licensed real-flight schedule boards and encrypted Remote Companion routing. Shared real-aircraft radar is not included. BYOK and VATSIM radar remain separate free paths.</p>
+        <p>The launch price is CHF 8/year on the website, and it renews automatically each year until cancelled through Stripe, the App Store, or Google Play. A renewal price will not change without <a href="/legal/#prices">at least 30 days’ notice</a>. Mobile stores show their localized price and applicable tax before confirmation.</p>
+        <details class="technical-details">
+          <summary>How separate purchases and earlier access are treated</summary>
+          <p>Every completed new purchase creates one separate annual entitlement, so buying more than once, or through unrelated providers, creates additional entitlements rather than extending one.</p>
+          <p>Existing verified lifetime purchases, complimentary grants, and eligible founder installs retain permanent access under their earlier terms.</p>
+        </details>
+        <p>Relay Access includes licensed real-flight schedule boards, shared real-aircraft radar, and encrypted Remote Companion routing. Bring Your Own Keys and VATSIM radar remain separate free paths.</p>
+        <p>Shared radar draws on a licensed provider allowance, so it carries a monthly limit for each entitlement. The limit suits regular viewing rather than a board left on radar continuously; when it is reached, or when the shared allowance is briefly spent, radar shows the last known traffic until the allowance refreshes. Schedule boards, VATSIM radar, and your own provider keys are unaffected.</p>
       </section>
 
       <section class="policy-section" id="receiver">
@@ -45,23 +51,33 @@ import SiteLayout from "../../../../layouts/SiteLayout.astro";
       <section class="policy-section" id="delivery">
         <span class="section-index">03 / DELIVERY AND RECOVERY</span>
         <h2>The license is portable without a Beacon account.</h2>
-        <p>A web purchase delivers an <code>LFRA-…</code> master key in the successful browser session and through Beacon Tools email. Desktop exchanges that key for a revocable device credential and discards the master key. Mobile never accepts or displays a raw key as an unlock mechanism. A verified holder can request another email of the current key without changing the active device; recovery of a genuinely lost key rotates it and revokes the old key and receiver.</p>
-        <p>The iOS and Android apps are free downloads. Real-flight Standalone creates or restores annual access after the native-store subscription is verified; eligible earlier store owners restore permanent founder or legacy access instead. An official mobile app can also receive an existing license through a verified handoff. Email is optional until you choose to protect, recover, export, or transfer a mobile license. Passwordless links and activation grants are short-lived. You are responsible for keeping master keys, email links, and device credentials private.</p>
+        <p>A web purchase gives you a license key in the browser and by email. You can move it between your own devices, and have it emailed again, without creating a Beacon Tools account. The iOS and Android apps are free downloads, and email stays optional until you choose to protect, recover, export, or transfer a license.</p>
+        <p>You are responsible for keeping license keys, email links, and device credentials private.</p>
+        <details class="technical-details">
+          <summary>How keys, credentials, and recovery work</summary>
+          <p>A web purchase delivers an <code>LFRA-…</code> master key in the successful browser session and through Beacon Tools email. Desktop exchanges that key for a revocable device credential and discards the master key. Mobile never accepts or displays a raw key as an unlock mechanism. A verified holder can request another email of the current key without changing the active device; recovery of a genuinely lost key rotates it and revokes the old key and receiver.</p>
+          <p>Real-flight Standalone creates or restores annual access after the native-store subscription is verified; eligible earlier store owners restore permanent founder or legacy access instead. An official mobile app can also receive an existing license through a verified handoff. Passwordless links and activation grants are short-lived.</p>
+        </details>
       </section>
 
       <section class="policy-section" id="refunds">
         <span class="section-index">04 / PURCHASES AND REFUNDS</span>
         <h2>The purchase source controls renewal, cancellation, and refunds.</h2>
-        <p>The iOS and Android apps are free. Stripe, Apple, and Google each manage their own annual subscription, renewal, cancellation, and refund path. Subscription ownership does not move between payment providers, although a verified Relay license can move between eligible Local Flight main devices. Optional support purchases are consumable tips and create no Relay license, entitlement, or feature.</p>
+        <p>The iOS and Android apps are free. For a website purchase Beacon Tools is the seller and handles refunds directly; see <a href="/legal/#refunds">website purchases and refunds</a>, and <a href="/legal/#withdrawal">the EU right of withdrawal</a>. Apple and Google each manage their own annual subscription, renewal, cancellation, and refund path, and Stripe processes website payments. Subscription ownership does not move between payment providers, although a verified Relay license can move between eligible Local Flight main devices. Optional support purchases are consumable tips and create no Relay license, entitlement, or feature.</p>
         <p>Stripe, Apple, or Google provides the financial receipt under its own terms. Beacon Tools may send a separate Relay Access delivery, protection, movement, or recovery email; that message is not a payment receipt.</p>
-        <p>Cancellation keeps access through the paid period shown by the payment provider. An authoritative billing grace or retry state is honored only until its reported boundary. Confirmed expiry, refund, revocation, or a finally lost dispute suspends hosted access and disables its device credential without deleting local settings, history, or BYOK/VATSIM functionality. Stripe subscribers use the billing portal; Apple and Google subscribers use their store subscription controls.</p>
+        <p>Cancelling keeps your access until the end of the period you have already paid for. Stripe subscribers use the billing portal; Apple and Google subscribers use their store subscription controls.</p>
+        <details class="technical-details">
+          <summary>What happens when a payment lapses or is reversed</summary>
+          <p>If the payment provider reports a billing grace or retry period, access is honored only until the boundary it reports.</p>
+          <p>A confirmed expiry, refund, revocation, or finally lost dispute suspends hosted access and disables its device credential. Local settings, history, and Bring Your Own Keys or VATSIM use are never deleted or disabled by this.</p>
+        </details>
       </section>
 
       <section class="policy-section" id="availability">
         <span class="section-index">05 / SERVICE AVAILABILITY</span>
         <h2>Hosted access depends on systems and permissions outside the license.</h2>
         <p>Beacon Relay may be interrupted by maintenance, network incidents, capacity limits, security controls, store-verification outages, or upstream data-provider changes. No uptime level or uninterrupted access is promised unless Beacon Tools publishes a separate written service-level agreement.</p>
-        <p>Commercial aviation-data capabilities remain disabled unless the relevant provider permission is confirmed. A purchase never overrides a provider contract. Shared real-aircraft radar is not part of the annual service. Beacon Tools may change, limit, replace, or discontinue a provider or capability to comply with law, provider terms, security needs, or sustainable service operation. Known cached schedule data may be shown while a live source is unavailable.</p>
+        <p>Commercial aviation-data capabilities remain disabled unless the relevant provider permission is confirmed. A purchase never overrides a provider contract. Beacon Tools may change, limit, replace, or discontinue a provider or capability to comply with law, provider terms, security needs, or sustainable service operation. Known cached schedule or radar data may be shown while a live source is unavailable.</p>
       </section>
 
       <section class="policy-section" id="use">
@@ -74,7 +90,7 @@ import SiteLayout from "../../../../layouts/SiteLayout.astro";
       <section class="policy-section" id="changes">
         <span class="section-index">07 / CHANGES AND SUPPORT</span>
         <h2>Material changes will be reflected here.</h2>
-        <p>Beacon Tools may update these terms as the product, law, store rules, or provider agreements change. The effective date above identifies the current version. Existing permanent founder, lifetime, and complimentary entitlements are not silently converted into annual subscriptions. Separate purchases are not merged.</p>
+        <p>Beacon Tools may update these terms as the product, law, store rules, or provider agreements change. The effective date above identifies the current version. <a href="/legal/">Legal and operator information</a> names the seller, the governing law, and the liability terms. Existing permanent founder, lifetime, and complimentary entitlements are not silently converted into annual subscriptions. Separate purchases are not merged.</p>
         <p>For purchase, delivery, accessibility, or service questions, use <a href="/support/">Beacon Tools support</a>. For personal-data and deletion requests, use <a href="/privacy/choices/">Privacy choices</a>.</p>
       </section>
     </article>

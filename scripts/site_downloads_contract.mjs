@@ -12,7 +12,7 @@ const version = "0.7.1";
 const asset = (name, host = "github.com") => ({
   name,
   size: 12_345_678,
-  browser_download_url: `https://${host}/tr3y4rch/local-flight/releases/download/v${version}/${name}`,
+  browser_download_url: `https://${host}/BeaconTools/local-flight/releases/download/v${version}/${name}`,
 });
 
 const filenames = {
@@ -30,7 +30,7 @@ const filenames = {
 const release = {
   tag_name: `v${version}`,
   name: `Local Flight ${version}`,
-  html_url: `https://github.com/tr3y4rch/local-flight/releases/tag/v${version}`,
+  html_url: `https://github.com/BeaconTools/local-flight/releases/tag/v${version}`,
   published_at: "2026-07-18T12:00:00Z",
   prerelease: false,
   draft: false,
@@ -90,7 +90,7 @@ assert.equal(staleAsset.downloads.windows, null, "Asset versions must match the 
 assert.equal(workerModule.buildReleaseManifest({
   ...release,
   tag_name: "v0.2.7",
-  html_url: "https://github.com/tr3y4rch/local-flight/releases/tag/v0.2.7",
+  html_url: "https://github.com/BeaconTools/local-flight/releases/tag/v0.2.7",
 }), null, "Packages older than the current public release line must not be promoted.");
 
 const htmlAsset = await workerModule.default.fetch(

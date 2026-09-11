@@ -45,6 +45,7 @@ const routes = [
   "/privacy/choices/",
   "/support/",
   "/status/",
+  "/legal/",
   "/404.html",
 ];
 
@@ -188,13 +189,13 @@ test("download board preserves gated package and checksum behavior", async ({ pa
         ok: true,
         release: {
           version: "0.6.0",
-          release_url: "https://github.com/tr3y4rch/local-flight/releases/tag/v0.6.0",
+          release_url: "https://github.com/BeaconTools/local-flight/releases/tag/v0.6.0",
           downloads: {
             windows: {
               filename: "LocalFlight-0.6.0-Setup.exe",
-              url: "https://github.com/tr3y4rch/local-flight/releases/download/v0.6.0/LocalFlight-0.6.0-Setup.exe",
+              url: "https://github.com/BeaconTools/local-flight/releases/download/v0.6.0/LocalFlight-0.6.0-Setup.exe",
               size: 12_345_678,
-              checksum_url: "https://github.com/tr3y4rch/local-flight/releases/download/v0.6.0/LocalFlight-0.6.0-Setup.exe.sha256",
+              checksum_url: "https://github.com/BeaconTools/local-flight/releases/download/v0.6.0/LocalFlight-0.6.0-Setup.exe.sha256",
             },
           },
         },
@@ -215,7 +216,7 @@ test("download board fails safely to GitHub Releases", async ({ page }) => {
   await page.route("**/api/releases/latest", (route) => route.abort());
   await page.goto("/local-flight/#downloads");
   await expect(page.locator("[data-release-status]")).toContainText("could not check the downloads");
-  await expect(page.locator('[data-download-platform="windows"] [data-download-button]')).toHaveAttribute("href", "https://github.com/tr3y4rch/local-flight/releases");
+  await expect(page.locator('[data-download-platform="windows"] [data-download-button]')).toHaveAttribute("href", "https://github.com/BeaconTools/local-flight/releases");
 });
 
 test("download board handles an incomplete release without exposing partial packages", async ({ page }) => {
@@ -288,7 +289,7 @@ const relayCatalog = (available: boolean) => ({
   capabilities: {
     sales: available,
     schedule: available,
-    radar: false,
+    radar: available,
     remote_companion: available,
   },
 });
@@ -305,17 +306,21 @@ test("Relay Access checkout stays closed when the relay cannot serve what it sel
   await expect(page.locator("#relayCheckout")).toBeDisabled();
   await expect(page.locator("#accessCatalogStatus")).toContainText("no purchase route is open");
 
-  await page.unroute("https://relay.beacontools.cc/v1/access/catalog");
-  const availableCatalog = relayCatalog(true);
-  availableCatalog.capabilities.schedule = false;
-  await page.route("https://relay.beacontools.cc/v1/access/catalog", (route) => route.fulfill({
-    contentType: "application/json",
-    body: JSON.stringify(availableCatalog),
-  }));
-  await page.reload();
-  await expect(page.locator("#relayCheckout")).toBeDisabled();
-  await expect(page.locator("#relayCheckout")).toHaveText("Purchases are not open yet");
-  await expect(page.locator("#accessCatalogStatus")).toContainText("no purchase route is open");
+  // Every capability the subscription sells closes checkout on its own, so a
+  // partial outage cannot take money for something the buyer could not use.
+  for (const capability of ["schedule", "radar", "remote_companion"] as const) {
+    await page.unroute("https://relay.beacontools.cc/v1/access/catalog");
+    const availableCatalog = relayCatalog(true);
+    availableCatalog.capabilities[capability] = false;
+    await page.route("https://relay.beacontools.cc/v1/access/catalog", (route) => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(availableCatalog),
+    }));
+    await page.reload();
+    await expect(page.locator("#relayCheckout")).toBeDisabled();
+    await expect(page.locator("#relayCheckout")).toHaveText("Purchases are not open yet");
+    await expect(page.locator("#accessCatalogStatus")).toContainText("no purchase route is open");
+  }
 });
 
 test("checkout result covers pending, successful one-time reveal, and failed states", async ({ page }, testInfo) => {

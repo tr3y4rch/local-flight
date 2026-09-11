@@ -204,12 +204,12 @@ Remote Companion still requires the host to be online. It is not Standalone mode
 
 ### Standalone
 
-Standalone talks directly to the hosted Beacon Tools relay and does not need your own Local Flight host online. It can use licensed real-flight schedules or free VATSIM virtual traffic. Shared real-aircraft radar is not included in Relay Access. Its careful refresh limits keep the shared service reliable and fairly available.
+Standalone talks directly to the hosted Beacon Tools relay and does not need your own Local Flight host online. It can use licensed real-flight schedules or free VATSIM virtual traffic. Shared real-aircraft radar is included in Relay Access. Its careful refresh limits keep the shared service reliable and fairly available.
 
 Use Standalone for:
 
 - Board/FIDS
-- Radar in VATSIM mode
+- Radar in real-flight mode with Relay Access, or in VATSIM mode without it
 - Local on-device History
 - Lightweight Settings
 - Manual reports and diagnostics consent
@@ -218,7 +218,7 @@ Use Standalone for:
 Standalone limits:
 
 - Airline schedule target: about 1 hour
-- Shared real-aircraft Radar is hidden; VATSIM Radar remains available
+- Shared real-aircraft Radar is available with Relay Access at a 3-minute minimum refresh; VATSIM Radar remains available without it
 - VATSIM Radar ranges: `1`, `3`, `5`, and `10` NM
 - No Matrix, Admin, scheduler restart, server URL controls, LAN check-in, or WebSocket connection
 
@@ -255,7 +255,7 @@ You can use any display mode with:
 
 Changing display mode does not change your data source by itself.
 
-Mobile Standalone is the one special case: it does not expose BYOK because there is no paired local server. Real airline schedules use the hosted Relay policy and require annual Relay Access or preserved founder access on the phone. Shared real-aircraft radar is not included. VATSIM uses sanitized virtual-data endpoints and needs no Relay Access credential. Both keep movement history on the device.
+Mobile Standalone is the one special case: it does not expose BYOK because there is no paired local server. Real airline schedules use the hosted Relay policy and require annual Relay Access or preserved founder access on the phone. Shared real-aircraft radar is included. VATSIM uses sanitized virtual-data endpoints and needs no Relay Access credential. Both keep movement history on the device.
 
 The hosted relay's current real-data path is cache-first and can use AeroDataBox primary schedule data with AviationStack sparse fill/fallback where configured. That provider mix is separate from the display mode you choose.
 

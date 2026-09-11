@@ -1923,17 +1923,18 @@ def test_founder_claim_survives_expired_legacy_bridge(
     assert service.status(credential, install_id=install_id)["founder"] is True
 
 
-def test_licensed_shared_radar_is_closed_while_vatsim_radar_remains_free(
+def _activate_licensed_radar_host(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+    external_id: str,
+) -> tuple[str, str]:
+    """Fulfil a purchase and activate it, returning (install_id, credential)."""
     _use_relay_access_db(tmp_path, monkeypatch)
-    monkeypatch.setenv("RELAY_ACCESS_RADAR_ENABLED", "0")
     service = relay_main._license_service()
     _license, key, _created = service.fulfill_purchase(
         VerifiedPurchase(
             provider="stripe",
-            external_id="shared-radar-disabled-test",
+            external_id=external_id,
             product_id="price_legacy_test",
             environment="production",
         )
@@ -1946,17 +1947,55 @@ def test_licensed_shared_radar_is_closed_while_vatsim_radar_remains_free(
         license_key=key,
     )
     assert activated.credential is not None
+    return install_id, activated.credential.credential
+
+
+def test_licensed_shared_radar_is_served_while_vatsim_radar_remains_free(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shared real radar is part of the annual entitlement, so a licensed
+    credential resolves it. VATSIM radar stays free and needs no credential."""
+    install_id, credential = _activate_licensed_radar_host(
+        tmp_path, monkeypatch, "shared-radar-open-test"
+    )
+
+    resolved = relay_main._resolve_access(
+        install_id=install_id,
+        activation_token=credential,
+        service="radar",
+    )
+    assert resolved["plan"] == "licensed"
+
+    vatsim = relay_main._resolve_access(
+        install_id=install_id,
+        activation_token="",
+        service="vatsim_radar",
+    )
+    assert vatsim["plan"] == "vatsim"
+
+
+def test_operator_can_close_shared_radar_without_affecting_vatsim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The policy switch remains, for a provider agreement or outage that makes
+    the shared path unservable. It must not take free VATSIM radar down with it."""
+    install_id, credential = _activate_licensed_radar_host(
+        tmp_path, monkeypatch, "shared-radar-disabled-test"
+    )
+    monkeypatch.setenv("RELAY_ACCESS_RADAR_ENABLED", "0")
 
     with pytest.raises(HTTPException) as exc_info:
         relay_main._resolve_access(
             install_id=install_id,
-            activation_token=activated.credential.credential,
+            activation_token=credential,
             service="radar",
         )
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == {
         "code": "shared_radar_unavailable",
-        "message": "Shared real-aircraft radar is not included. Use VATSIM or a provider key on your Local Flight host.",
+        "message": "Shared real-aircraft radar is not available right now. Use VATSIM or a provider key on your Local Flight host.",
         "retryable": False,
     }
 
@@ -1966,6 +2005,107 @@ def test_licensed_shared_radar_is_closed_while_vatsim_radar_remains_free(
         service="vatsim_radar",
     )
     assert vatsim["plan"] == "vatsim"
+
+
+def test_shared_adsbexchange_budget_caps_upstream_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The plan ceiling is shared across every install, so it has to stop calls
+    centrally rather than rely on per-license quotas summing to something safe."""
+    _use_relay_access_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADSBEXCHANGE_UPSTREAM_MONTHLY_LIMIT", "2")
+    monkeypatch.setenv("RELAY_ADSBEXCHANGE_UPSTREAM_DAILY_LIMIT", "2")
+
+    relay_main._reserve_adsbexchange_request()
+    relay_main._reserve_adsbexchange_request()
+
+    with pytest.raises(relay_main.UpstreamBudgetExceeded) as exc_info:
+        relay_main._reserve_adsbexchange_request()
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.provider == "adsbexchange"
+
+
+def test_exhausted_radar_budget_serves_last_known_traffic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A spent allowance degrades to the last known payload rather than failing:
+    a stale board beats a dead one, and the caller flags the staleness."""
+    _use_relay_access_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADSBEXCHANGE_UPSTREAM_MONTHLY_LIMIT", "1")
+    monkeypatch.setenv("RELAY_ADSBEXCHANGE_UPSTREAM_DAILY_LIMIT", "1")
+    monkeypatch.setattr(relay_main, "_rapidapi_key", lambda: "test-key")
+    relay_main._radar_cache.clear()
+
+    class _Response:
+        status_code = 200
+        content = b'{"ac":[{"hex":"abc123"}]}'
+
+    monkeypatch.setattr(relay_main._req, "get", lambda *a, **k: _Response())
+
+    payload, stale = relay_main._fetch_adsbx_payload_with_state(47.45, 8.55, 5.0)
+    assert stale is False
+    assert payload == _Response.content
+
+    # Expire the entry so the next call must go upstream, where the budget is gone.
+    monkeypatch.setenv("RELAY_RADAR_CACHE_SECONDS", "30")
+    key = relay_main._radar_cache_key(47.45, 8.55, 5.0)
+    stored_at, stored = relay_main._radar_cache[key]
+    relay_main._radar_cache[key] = (stored_at - 10_000, stored)
+
+    payload, stale = relay_main._fetch_adsbx_payload_with_state(47.45, 8.55, 5.0)
+    assert stale is True
+    assert payload == _Response.content
+
+
+def test_exhausted_radar_budget_still_fails_when_nothing_was_cached(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no prior payload for the airport there is nothing honest to show."""
+    _use_relay_access_db(tmp_path, monkeypatch)
+    monkeypatch.setenv("RELAY_ADSBEXCHANGE_UPSTREAM_MONTHLY_LIMIT", "0")
+    monkeypatch.setattr(relay_main, "_rapidapi_key", lambda: "test-key")
+    relay_main._radar_cache.clear()
+
+    with pytest.raises(relay_main.UpstreamBudgetExceeded):
+        relay_main._fetch_adsbx_payload_with_state(51.47, -0.45, 10.0)
+
+
+def test_radar_cache_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The payload map is swept, so a long-lived process serving many airports
+    cannot grow it without limit on a small VM."""
+    relay_main._radar_cache.clear()
+    now = relay_main.time.monotonic()
+    for index in range(relay_main._RADAR_CACHE_MAX_ENTRIES + 50):
+        relay_main._radar_cache_store(f"key-{index}", now + index, b"{}")
+    assert len(relay_main._radar_cache) <= relay_main._RADAR_CACHE_MAX_ENTRIES
+    relay_main._radar_cache.clear()
+
+
+def test_adsbexchange_provider_override_can_close_radar_alone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The per-provider override is the narrow lever: it stops ADS-B Exchange
+    pulls without disturbing the broad radar capability the catalog reports."""
+    install_id, credential = _activate_licensed_radar_host(
+        tmp_path, monkeypatch, "shared-radar-provider-override-test"
+    )
+    monkeypatch.setenv("RELAY_ACCESS_ADSBEXCHANGE_ENABLED", "0")
+
+    with pytest.raises(HTTPException) as exc_info:
+        relay_main._require_licensed_provider_allowed("radar", "adsbexchange")
+    assert exc_info.value.status_code == 503
+
+    # The broad capability is untouched, so the entitlement still resolves.
+    resolved = relay_main._resolve_access(
+        install_id=install_id,
+        activation_token=credential,
+        service="radar",
+    )
+    assert resolved["plan"] == "licensed"
 
 
 def _commit_public_activation(client: TestClient, prepared, install_id: str):

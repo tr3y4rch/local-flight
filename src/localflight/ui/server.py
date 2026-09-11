@@ -472,7 +472,7 @@ def _activation_request_status_url(relay_url: str) -> str:
 BEACON_TOOLS_URL = "https://beacontools.cc"
 LOCAL_FLIGHT_WEB_URL = f"{BEACON_TOOLS_URL}/local-flight"
 PRIVACY_WEB_URL = f"{BEACON_TOOLS_URL}/privacy"
-THIRD_PARTY_WEB_URL = "https://github.com/tr3y4rch/local-flight/blob/main/THIRD_PARTY_NOTICES.md"
+THIRD_PARTY_WEB_URL = "https://github.com/BeaconTools/local-flight/blob/main/THIRD_PARTY_NOTICES.md"
 
 _DOC_PAGES: Dict[str, Dict[str, str]] = {
     "readme": {

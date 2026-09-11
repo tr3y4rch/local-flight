@@ -6,7 +6,7 @@ Local Flight `0.7.1` has two deliberately separate native purchase paths.
 
 Both apps are free downloads. Real-flight Standalone uses the annual auto-renewing subscription `cc.beacontools.localflight.relay_access.annual`. The shared `expo-iap` service restores an existing annual purchase before offering a new purchase, displays only store-owned localized prices, and sends transient StoreKit 2 or Google Play evidence to Beacon Relay. The relay is authoritative for product, app, environment, period, grace, renewal, refund, and revocation state. The app finishes/acknowledges a transaction only after successful verification.
 
-One annual entitlement can operate one main device: one phone in real-flight Standalone or one Local Flight desktop/Pi host. Companion phones use their host and consume no additional place. VATSIM requires no Relay Access. Shared real-aircraft radar is not included; BYOK and VATSIM radar remain available.
+One annual entitlement can operate one main device: one phone in real-flight Standalone or one Local Flight desktop/Pi host. Companion phones use their host and consume no additional place. VATSIM requires no Relay Access. Shared real-aircraft radar is included on a licensed monthly allowance; BYOK and VATSIM radar also remain available.
 
 The custom [`../../modules/localflight-paid-app/`](../../modules/localflight-paid-app/) bridge is retained only for founder migration and verified handoffs:
 

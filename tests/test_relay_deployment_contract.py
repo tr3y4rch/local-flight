@@ -75,7 +75,7 @@ def _payloads() -> tuple[dict, dict, str, int]:
         "ok": True,
         "schema_version": schema,
         "catalog_contract_version": 2,
-        "capabilities": {"schedule": True, "remote_companion": True, "radar": False},
+        "capabilities": {"schedule": True, "remote_companion": True, "radar": True},
         "product": {
             "product_code": "beacon_relay_annual_v1",
             "billing_period": "P1Y",
@@ -188,6 +188,21 @@ def test_relay_deployment_contract_rejects_false_sales_readiness() -> None:
             expected_schema=schema,
             expected_revision="a" * 40,
         )
+
+
+@pytest.mark.parametrize("reported", [False, None, "yes"])
+def test_relay_deployment_contract_rejects_a_relay_that_cannot_serve_radar(reported) -> None:
+    """Shared real radar is part of the annual entitlement, so a relay that does
+    not state it can serve it must not be accepted. ``None`` and a truthy string
+    are rejected alongside ``False``: the catalog has to answer, not be inferred."""
+    health, catalog, version, schema = _payloads()
+    catalog["capabilities"]["radar"] = reported
+
+    with pytest.raises(RuntimeError, match="radar"):
+        validate_payloads(health, catalog, expected_version=version, expected_schema=schema)
+
+    catalog["capabilities"]["radar"] = True
+    validate_payloads(health, catalog, expected_version=version, expected_schema=schema)
 
 
 @pytest.mark.parametrize("missing", ["identity", "version", "revision", "access", "catalog"])

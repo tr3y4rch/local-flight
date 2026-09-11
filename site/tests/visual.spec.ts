@@ -63,7 +63,7 @@ for (const theme of ["dark", "light"] as const) {
                 google_play: { available: false, testing_available: true, state: "testing", verification_ready: true, acquisition_model: "free_download_annual_subscription", free_modes: ["companion", "vatsim"] },
               },
             },
-            capabilities: { sales: true, schedule: true, radar: false, remote_companion: true },
+            capabilities: { sales: true, schedule: true, radar: true, remote_companion: true },
           }),
         });
       });

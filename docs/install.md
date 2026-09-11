@@ -292,7 +292,7 @@ Choose **Standalone** if the phone should work without your own Local Flight hos
 Standalone is intentionally simpler and rate-limited:
 
 - Airline schedules usually refresh about once an hour.
-- Shared real-aircraft radar is not included in Relay Access. VATSIM radar remains available, and Companion follows the host's BYOK or VATSIM radar configuration.
+- Shared real-aircraft radar is included in Relay Access, refreshing about every three minutes while Radar is open and drawing on a licensed monthly allowance. VATSIM radar remains available without Relay Access, and Companion follows the host's radar configuration.
 - Board shows up to 50 current departures and 50 arrivals when supplied. Shared information may still be cached or delayed.
 - Radar range choices are `1`, `3`, `5`, and `10` NM.
 - No Matrix, Admin, scheduler restart, LAN server controls, or WebSocket connection.
@@ -315,7 +315,7 @@ Setup asks for:
 
 ### Data Access Choices
 
-- **Beacon Relay**: optional annual hosted path requiring active Relay Access or preserved founder access. Uses `https://relay.beacontools.cc` for shared schedule snapshots and encrypted Remote Companion routing. Paste a delivered `LFRA-…` key or a one-time activation code on the computer running Local Flight; the app exchanges it for a device credential and then discards the key. Shared real-aircraft radar is not included. Which real-data capabilities can be sold remains controlled separately by provider permission.
+- **Beacon Relay**: optional annual hosted path requiring active Relay Access or preserved founder access. Uses `https://relay.beacontools.cc` for shared schedule snapshots and encrypted Remote Companion routing. Paste a delivered `LFRA-…` key or a one-time activation code on the computer running Local Flight; the app exchanges it for a device credential and then discards the key. Shared real-aircraft radar is included. Which real-data capabilities can be sold remains controlled separately by provider permission.
 - **Bring Your Own Keys**: use your own AeroDataBox schedule key (API.Market by default, RapidAPI if selected by env), AviationStack schedule key, plus optional RapidAPI ADS-B Exchange and OpenSky credentials.
 - **VATSIM**: no real-world schedule key. Uses virtual network data.
 
@@ -371,7 +371,7 @@ documented separately in [release-process.md](release-process.md).
 - If Remote Companion shows offline away from LAN, run **Test Remote** from the mobile connection panel. If it reports host offline, open Local Flight on the host. If it reports grant revoked or key mismatch, pair the phone again from that host. If it reports rate limited, wait before trying again.
 - If Standalone mobile cannot load, check internet access first. It does not need your own Local Flight host to be online. Companion and VATSIM remain usable without a Relay purchase; only real-flight Standalone needs active annual or founder access.
 - If Standalone FIDS looks stale, remember that new shared airline-schedule data is deliberately limited to an hourly-or-slower cadence. Pull to refresh only when you intentionally need a fresh check.
-- If real-flight Standalone Radar is unavailable, that is expected: shared real-aircraft radar is not part of Relay Access. Use VATSIM or a Companion host configured with an appropriately licensed BYOK radar source.
+- If real-flight Standalone Radar stops updating, its licensed allowance is probably spent for now: radar keeps showing the last known traffic until the allowance refreshes. VATSIM Radar and a Companion host with its own licensed BYOK radar source are unaffected.
 - If `localflight.local` resolves to the wrong server, use the LAN IP address or re-scan the fingerprint-bound QR from the server you want.
 - If a Pi display stays blank, confirm whether you installed `--native-kiosk`, `--kiosk`, or `--headless`.
 - If a Linux AppImage reports a FUSE error, try `--appimage-extract-and-run`.

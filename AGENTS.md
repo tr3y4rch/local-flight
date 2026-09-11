@@ -22,7 +22,7 @@ Public links:
 - Network/relay explanation: https://beacontools.cc/network
 - Privacy: https://beacontools.cc/privacy
 - Privacy choices: https://beacontools.cc/privacy/choices
-- Source: https://github.com/tr3y4rch/local-flight
+- Source: https://github.com/BeaconTools/local-flight
 
 ## Current release line
 
@@ -111,7 +111,7 @@ New Relay Access is an annual, accountless entitlement for one independent main
 device and includes shared schedules plus Remote Companion. Prior verified
 lifetime/mobile purchases, complimentary grants, and eligible active legacy
 installs remain permanent. Migration mode provides a bounded `lfm_` bridge and
-an atomic founder claim. Shared real radar is disabled for hosted access; BYOK
+an atomic founder claim. Shared real radar is enabled for hosted access; BYOK
 and VATSIM remain separate free routes with radar. First-board network failures use bounded
 retry timing instead of sleeping for the full schedule interval. The server owns upstream
 freshness, so page navigation reads cached state and never bypasses provider

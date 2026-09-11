@@ -22,6 +22,7 @@ const routes = [
   "privacy/choices/index.html",
   "support/index.html",
   "status/index.html",
+  "legal/index.html",
   "404.html",
 ];
 
@@ -134,7 +135,7 @@ assert.match(pageText["local-flight/index.html"], /Build your own airport-style 
 assert.match(pageText["local-flight/index.html"], new RegExp(`Current version: ${publishedVersion.replaceAll(".", "\\.")}\\.`));
 assert.match(
   builtPages.get("local-flight/index.html"),
-  new RegExp(`href="https://github\\.com/tr3y4rch/local-flight/releases/tag/v${publishedVersion.replaceAll(".", "\\.")}"`),
+  new RegExp(`href="https://github\\.com/BeaconTools/local-flight/releases/tag/v${publishedVersion.replaceAll(".", "\\.")}"`),
   "The product page must link to the same release it displays",
 );
 assert.match(pageText["local-flight/index.html"], /airport-style arrivals and departures board \(FIDS\)/);
@@ -154,8 +155,11 @@ assert.match(builtPages.get("local-flight/mobile/index.html"), /data-mobile-stor
 assert.match(pageText["local-flight/mobile/index.html"], /About 1 h Real-world schedules/);
 assert.match(pageText["local-flight/mobile/index.html"], /Between checks Saved board view/);
 assert.doesNotMatch(pageText["local-flight/mobile/index.html"], /saved board is re-evaluated every five minutes/i);
-assert.match(pageText["local-flight/mobile/index.html"], /BYOK or VATSIM Radar/);
-assert.match(pageText["local-flight/mobile/index.html"], /Shared real-aircraft radar is not included in Relay Access/);
+assert.match(pageText["local-flight/mobile/index.html"], /About 3 min Radar/);
+assert.match(pageText["local-flight/mobile/index.html"], /Shared real-aircraft radar is included in Relay Access/);
+// Radar is sold with a licensed allowance, so the limit must never be implied away.
+assert.match(pageText["local-flight/relay-access/index.html"], /licensed allowance/i);
+assert.match(pageText["local-flight/relay-access/terms/index.html"], /monthly limit for each entitlement/);
 assert.match(pageText["local-flight/mobile/index.html"], /About 1 min VATSIM mode/);
 assert.doesNotMatch(pageText["local-flight/mobile/index.html"], /Three-hour boards and five-minute visible radar updates/);
 const mobileHtml = builtPages.get("local-flight/mobile/index.html");
@@ -236,6 +240,12 @@ assert.match(pageText["support/index.html"], /Tell us what you’re trying to do
 assert.match(pageText["support/index.html"], /you do not need the technical name/i);
 assert.match(pageText["support/index.html"], /Download Local Flight.*Connection help.*Recover Relay Access.*Privacy controls/);
 assert.match(pageText["support/index.html"], /Relay Access purchase or recovery/);
+assert.match(pageText["legal/index.html"], /Legal and operator information\./);
+assert.match(pageText["legal/index.html"], /Swiss law/);
+assert.match(pageText["legal/index.html"], /right of withdrawal/i);
+assert.match(pageText["legal/index.html"], /Beacon Tools is the seller/);
+// A published Impressum with an unfilled placeholder is worse than none.
+assert.doesNotMatch(pageText["legal/index.html"], /TODO/i);
 assert.match(pageText["404.html"], /That page isn’t on the board\./);
 
 const safetyText = [

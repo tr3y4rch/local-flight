@@ -256,5 +256,5 @@ Legacy Relay credentials are retained only for migration/audit and do not
 authorize licensed real-data routes after cutover.
 
 Use only the official [Local Flight downloads page](https://beacontools.cc/local-flight#downloads)
-and [GitHub Releases](https://github.com/tr3y4rch/local-flight/releases). Keep
+and [GitHub Releases](https://github.com/BeaconTools/local-flight/releases). Keep
 the package and matching checksum together when verifying a download.

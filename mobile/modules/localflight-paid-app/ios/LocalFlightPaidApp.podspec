@@ -12,7 +12,7 @@ Pod::Spec.new do |s|
   s.homepage = "https://beacontools.cc/local-flight"
   s.platforms = { :ios => "16.0" }
   s.swift_version = "5.9"
-  s.source = { :git => "https://github.com/tr3y4rch/local-flight.git" }
+  s.source = { :git => "https://github.com/BeaconTools/local-flight.git" }
   s.static_framework = true
   s.dependency "ExpoModulesCore"
   s.source_files = "**/*.{h,m,mm,swift}"

@@ -142,7 +142,7 @@ def access_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AccessHar
         "RELAY_ACCESS_SCHEDULE_ENABLED": "1",
         "RELAY_ACCESS_AERODATABOX_ENABLED": "1",
         "RELAY_ACCESS_AVIATIONSTACK_ENABLED": "1",
-        "RELAY_ACCESS_RADAR_ENABLED": "0",
+        "RELAY_ACCESS_RADAR_ENABLED": "1",
         "RELAY_ACCESS_ADSBEXCHANGE_ENABLED": "1",
         "RELAY_ACCESS_REMOTE_COMPANION_ENABLED": "1",
         "RELAY_ACCESS_MOBILE_OWNERSHIP_ENABLED": "1",

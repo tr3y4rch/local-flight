@@ -6824,7 +6824,7 @@ def test_public_downloads_use_checksum_gated_github_release_assets() -> None:
     assert "api.github.com" not in downloads_client
     assert "download.checksum_url" in downloads_client
 
-    assert 'GITHUB_REPOSITORY = "tr3y4rch/local-flight"' in worker
+    assert 'GITHUB_REPOSITORY = "BeaconTools/local-flight"' in worker
     # The manifest floor tracks the published download version rather than a
     # frozen literal, so a real release does not have to edit this test.
     from tests.test_release_version import PUBLISHED_VERSION
@@ -7127,7 +7127,7 @@ def test_api_docs_returns_fallback_when_bundled_file_missing(monkeypatch) -> Non
             "title": "Missing Test Doc",
             "filename": "MISSING_TEST_DOC.md",
             "summary": "Fallback coverage",
-            "github_url": "https://github.com/tr3y4rch/local-flight/blob/main/MISSING_TEST_DOC.md",
+            "github_url": "https://github.com/BeaconTools/local-flight/blob/main/MISSING_TEST_DOC.md",
         },
     )
 

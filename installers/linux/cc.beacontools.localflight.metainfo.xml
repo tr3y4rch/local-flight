@@ -11,6 +11,6 @@
   </description>
   <launchable type="desktop-id">cc.beacontools.localflight.desktop</launchable>
   <url type="homepage">https://beacontools.cc/local-flight</url>
-  <url type="bugtracker">https://github.com/tr3y4rch/local-flight/issues</url>
+  <url type="bugtracker">https://github.com/BeaconTools/local-flight/issues</url>
   <content_rating type="oars-1.1" />
 </component>

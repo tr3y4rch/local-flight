@@ -1,4 +1,4 @@
-const GITHUB_REPOSITORY = "tr3y4rch/local-flight";
+const GITHUB_REPOSITORY = "BeaconTools/local-flight";
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=20`;
 const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_REPOSITORY}/releases`;
 const RELEASE_CACHE_SECONDS = 1800;
