@@ -68,7 +68,7 @@ expand any provider-data rights to Local Flight users.
 ### ADS-B Exchange / JETNET
 
 - Used for: optional live nearby-aircraft radar data
-- Access: BYOK, or Beacon-managed access under a provider agreement that expressly permits it
+- Access: BYOK, or Beacon-managed access
 - Terms: https://www.jetnet.com/legal/terms-of-use
 
 ### OpenSky Network
