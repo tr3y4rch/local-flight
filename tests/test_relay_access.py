@@ -155,6 +155,32 @@ def test_stripe_checkout_uses_internal_product_and_stable_idempotency_key(
     ]
 
 
+def test_health_reports_a_backed_off_data_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing provider falls back and keeps serving boards, so without this
+    a broken key stays invisible from outside until someone reads the console."""
+    _use_relay_access_db(tmp_path, monkeypatch)
+
+    assert relay_main._degraded_data_providers() == []
+
+    # The breaker opens on the third consecutive failure, so a single blip must
+    # not show as degraded: that is the difference between a transient upstream
+    # error and a provider that is actually broken.
+    for _ in range(2):
+        relay_main._provider_circuit_record_failure("aerodatabox", "schedule_fetch_failed")
+    assert relay_main._degraded_data_providers() == []
+
+    relay_main._provider_circuit_record_failure("aerodatabox", "schedule_fetch_failed")
+    assert relay_main._degraded_data_providers() == ["aerodatabox"]
+    assert relay_main._public_access_readiness()["degraded_data_providers"] == ["aerodatabox"]
+
+    # Recovery clears it without needing the cooldown to elapse.
+    relay_main._provider_circuit_record_success("aerodatabox")
+    assert relay_main._degraded_data_providers() == []
+
+
 def test_stripe_adapter_factory_honours_the_withdrawal_consent_switch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

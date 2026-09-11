@@ -10954,6 +10954,33 @@ def _deployment_revision() -> str:
     return value if re.fullmatch(r"[0-9a-f]{7,64}", value) else "unknown"
 
 
+def _degraded_data_providers() -> list[str]:
+    """Data providers whose circuit breaker is currently open, sorted.
+
+    A failing provider is otherwise invisible from outside: the schedule path
+    falls back to another provider and keeps serving boards, which is the right
+    behaviour but hides a broken key or subscription behind healthy-looking
+    output. Reported as names only — no error text, no key material.
+    """
+    try:
+        conn = _connect()
+        try:
+            rows = conn.execute(
+                "SELECT provider, opened_until FROM provider_circuit_breakers WHERE opened_until IS NOT NULL"
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return []
+    now = datetime.now(timezone.utc)
+    degraded = []
+    for row in rows:
+        opened_dt = _parse_utc_dt(str(row["opened_until"] or ""))
+        if opened_dt is not None and opened_dt > now:
+            degraded.append(str(row["provider"]))
+    return sorted(degraded)
+
+
 def _public_access_readiness() -> Dict[str, Any]:
     try:
         access_mode = _access_mode()
@@ -11048,6 +11075,10 @@ def _public_access_readiness() -> Dict[str, Any]:
             "apple_subscription": apple_ready,
             "google_play": google_ready,
         },
+        # Names of aviation-data providers currently backed off after repeated
+        # failures. Empty is the healthy case. This exists so a broken provider
+        # key cannot hide behind a working fallback.
+        "degraded_data_providers": _degraded_data_providers(),
         "legacy_restore": {
             "apple_paid_app": bool(core_ready and not _mobile_platform_preflight_errors("ios")),
             "google_play_product": bool(core_ready and not _mobile_platform_preflight_errors("android")),
