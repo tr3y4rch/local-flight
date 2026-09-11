@@ -44,6 +44,12 @@ primary_region = 'fra'
   RELAY_ACCESS_ENCRYPTION_SECRET_ID = 'v1'
   RELAY_ACCESS_SALES_ENABLED = '1'
   RELAY_ACCESS_STRIPE_SALES_ENABLED = '1'
+  # Collects the EU immediate-performance consent at checkout, so the withdrawal
+  # waiver is evidenced rather than only published at /legal/. Requires a Terms
+  # of Service URL on the Stripe account (Dashboard -> Settings -> Public
+  # details); Stripe rejects the session without one. A checkout that completes
+  # without the consent is refused at fulfilment rather than delivered.
+  RELAY_ACCESS_STRIPE_WITHDRAWAL_CONSENT = '1'
   RELAY_ACCESS_APPLE_SALES_ENABLED = '0'
   RELAY_ACCESS_GOOGLE_SALES_ENABLED = '0'
   # Complimentary/test grants. Enabling only makes the console's grant wizard

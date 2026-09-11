@@ -9,6 +9,7 @@ const visualRoutes = [
   ["privacy", "/privacy/"],
   ["support", "/support/"],
   ["status", "/status/"],
+  ["legal", "/legal/"],
 ] as const;
 
 for (const theme of ["dark", "light"] as const) {

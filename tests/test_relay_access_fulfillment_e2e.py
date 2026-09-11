@@ -211,22 +211,24 @@ def _stripe_checkout_event(
     session_id: str,
     payment_id: str,
     email: str,
+    consent: Any = None,
 ) -> dict[str, Any]:
+    session: dict[str, Any] = {
+        "id": session_id,
+        "object": "checkout.session",
+        "livemode": False,
+        "payment_status": "paid",
+        "subscription": f"sub_test_{checkout_ref}",
+        "metadata": {"checkout_ref": checkout_ref},
+        "customer_details": {"email": email},
+    }
+    if consent is not None:
+        session["consent"] = consent
     return {
         "id": event_id,
         "object": "event",
         "type": "checkout.session.completed",
-        "data": {
-            "object": {
-                "id": session_id,
-                "object": "checkout.session",
-                "livemode": False,
-                "payment_status": "paid",
-                "subscription": f"sub_test_{checkout_ref}",
-                "metadata": {"checkout_ref": checkout_ref},
-                "customer_details": {"email": email},
-            }
-        },
+        "data": {"object": session},
     }
 
 
@@ -646,3 +648,56 @@ def test_support_consumables_are_rejected_before_license_or_evidence_creation(
         conn.close()
     assert support_product not in dump
     assert proof not in dump
+
+
+def test_withdrawal_consent_gates_delivery_when_it_is_being_collected(
+    access_harness: AccessHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A checkout that completes without the consent must not be delivered.
+
+    Issuing the licence anyway would begin immediate performance the buyer never
+    agreed to, which is exactly what the waiver is meant to evidence. The refusal
+    has to leave no licence behind, so the buyer can be refunded cleanly."""
+    monkeypatch.setenv("RELAY_ACCESS_STRIPE_WITHDRAWAL_CONSENT", "1")
+    harness = access_harness
+
+    created = harness.client.post("/v1/access/stripe/checkout", json={})
+    assert created.status_code == 200, created.text
+    checkout = created.json()
+
+    unconsented = _stripe_checkout_event(
+        event_id="evt_consent_missing",
+        checkout_ref=checkout["checkout_ref"],
+        session_id=harness.stripe.session_ids[checkout["checkout_ref"]],
+        payment_id="pi_consent_missing",
+        email="withdrawal@example.test",
+    )
+    refused = _post_stripe_event(harness.client, unconsented)
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"]["code"] == "invalid_challenge"
+
+    conn = sqlite3.connect(harness.database)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM relay_licenses").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+    # The same checkout, carrying the consent Stripe recorded, is delivered.
+    consented = _stripe_checkout_event(
+        event_id="evt_consent_present",
+        checkout_ref=checkout["checkout_ref"],
+        session_id=harness.stripe.session_ids[checkout["checkout_ref"]],
+        payment_id="pi_consent_present",
+        email="withdrawal@example.test",
+        consent={"terms_of_service": "accepted"},
+    )
+    delivered = _post_stripe_event(harness.client, consented)
+    assert delivered.status_code == 200, delivered.text
+    assert delivered.json() == {"ok": True, "duplicate": False}
+
+    conn = sqlite3.connect(harness.database)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM relay_licenses").fetchone()[0] == 1
+    finally:
+        conn.close()

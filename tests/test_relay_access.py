@@ -155,6 +155,106 @@ def test_stripe_checkout_uses_internal_product_and_stable_idempotency_key(
     ]
 
 
+def test_stripe_adapter_factory_honours_the_withdrawal_consent_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The switch has to reach the adapter the application actually builds."""
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_local_only")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_local_only")
+    monkeypatch.setenv("STRIPE_RELAY_ACCESS_PRICE_ID", "price_relay_test")
+
+    monkeypatch.delenv("RELAY_ACCESS_STRIPE_WITHDRAWAL_CONSENT", raising=False)
+    assert relay_main._stripe_adapter().withdrawal_consent is False
+
+    monkeypatch.setenv("RELAY_ACCESS_STRIPE_WITHDRAWAL_CONSENT", "1")
+    assert relay_main._stripe_adapter().withdrawal_consent is True
+
+
+def test_stripe_checkout_collects_the_withdrawal_consent_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EU consumers keep a 14-day withdrawal right unless they expressly ask for
+    immediate performance, so the consent has to be collected at checkout."""
+    calls: list[dict[str, object]] = []
+
+    class FakeSessionApi:
+        @staticmethod
+        def create(**kwargs):
+            calls.append(kwargs)
+            return {"id": "cs_test_consent", "url": "https://checkout.stripe.test/session"}
+
+    fake_stripe = SimpleNamespace(api_key="", checkout=SimpleNamespace(Session=FakeSessionApi))
+    adapter = StripeAdapter(
+        api_key="sk_test_local_only",
+        webhook_secret="whsec_local_only",
+        price_id="price_relay_test",
+        subscription_mode=True,
+        withdrawal_consent=True,
+    )
+    monkeypatch.setattr(adapter, "_stripe", lambda: fake_stripe)
+
+    adapter.create_checkout(
+        checkout_ref="chk_consent",
+        success_url="https://beacontools.cc/local-flight/relay-access/success/",
+        cancel_url="https://beacontools.cc/local-flight/relay-access/",
+    )
+
+    assert calls[0]["consent_collection"] == {"terms_of_service": "required"}
+    message = calls[0]["custom_text"]["terms_of_service_acceptance"]["message"]
+    assert "immediate" in message.lower()
+    assert "14-day right of withdrawal" in message
+    # Stripe caps custom checkout text at 1200 characters.
+    assert len(message) <= 1200
+
+
+def test_stripe_checkout_omits_consent_until_the_account_is_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stripe rejects a terms-of-service consent unless the account publishes a
+    Terms of Service URL, so the request must stay clean while it is switched off."""
+    calls: list[dict[str, object]] = []
+
+    class FakeSessionApi:
+        @staticmethod
+        def create(**kwargs):
+            calls.append(kwargs)
+            return {"id": "cs_test_plain", "url": "https://checkout.stripe.test/session"}
+
+    fake_stripe = SimpleNamespace(api_key="", checkout=SimpleNamespace(Session=FakeSessionApi))
+    adapter = StripeAdapter(
+        api_key="sk_test_local_only",
+        webhook_secret="whsec_local_only",
+        price_id="price_relay_test",
+        subscription_mode=True,
+    )
+    monkeypatch.setattr(adapter, "_stripe", lambda: fake_stripe)
+
+    adapter.create_checkout(
+        checkout_ref="chk_plain",
+        success_url="https://beacontools.cc/local-flight/relay-access/success/",
+        cancel_url="https://beacontools.cc/local-flight/relay-access/",
+    )
+
+    assert "consent_collection" not in calls[0]
+    assert "custom_text" not in calls[0]
+
+
+@pytest.mark.parametrize(
+    "session,accepted",
+    [
+        ({"consent": {"terms_of_service": "accepted"}}, True),
+        ({"consent": {"terms_of_service": "ACCEPTED"}}, True),
+        ({"consent": {"terms_of_service": None}}, False),
+        ({"consent": {}}, False),
+        ({"consent": "accepted"}, False),
+        ({}, False),
+    ],
+)
+def test_checkout_consent_is_only_read_as_accepted_when_stripe_says_so(session, accepted) -> None:
+    """Fail closed: anything other than an explicit acceptance is not consent."""
+    assert StripeAdapter.checkout_consent_accepted(session) is accepted
+
+
 def test_stripe_subscription_reads_current_basil_item_period(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

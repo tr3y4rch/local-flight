@@ -2134,12 +2134,22 @@ def _sales_channel_enabled(channel: str) -> bool:
     return bool(env_key and _enabled_env("RELAY_ACCESS_SALES_ENABLED") and _enabled_env(env_key))
 
 
+def _stripe_withdrawal_consent_required() -> bool:
+    """Whether checkout collects the EU immediate-performance consent.
+
+    Read here rather than off the adapter so the request that asks for the
+    consent and the fulfilment that requires it can never disagree.
+    """
+    return _enabled_env("RELAY_ACCESS_STRIPE_WITHDRAWAL_CONSENT")
+
+
 def _stripe_adapter() -> StripeAdapter:
     return StripeAdapter(
         api_key=_env("STRIPE_SECRET_KEY"),
         webhook_secret=_env("STRIPE_WEBHOOK_SECRET"),
         price_id=_env("STRIPE_RELAY_ACCESS_PRICE_ID"),
         subscription_mode=True,
+        withdrawal_consent=_stripe_withdrawal_consent_required(),
     )
 
 
@@ -12333,6 +12343,12 @@ async def access_stripe_webhook(request: Request) -> Dict[str, Any]:
             checkout_email = _stripe_checkout_email(value)
             if not valid_mailbox(checkout_email):
                 raise InvalidChallenge("Stripe Checkout did not return a valid delivery email")
+            # When the consent is being collected, a session without it must not be
+            # fulfilled: delivering the licence anyway would start immediate
+            # performance the buyer never agreed to, which is the thing the
+            # withdrawal waiver exists to evidence.
+            if _stripe_withdrawal_consent_required() and not StripeAdapter.checkout_consent_accepted(value):
+                raise InvalidChallenge("Stripe Checkout completed without the required consent")
             subscription = _stripe_adapter().retrieve_subscription(subscription_id)
             verified = _stripe_subscription_purchase(
                 subscription,

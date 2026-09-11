@@ -35,6 +35,17 @@ class StripeCheckout:
 class StripeAdapter:
     """Small Stripe SDK boundary; no Stripe objects escape this adapter."""
 
+    # Shown beside Stripe's terms-of-service checkbox. EU consumers keep a
+    # fourteen-day withdrawal right unless they expressly ask for immediate
+    # performance of digital content and acknowledge losing it, so the consent
+    # has to be collected at checkout rather than merely published.
+    WITHDRAWAL_CONSENT_MESSAGE = (
+        "Relay Access is delivered immediately: your licence key is issued as soon as this "
+        "checkout completes. By agreeing you expressly ask for that immediate start and "
+        "acknowledge that you lose your 14-day right of withdrawal once the licence has been "
+        "delivered in full. A 14-day refund is offered regardless."
+    )
+
     def __init__(
         self,
         *,
@@ -42,11 +53,16 @@ class StripeAdapter:
         webhook_secret: str,
         price_id: str,
         subscription_mode: bool = False,
+        withdrawal_consent: bool = False,
     ) -> None:
         self.api_key = api_key.strip()
         self.webhook_secret = webhook_secret.strip()
         self.price_id = price_id.strip()
         self.subscription_mode = bool(subscription_mode)
+        # Requires a Terms of Service URL on the Stripe account (Dashboard →
+        # Settings → Public details). Stripe rejects the session without one, so
+        # this stays switchable rather than hard-coded on.
+        self.withdrawal_consent = bool(withdrawal_consent)
 
     @staticmethod
     def _stripe() -> Any:
@@ -90,6 +106,11 @@ class StripeAdapter:
             "cancel_url": cancel_url,
             "idempotency_key": f"relay-checkout:{checkout_ref}",
         }
+        if self.withdrawal_consent:
+            request["consent_collection"] = {"terms_of_service": "required"}
+            request["custom_text"] = {
+                "terms_of_service_acceptance": {"message": self.WITHDRAWAL_CONSENT_MESSAGE},
+            }
         if self.subscription_mode:
             request["subscription_data"] = {"metadata": {"checkout_ref": checkout_ref}}
         else:
@@ -101,6 +122,14 @@ class StripeAdapter:
         if not session_id or not url:
             raise AccessConfigurationError("Stripe did not create a usable Checkout Session")
         return StripeCheckout(checkout_ref=checkout_ref, session_id=session_id, url=url)
+
+    @staticmethod
+    def checkout_consent_accepted(session: dict[str, Any]) -> bool:
+        """True when the buyer ticked the terms-of-service consent on this session."""
+        consent = session.get("consent")
+        if not isinstance(consent, dict):
+            return False
+        return str(consent.get("terms_of_service") or "").strip().lower() == "accepted"
 
     def create_billing_portal(self, *, customer_reference: str, return_url: str) -> str:
         if not self.api_key or not customer_reference.strip() or not return_url.startswith("https://"):
