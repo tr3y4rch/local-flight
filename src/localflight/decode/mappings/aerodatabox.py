@@ -201,6 +201,14 @@ def _flight_number(row: Dict[str, Any], airline: Dict[str, Any]) -> Optional[str
             if re.fullmatch(r"0*[0-9]{1,5}[A-Z]?", suffix):
                 return compact
     if not re.fullmatch(r"0*[0-9]{1,5}", compact):
+        # No airline code to check the prefix against. AeroDataBox does this on
+        # codeshare rows, where `airline` carries a name and nothing else, so
+        # requiring a code would drop every one of them. Accept only the normal
+        # published form: a two or three letter designator, digits, and at most
+        # one suffix letter. An operational callsign fragment like 9GD or 259T
+        # starts with a digit and still does not qualify.
+        if not (airline_iata or airline_icao) and re.fullmatch(r"[A-Z]{2,3}[0-9]{1,4}[A-Z]?", compact):
+            return compact
         return None
     prefix = airline_iata or airline_icao
     return f"{prefix}{compact}".upper() if prefix else compact

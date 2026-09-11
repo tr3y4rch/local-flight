@@ -1250,6 +1250,39 @@ def test_aerodatabox_codeshare_status_collapses_to_operator_row() -> None:
     assert "aerodatabox.codeshareStatus:IsOperator" in payload["identity_evidence"]
 
 
+def test_aerodatabox_keeps_codeshare_rows_when_the_airline_publishes_no_code() -> None:
+    """AeroDataBox returns codeshare rows carrying an airline name and no IATA or
+    ICAO code. Requiring a code to validate the number dropped every one of them,
+    and the relay then discarded the whole airport board over the shortfall."""
+    scheduled = datetime(2026, 9, 11, 6, 0, tzinfo=timezone.utc)
+    payload = {
+        "departures": [
+            {
+                "number": "JL 7799",
+                "callSign": None,
+                "status": "Expected",
+                "departure": {"airport": {"iata": "LHR"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "arrival": {"airport": {"iata": "HND"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "airline": {"name": "Japan Airlines"},
+            },
+            {
+                # An operational callsign fragment still must not pass as a
+                # published flight number, code or no code.
+                "number": "9GD",
+                "callSign": None,
+                "status": "Expected",
+                "departure": {"airport": {"iata": "LHR"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "arrival": {"airport": {"iata": "WAW"}, "scheduledTime": {"utc": scheduled.isoformat()}},
+                "airline": {"name": "Some Carrier"},
+            },
+        ]
+    }
+    records = aerodatabox_to_raw_records(payload, airport_iata="LHR", airport_icao="EGLL")
+
+    assert len(records) == 1
+    assert records[0]["callsign"] == "JL7799"
+
+
 def test_aerodatabox_multiple_operator_rows_same_route_time_stay_separate() -> None:
     scheduled = datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc)
     payload = {

@@ -5843,13 +5843,21 @@ def _fetch_aerodatabox_schedule_source_from_upstream(
         airport_iata=airport_iata,
         mode="both",
     )
-    if len(records) != len(payload.get("departures") or []) + len(payload.get("arrivals") or []):
+    raw_rows = len(payload.get("departures") or []) + len(payload.get("arrivals") or [])
+    dropped = raw_rows - len(records)
+    # A few rows per board carry no usable identity at all — codeshares where the
+    # provider publishes an airline name and no code, for instance. Discarding a
+    # whole airport's board over a handful of them is worse than serving it
+    # slightly short, and it silently demoted this provider to the fallback for
+    # days. Reject only a wholesale decode failure, and record the shortfall.
+    if raw_rows and (len(records) == 0 or dropped > max(25, raw_rows // 10)):
         raise HTTPException(502, "Flight information contains incomplete movement identities")
     meta = {
         "request_count": 1,
         "units_spent": _aerodatabox_fids_units(),
-        "raw_rows": len(payload.get("departures") or []) + len(payload.get("arrivals") or []),
+        "raw_rows": raw_rows,
         "record_count": len(records),
+        "dropped_rows": dropped,
         "marketplace": _aerodatabox_marketplace(),
         "planner_version": _SHARED_SCHEDULE_PLANNER_VERSION,
         "schema_version": _SHARED_SCHEDULE_SCHEMA_VERSION,
