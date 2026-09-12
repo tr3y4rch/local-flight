@@ -73,6 +73,25 @@ def _parse_time(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _stamp_from_name(path: Path) -> str:
+    """Sort key from the timestamp an artifact carries in its filename.
+
+    Modification time cannot be used. prune() rewrites older artifacts in place
+    to re-strip provider caches, and the atomic replace gives each rewritten
+    file a fresh mtime, so ordering by mtime makes an arbitrary old artifact
+    look like the newest one. The stamp is fixed-width basic ISO 8601, so
+    lexicographic order is chronological order, and reading it costs no
+    decryption.
+    """
+    stem = path.name
+    if stem.startswith("relay-access-") and stem.endswith(".lfrbak"):
+        remainder = stem[len("relay-access-"):-len(".lfrbak")]
+        stamp, _, suffix = remainder.rpartition("-")
+        if stamp and suffix:
+            return stamp
+    return ""
+
+
 def _remove_sqlite_temp(path: Path) -> None:
     """Remove a temporary SQLite file together with its journal/WAL sidecars."""
     for suffix in ("", "-journal", "-wal", "-shm"):
@@ -366,7 +385,7 @@ class AccessBackupManager:
     def latest_backup(self) -> Path | None:
         candidates = sorted(
             self.backup_directory.glob("relay-access-*.lfrbak"),
-            key=lambda item: item.stat().st_mtime,
+            key=lambda item: (_stamp_from_name(item), item.name),
             reverse=True,
         ) if self.backup_directory.is_dir() else []
         return candidates[0] if candidates else None
@@ -403,7 +422,11 @@ class AccessBackupManager:
         if latest is None:
             return True
         try:
-            created = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc)
+            stamp = _stamp_from_name(latest)
+            if stamp:
+                created = datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+            else:
+                created = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc)
         except Exception:
             return True
         return current - created >= timedelta(hours=1)

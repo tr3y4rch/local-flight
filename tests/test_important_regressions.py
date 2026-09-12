@@ -7655,3 +7655,25 @@ def test_schedule_pruning_reclaims_the_file_instead_of_only_freeing_pages(
     finally:
         conn.close()
     assert reclaimed < grown // 2
+
+
+def test_the_newest_backup_is_identified_after_prune_rewrites_older_ones(
+    tmp_path: Path,
+) -> None:
+    # prune() re-strips older artifacts in place, and the atomic replace gives
+    # each one a fresh mtime. Ordering by mtime therefore made an arbitrary old
+    # artifact look like the newest, which would have reported a current backup
+    # as stale and flipped backup_ready to false while backups were working.
+    manager, _ = _backup_manager(tmp_path)
+    now = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
+    oldest = manager.create_backup(now=now - timedelta(hours=6)).path
+    newest = manager.create_backup(now=now - timedelta(minutes=5)).path
+
+    # Touch the oldest artifact last, exactly as an in-place re-strip does.
+    os.utime(oldest, None)
+    assert oldest.stat().st_mtime > newest.stat().st_mtime
+
+    assert manager.latest_backup() == newest
+    # And a backup five minutes old is not due, however the files were touched.
+    assert manager.backup_due(now=now) is False
+    assert manager.backup_due(now=now + timedelta(hours=2)) is True
