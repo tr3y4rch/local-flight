@@ -46,6 +46,9 @@ _PROVIDER_EXCLUSION_VERSION = 2
 # artifact, all beside each other. Three copies plus a margin is the peak.
 _BACKUP_COPIES_IN_FLIGHT = 3
 _BACKUP_FREE_SPACE_MARGIN = 32 * 1024 * 1024
+# AES-GCM tag appended to every ciphertext, so an artifact's size can be
+# checked against the plaintext length its header claims.
+_GCM_TAG_BYTES = 16
 # Retention tiers. Hourly granularity used to run for seven days, which is 168
 # artifacts: more than the relay's 1 GB volume can hold beside the database it
 # backs up. Two days of hourly recovery points, then daily cover for a quarter,
@@ -286,6 +289,35 @@ class AccessBackupManager:
         self.prune(now=created)
         return inspection
 
+    def _read_header(self, path: Path) -> tuple[dict[str, Any], int]:
+        """Return the cleartext header and the offset at which the ciphertext starts.
+
+        Retention bucketing and the re-strip gate only need header fields, so
+        they read these few hundred bytes rather than pulling every retained
+        artifact through AES-GCM and SHA-256 once an hour. The offset lets a
+        caller size-check an artifact without reading the payload.
+        """
+        path = Path(path)
+        prefix_size = len(_MAGIC) + _HEADER_SIZE.size
+        with path.open("rb") as handle:
+            prefix = handle.read(prefix_size)
+            if len(prefix) < prefix_size or not prefix.startswith(_MAGIC):
+                raise InvalidChallenge(f"Encrypted backup {path.name} has an invalid format")
+            (header_length,) = _HEADER_SIZE.unpack(prefix[len(_MAGIC):])
+            if header_length <= 0 or header_length > _MAX_HEADER_BYTES:
+                raise InvalidChallenge(f"Encrypted backup {path.name} has an invalid header")
+            header_raw = handle.read(header_length)
+        if len(header_raw) != header_length:
+            raise InvalidChallenge(f"Encrypted backup {path.name} has an invalid header")
+        try:
+            header = json.loads(header_raw.decode("utf-8"))
+            if not isinstance(header, dict):
+                raise TypeError("Encrypted backup header is not a JSON object")
+            str(header["key_id"])
+        except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise InvalidChallenge(f"Encrypted backup {path.name} has an invalid header") from exc
+        return header, prefix_size + header_length
+
     def _decrypt(self, path: Path) -> tuple[dict[str, Any], bytes]:
         raw = Path(path).read_bytes()
         if not raw.startswith(_MAGIC) or len(raw) < len(_MAGIC) + _HEADER_SIZE.size:
@@ -395,20 +427,7 @@ class AccessBackupManager:
         if not self.backup_directory.is_dir():
             return []
         for path in self.backup_directory.glob("relay-access-*.lfrbak"):
-            raw = path.read_bytes()
-            if not raw.startswith(_MAGIC) or len(raw) < len(_MAGIC) + _HEADER_SIZE.size:
-                raise InvalidChallenge(f"Encrypted backup {path.name} has an invalid format")
-            offset = len(_MAGIC)
-            (header_length,) = _HEADER_SIZE.unpack(raw[offset:offset + _HEADER_SIZE.size])
-            offset += _HEADER_SIZE.size
-            if header_length <= 0 or header_length > _MAX_HEADER_BYTES:
-                raise InvalidChallenge(f"Encrypted backup {path.name} has an invalid header")
-            try:
-                header = json.loads(raw[offset:offset + header_length].decode("utf-8"))
-                key_id = str(header["key_id"])
-            except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-                raise InvalidChallenge(f"Encrypted backup {path.name} has an invalid header") from exc
-            referenced.add(key_id)
+            referenced.add(str(self._read_header(path)[0]["key_id"]))
         missing = sorted(key_id for key_id in referenced if key_id not in self._keys)
         if missing:
             raise AccessConfigurationError(
@@ -431,11 +450,19 @@ class AccessBackupManager:
             return True
         return current - created >= timedelta(hours=1)
 
-    def _remove_legacy_provider_data(self, path: Path) -> None:
-        """Keep access recovery records while removing cached datasets in old archives."""
-        header, plaintext = self._decrypt(path)
+    def _remove_legacy_provider_data(self, path: Path, *, header: dict[str, Any] | None = None) -> None:
+        """Keep access recovery records while removing cached datasets in old archives.
+
+        The provider_exclusion_version gate is checked against the cleartext
+        header before anything is decrypted, so an artifact already stripped at
+        the current version costs a header read rather than a full decrypt and
+        re-encrypt on every hourly prune. Callers holding the header pass it in.
+        """
+        if header is None:
+            header, _ = self._read_header(path)
         if int(header.get("provider_exclusion_version") or 0) >= _PROVIDER_EXCLUSION_VERSION:
             return
+        header, plaintext = self._decrypt(path)
         with _temp_sqlite(
             self.backup_directory, ".relay-access-restrip-", data=plaintext
         ) as temporary:
@@ -458,17 +485,40 @@ class AccessBackupManager:
             encrypted = AESGCM(self._keys[header["key_id"]]).encrypt(nonce, clean, _MAGIC + encoded)
             self._write_atomic(path, _MAGIC + _HEADER_SIZE.pack(len(encoded)) + encoded + encrypted)
 
+    def _retention_created_at(self, path: Path) -> datetime:
+        """Return an artifact's creation time, refusing anything prune must not delete.
+
+        Bucketing must not pull the whole retained set through AES-GCM and
+        SHA-256 every hour, so this trusts the cleartext header rather than
+        decrypting. It still rejects every artifact retention has no business
+        removing: an unparseable header, a key the relay no longer holds, a
+        missing or unusable created_at, and a file whose size contradicts the
+        length the header claims. A bit flip inside the ciphertext is the one
+        corruption this no longer notices; inspect(verify_database=True),
+        restore() and the backup health check still authenticate in full.
+        """
+        header, payload_offset = self._read_header(path)
+        if str(header.get("key_id") or "") not in self._keys:
+            raise AccessConfigurationError(
+                f"Encrypted backup {path.name} references an unavailable key"
+            )
+        expected = payload_offset + int(header["plaintext_bytes"]) + _GCM_TAG_BYTES
+        if path.stat().st_size != expected:
+            raise InvalidChallenge(f"Encrypted backup {path.name} has an unexpected length")
+        self._remove_legacy_provider_data(path, header=header)
+        return _parse_time(header["created_at"])
+
     def prune(self, *, now: datetime | None = None) -> list[Path]:
         current = (now or _utc_now()).astimezone(timezone.utc)
         candidates: list[tuple[Path, datetime]] = []
         for path in self.backup_directory.glob("relay-access-*.lfrbak"):
             try:
-                self._remove_legacy_provider_data(path)
-                candidates.append((path, _parse_time(self.inspect(path).created_at)))
+                created = self._retention_created_at(path)
             except Exception:
                 # Never delete an unreadable artifact automatically; surface it
                 # to the operator/backup-health check instead.
                 continue
+            candidates.append((path, created))
         candidates.sort(key=lambda item: item[1], reverse=True)
         retained_buckets: set[tuple[str, str]] = set()
         removed: list[Path] = []

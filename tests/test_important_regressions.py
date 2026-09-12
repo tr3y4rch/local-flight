@@ -41,8 +41,11 @@ import localflight.ui.server as ui_server
 import localflight.core.resources as core_resources
 import relay.main as relay_main
 from relay.access.backup import (
+    _HEADER_SIZE,
     _HOURLY_RETENTION,
+    _MAGIC,
     _PROVIDER_CACHE_TABLES,
+    _PROVIDER_EXCLUSION_VERSION,
     AccessBackupManager,
     AccessBackupSpaceError,
 )
@@ -7677,3 +7680,118 @@ def test_the_newest_backup_is_identified_after_prune_rewrites_older_ones(
     # And a backup five minutes old is not due, however the files were touched.
     assert manager.backup_due(now=now) is False
     assert manager.backup_due(now=now + timedelta(hours=2)) is True
+def test_backup_prune_buckets_from_the_header_without_decrypting(tmp_path: Path) -> None:
+    """Hourly pruning must not pull the retained set through AES-GCM and SHA-256.
+
+    prune() runs after every hourly create_backup(), so decrypting each
+    candidate purely to read created_at cost the whole retained set in decrypt
+    and hash work every hour on a shared-cpu-1x:512MB machine.
+    """
+    manager, _ = _backup_manager(tmp_path)
+    now = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
+    for hours in range(0, 12, 2):
+        manager.create_backup(now=now - timedelta(hours=hours))
+
+    decrypted: list[str] = []
+    original = AccessBackupManager._decrypt
+    try:
+        AccessBackupManager._decrypt = lambda self, path: (
+            decrypted.append(Path(path).name),
+            original(self, path),
+        )[1]
+        manager.prune(now=now)
+    finally:
+        AccessBackupManager._decrypt = original
+    assert decrypted == [], "prune() decrypted artifacts to read created_at"
+
+    retained = sorted(
+        manager._read_header(path)[0]["created_at"]
+        for path in (tmp_path / "backups").glob("*.lfrbak")
+    )
+    assert len(retained) == len(set(retained)) == 6
+
+
+def test_backup_prune_never_deletes_an_artifact_it_cannot_read(tmp_path: Path) -> None:
+    """Reading the header instead of decrypting must not make damaged artifacts prunable."""
+    manager, _ = _backup_manager(tmp_path)
+    now = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
+    # Two artifacts share a daily bucket well inside the daily tier, so prune
+    # would otherwise drop the older one.
+    manager.create_backup(now=now - timedelta(days=30, hours=1))
+    victim = manager.create_backup(now=now - timedelta(days=30, hours=2)).path
+    intact = victim.read_bytes()
+
+    header_length = _HEADER_SIZE.unpack(intact[len(_MAGIC):len(_MAGIC) + _HEADER_SIZE.size])[0]
+    header = json.loads(intact[len(_MAGIC) + _HEADER_SIZE.size:][:header_length])
+    foreign = json.dumps({**header, "key_id": "retired"}, sort_keys=True, separators=(",", ":")).encode()
+
+    damaged = {
+        "truncated payload": intact[:-40],
+        "appended bytes": intact + b"\x00" * 40,
+        "unparseable header": _MAGIC + _HEADER_SIZE.pack(9) + b"not-json!" + intact[-64:],
+        "unavailable key": _MAGIC + _HEADER_SIZE.pack(len(foreign)) + foreign + intact[-64:],
+    }
+    for label, payload in damaged.items():
+        victim.write_bytes(payload)
+        manager.prune(now=now)
+        assert victim.exists(), f"prune() deleted an artifact with a {label}"
+
+
+def test_backup_restrip_is_gated_on_the_header_and_not_redone_every_hour(tmp_path: Path) -> None:
+    """A provider_exclusion_version bump re-strips an artifact once, not hourly.
+
+    The gate has to be read from the cleartext header. Checking it after
+    _decrypt() meant every already-stripped artifact still paid a full decrypt
+    and re-encrypt on every prune.
+    """
+    import base64
+    import hashlib
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    manager, _ = _backup_manager(tmp_path)
+    now = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
+    path = manager.create_backup(now=now).path
+
+    # Rebuild it as an artifact written before airport_ground_snapshots joined
+    # _PROVIDER_CACHE_TABLES: older exclusion version, cache rows still present.
+    header, plaintext = manager._decrypt(path)
+    stale = tmp_path / "stale.sqlite"
+    stale.write_bytes(plaintext)
+    with sqlite3.connect(stale) as conn:
+        conn.execute(
+            "INSERT INTO airport_ground_snapshots VALUES ('leaked-osm-geometry', ?)",
+            ("x" * 20_000,),
+        )
+    plaintext = stale.read_bytes()
+    header.update(
+        provider_exclusion_version=_PROVIDER_EXCLUSION_VERSION - 1,
+        database_sha256=hashlib.sha256(plaintext).hexdigest(),
+        plaintext_bytes=len(plaintext),
+    )
+    nonce = base64.urlsafe_b64decode(header["nonce"] + "=" * (-len(header["nonce"]) % 4))
+    encoded = json.dumps(header, sort_keys=True, separators=(",", ":")).encode()
+    ciphertext = AESGCM(manager._keys["v1"]).encrypt(nonce, plaintext, _MAGIC + encoded)
+    path.write_bytes(_MAGIC + _HEADER_SIZE.pack(len(encoded)) + encoded + ciphertext)
+
+    decrypted: list[str] = []
+    original = AccessBackupManager._decrypt
+    try:
+        AccessBackupManager._decrypt = lambda self, target: (
+            decrypted.append(Path(target).name),
+            original(self, target),
+        )[1]
+        manager.prune(now=now)
+        assert decrypted, "the out-of-date artifact was never re-stripped"
+        decrypted.clear()
+        manager.prune(now=now)
+        assert decrypted == [], "the re-strip ran again on an up-to-date artifact"
+    finally:
+        AccessBackupManager._decrypt = original
+
+    assert manager._read_header(path)[0]["provider_exclusion_version"] == _PROVIDER_EXCLUSION_VERSION
+    restored = tmp_path / "restored.db"
+    manager.restore(path, restored)
+    with sqlite3.connect(restored) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM airport_ground_snapshots").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM licenses").fetchone()[0] == 64
