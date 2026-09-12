@@ -203,21 +203,31 @@ class AccessBackupManager:
             self._integrity_check(snapshot_path)
             return snapshot_path.read_bytes()
 
-    def _require_free_space(self) -> None:
-        """Refuse a backup that cannot fit instead of filling the volume.
+    def required_free_bytes(self) -> int:
+        """Free space a single backup run needs beside the database.
 
         The snapshot copy, its VACUUM scratch and the verification copy all live
-        beside the finished artifact, so a run needs a multiple of the database
-        size. Discovering that by hitting ENOSPC mid-write leaves the artifact
-        unwritten and the run is retried every minute, which is how the relay
-        volume reached zero bytes free.
+        next to the finished artifact, so the figure scales with the database
+        rather than the artifact. Reporting it lets a monitor warn before the
+        guard below starts refusing, instead of after.
         """
         try:
             database_bytes = self.database_path.stat().st_size
         except OSError:
+            database_bytes = 0
+        return _BACKUP_COPIES_IN_FLIGHT * database_bytes + _BACKUP_FREE_SPACE_MARGIN
+
+    def _require_free_space(self) -> None:
+        """Refuse a backup that cannot fit instead of filling the volume.
+
+        Discovering the shortfall by hitting ENOSPC mid-write leaves the artifact
+        unwritten and the run is retried every minute, which is how the relay
+        volume reached zero bytes free.
+        """
+        if not self.database_path.is_file():
             return
         self.backup_directory.mkdir(parents=True, exist_ok=True)
-        required = _BACKUP_COPIES_IN_FLIGHT * database_bytes + _BACKUP_FREE_SPACE_MARGIN
+        required = self.required_free_bytes()
         free = shutil.disk_usage(str(self.backup_directory)).free
         if free < required:
             raise AccessBackupSpaceError(

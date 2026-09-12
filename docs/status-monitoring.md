@@ -31,12 +31,33 @@ these endpoints return HTTP 200 while being functionally broken.
 | `licensing` | `https://relay.beacontools.cc/v1/access/catalog` | `beacon_relay_annual_v1` |
 | `downloads` | `https://beacontools.cc/api/releases/latest` | `"ok":true` |
 | `mobile-gateway` | `https://relay.beacontools.cc/v1/mobile/iap/status?platform=ios` | `"ok":true` |
+| `relay-storage` | `https://relay.beacontools.cc/health` | `"storage":{"ready":true` |
+
+`relay-storage` is **operator-only and deliberately absent from
+`STATUS_SERVICES`**, so it pages a human without publishing a row. A volume
+running out of space is not a customer-visible outage at the moment it needs
+attention, and by the time it is, `relay-api` reports it anyway.
+
+It exists because the relay's 1 GB volume filled on 2026-09-12 and nothing said
+so. Backups had been failing for thirteen hours; the relay kept serving on an
+already-open database and only died on its next restart, when SQLite could not
+write the WAL. `/health` answered `200` throughout, so every monitor above
+stayed green.
+
+Its keyword asserts the `ready` flag rather than a free-space figure because the
+threshold is not a constant: a backup run needs several copies of the database
+side by side, so the relay compares free space against what a run actually
+requires plus a margin, and publishes the verdict. The `{` in the keyword pins
+`ready` to the `storage` object — `"ready":true` on its own would also match a
+future field elsewhere in the payload. Keep `ready` first in the object if that
+block is ever reordered, and note that `backup_requires_bytes` in the same
+object is the figure to read when it does fire.
 
 The friendly names are the join key. `STATUS_SERVICES` in
 `workers/beacontools.js` matches on them, so renaming a monitor silently drops
 its history from the page; `scripts/site_status_contract.mjs` covers the mapping.
 
-All five must be **Keyword** monitors, not HTTP(s) ones. HTTP(s) monitors send
+All six must be **Keyword** monitors, not HTTP(s) ones. HTTP(s) monitors send
 HEAD, and every relay route answers `405 Allow: GET` to HEAD — that is stock
 FastAPI behaviour, since `APIRoute` does not add HEAD to GET routes the way a
 plain Starlette route does, and not a misconfiguration to fix in `relay/main.py`.
@@ -71,11 +92,19 @@ install identifier, so probing them would mean inventing installs. Its keyword i
 both of which are legitimately `false` while Apple and Google sales are disabled.
 
 A monitor with no entry in `STATUS_SERVICES` is not published, so operator-only
-checks can be added upstream without changing the public page.
+checks can be added upstream without changing the public page. `relay-storage`
+is the first of these, and `scripts/site_status_contract.mjs` asserts the
+behaviour with an `operator-only-check` fixture.
 
 Do not monitor `/v1/access/stripe/webhook`, `/v1/access/apple/notifications`, or
 `/v1/access/google/rtdn` — they are POST-only and would alarm on 405 — or
 anything under `/admin/api/`, which is behind Basic auth.
+
+Six monitors at a five-minute interval is well inside the free tier's limits,
+and `relay-storage` shares the `/health` URL with `relay-api`: two keyword
+monitors on one endpoint is intended, because folding disk headroom into
+`relay-api`'s keyword would conflate "the relay is serving" with "the relay can
+still back itself up", and only the first belongs on the public page.
 
 Also enable SSL-expiry alerts for `beacontools.cc` and `relay.beacontools.cc`.
 Certificates renew automatically at Cloudflare and Fly.io, so an expiry warning

@@ -7536,6 +7536,7 @@ def test_access_readiness_reports_volume_headroom(monkeypatch: pytest.MonkeyPatc
     # Free space was reported nowhere. The backup went stale hours before the
     # relay stopped serving, and the disk being the cause was visible only by
     # opening a shell on the machine.
+    monkeypatch.delenv("RELAY_ACCESS_BACKUP_ENABLED", raising=False)
     healthy = relay_main._storage_headroom()
     assert healthy["ready"] is True
     assert healthy["total_bytes"] > 0
@@ -7550,6 +7551,40 @@ def test_access_readiness_reports_volume_headroom(monkeypatch: pytest.MonkeyPatc
     assert starved["ready"] is False
     assert starved["free_ratio"] == 0.01
     assert "storage" in relay_main._public_access_readiness()
+
+
+def test_volume_headroom_warns_before_the_space_guard_starts_refusing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The requirement scales with the database, so a fixed free-space fraction
+    # alone would let the database grow until a backup was refused before the
+    # volume ever read unhealthy: a monitor reporting the failure it exists to
+    # pre-empt. Headroom must go false while backups still succeed.
+    manager, database = _backup_manager(tmp_path)
+    monkeypatch.setenv("RELAY_ACCESS_BACKUP_ENABLED", "1")
+    monkeypatch.setenv("DB_PATH", str(database))
+    monkeypatch.setattr(relay_main, "_access_backup_manager", lambda: manager)
+
+    required = manager.required_free_bytes()
+    assert required > 0
+
+    # Comfortably past the ratio floor, but only just enough for one more run,
+    # so the assertion below isolates the backup requirement from the floor.
+    total = required * 5
+    usage = shutil.disk_usage(".")
+    monkeypatch.setattr(
+        shutil,
+        "disk_usage",
+        lambda _path: type(usage)(total, total - int(required * 1.1), int(required * 1.1)),
+    )
+    headroom = relay_main._storage_headroom()
+
+    assert headroom["backup_requires_bytes"] == required
+    assert headroom["free_ratio"] >= relay_main._STORAGE_MIN_FREE_RATIO
+    assert headroom["ready"] is False, "must warn while a backup can still complete"
+
+    # And the guard itself still allows the run at this point.
+    manager._require_free_space()
 
 
 def test_hourly_backups_are_retained_for_two_days_not_seven(tmp_path: Path) -> None:

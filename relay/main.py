@@ -10999,10 +10999,12 @@ def _degraded_data_providers() -> list[str]:
     return sorted(degraded)
 
 
-# Below this fraction of free space a backup run (which needs several copies of
-# the database side by side) can no longer complete, so it is reported before
-# the volume is actually full.
+# Floor for free space on the database volume, independent of what a backup
+# needs, so a volume can still report unhealthy when backups are switched off.
 _STORAGE_MIN_FREE_RATIO = 0.15
+# A backup must not merely fit: it has to still fit after the next few runs, or
+# the warning arrives at the same moment the guard starts refusing.
+_STORAGE_BACKUP_HEADROOM = 1.25
 
 
 def _storage_headroom() -> Dict[str, Any]:
@@ -11011,14 +11013,30 @@ def _storage_headroom() -> Dict[str, Any]:
     Nothing reported this while the volume filled. The backup went stale hours
     before the relay stopped serving, and the disk being the cause was visible
     only by opening a shell on the machine.
+
+    `ready` is deliberately tied to what a backup run actually needs rather than
+    to a fixed fraction alone. That requirement scales with the database, so a
+    ratio on its own would let the database grow until the space guard refused a
+    backup before this ever went unhealthy — a monitor that reports the failure
+    it was added to pre-empt.
     """
     usage = shutil.disk_usage(str(_db_path().parent))
     free_ratio = (usage.free / usage.total) if usage.total else 0.0
+    ready = free_ratio >= _STORAGE_MIN_FREE_RATIO
+    required = 0
+    if _enabled_env("RELAY_ACCESS_BACKUP_ENABLED"):
+        try:
+            required = _access_backup_manager().required_free_bytes()
+        except Exception:
+            required = 0
+        if required:
+            ready = ready and usage.free >= required * _STORAGE_BACKUP_HEADROOM
     return {
-        "ready": free_ratio >= _STORAGE_MIN_FREE_RATIO,
+        "ready": ready,
         "free_bytes": usage.free,
         "total_bytes": usage.total,
         "free_ratio": round(free_ratio, 4),
+        "backup_requires_bytes": required,
     }
 
 
