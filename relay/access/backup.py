@@ -6,11 +6,13 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import sqlite3
 import struct
 import tempfile
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,6 +26,33 @@ from .models import AccessConfigurationError, InvalidChallenge
 _MAGIC = b"LFRA-SQLITE-BACKUP-1\n"
 _HEADER_SIZE = struct.Struct(">I")
 _MAX_HEADER_BYTES = 16_384
+
+# Cached provider datasets. None of them carry access-recovery value and they
+# dominate the live database, so every backup copy is stripped of them. Leaving
+# the ground and surface caches off this list made each hourly artifact 19.9 MB
+# instead of 3.3 MB and filled the relay volume in forty hours.
+_PROVIDER_CACHE_TABLES = (
+    "schedule_snapshots",
+    "provider_schedule_snapshots",
+    "schedule_provider_cache",
+    "mobile_standalone_cache",
+    "airport_ground_snapshots",
+    "airport_surface_snapshots",
+)
+# Bumped whenever _PROVIDER_CACHE_TABLES grows, so prune() re-strips artifacts
+# written while a table was still missing from the list.
+_PROVIDER_EXCLUSION_VERSION = 2
+# A run copies the database, VACUUMs the copy, then writes and verifies the
+# artifact, all beside each other. Three copies plus a margin is the peak.
+_BACKUP_COPIES_IN_FLIGHT = 3
+_BACKUP_FREE_SPACE_MARGIN = 32 * 1024 * 1024
+# Retention tiers. Hourly granularity used to run for seven days, which is 168
+# artifacts: more than the relay's 1 GB volume can hold beside the database it
+# backs up. Two days of hourly recovery points, then daily cover for a quarter,
+# is what actually fits.
+_HOURLY_RETENTION = timedelta(hours=48)
+_DAILY_RETENTION = timedelta(days=90)
+_MONTHLY_RETENTION = timedelta(days=366)
 
 
 def _utc_now() -> datetime:
@@ -42,6 +71,52 @@ def _parse_time(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _remove_sqlite_temp(path: Path) -> None:
+    """Remove a temporary SQLite file together with its journal/WAL sidecars."""
+    for suffix in ("", "-journal", "-wal", "-shm"):
+        Path(str(path) + suffix).unlink(missing_ok=True)
+
+
+@contextmanager
+def _temp_sqlite(directory: Path, prefix: str, *, data: bytes | None = None):
+    """Yield a temporary SQLite path that is always removed with its sidecars.
+
+    Cleanup has to survive a partial write. A backup that runs out of disk
+    raises inside the write itself, and assigning the path inside a `with` block
+    whose cleanup only began afterwards leaked every truncated file, plus the
+    rollback journals VACUUM left behind.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        mode="wb", prefix=prefix, suffix=".sqlite", dir=str(directory), delete=False
+    )
+    path = Path(handle.name)
+    try:
+        with handle:
+            if data is not None:
+                handle.write(data)
+                handle.flush()
+        yield path
+    finally:
+        _remove_sqlite_temp(path)
+
+
+def _strip_provider_cache(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    for table in _PROVIDER_CACHE_TABLES:
+        if table in tables:
+            conn.execute(f"DELETE FROM {table}")
+
+
+class AccessBackupSpaceError(AccessConfigurationError):
+    """Raised when the volume cannot hold another backup.
+
+    A subclass of AccessConfigurationError so existing handlers keep working,
+    distinct so a scheduled run can skip quietly while an operator-forced one
+    still reports why.
+    """
 
 
 @dataclass(frozen=True)
@@ -110,15 +185,7 @@ class AccessBackupManager:
     def _snapshot_bytes(self) -> bytes:
         if not self.database_path.is_file():
             raise AccessConfigurationError("Relay Access database does not exist")
-        self.backup_directory.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            prefix=".relay-access-snapshot-",
-            suffix=".sqlite",
-            dir=str(self.backup_directory),
-            delete=False,
-        ) as handle:
-            snapshot_path = Path(handle.name)
-        try:
+        with _temp_sqlite(self.backup_directory, ".relay-access-snapshot-") as snapshot_path:
             source = sqlite3.connect(str(self.database_path))
             destination = sqlite3.connect(str(snapshot_path))
             try:
@@ -127,10 +194,7 @@ class AccessBackupManager:
                 # Access recovery does not need provider datasets. Remove them
                 # from the backup copy (including freed pages), never the live DB.
                 destination.execute("PRAGMA secure_delete=ON")
-                tables = {r[0] for r in destination.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-                for table in ("schedule_snapshots", "provider_schedule_snapshots", "schedule_provider_cache", "mobile_standalone_cache"):
-                    if table in tables:
-                        destination.execute(f"DELETE FROM {table}")
+                _strip_provider_cache(destination)
                 destination.commit()
                 destination.execute("VACUUM")
             finally:
@@ -138,11 +202,32 @@ class AccessBackupManager:
                 source.close()
             self._integrity_check(snapshot_path)
             return snapshot_path.read_bytes()
-        finally:
-            snapshot_path.unlink(missing_ok=True)
+
+    def _require_free_space(self) -> None:
+        """Refuse a backup that cannot fit instead of filling the volume.
+
+        The snapshot copy, its VACUUM scratch and the verification copy all live
+        beside the finished artifact, so a run needs a multiple of the database
+        size. Discovering that by hitting ENOSPC mid-write leaves the artifact
+        unwritten and the run is retried every minute, which is how the relay
+        volume reached zero bytes free.
+        """
+        try:
+            database_bytes = self.database_path.stat().st_size
+        except OSError:
+            return
+        self.backup_directory.mkdir(parents=True, exist_ok=True)
+        required = _BACKUP_COPIES_IN_FLIGHT * database_bytes + _BACKUP_FREE_SPACE_MARGIN
+        free = shutil.disk_usage(str(self.backup_directory)).free
+        if free < required:
+            raise AccessBackupSpaceError(
+                "Relay Access backup needs "
+                f"{required} bytes free beside the database and {free} are available"
+            )
 
     def create_backup(self, *, now: datetime | None = None) -> BackupInspection:
         created = (now or _utc_now()).astimezone(timezone.utc)
+        self._require_free_space()
         plaintext = self._snapshot_bytes()
         nonce = os.urandom(12)
         database_hash = hashlib.sha256(plaintext).hexdigest()
@@ -150,6 +235,7 @@ class AccessBackupManager:
             {
                 "format": 1,
                 "provider_data_excluded": True,
+                "provider_exclusion_version": _PROVIDER_EXCLUSION_VERSION,
                 "created_at": created.isoformat(),
                 "key_id": self.active_key_id,
                 "nonce": base64.urlsafe_b64encode(nonce).decode("ascii").rstrip("="),
@@ -214,20 +300,12 @@ class AccessBackupManager:
     ) -> BackupInspection:
         header, plaintext = self._decrypt(Path(path))
         if verify_database or database_validator is not None:
-            with tempfile.NamedTemporaryFile(
-                prefix=".relay-access-verify-",
-                suffix=".sqlite",
-                dir=str(self.backup_directory),
-                delete=False,
-            ) as handle:
-                temporary = Path(handle.name)
-                handle.write(plaintext)
-            try:
+            with _temp_sqlite(
+                self.backup_directory, ".relay-access-verify-", data=plaintext
+            ) as temporary:
                 self._integrity_check(temporary)
                 if database_validator is not None:
                     database_validator(temporary)
-            finally:
-                temporary.unlink(missing_ok=True)
         return BackupInspection(
             path=Path(path),
             created_at=str(header.get("created_at") or ""),
@@ -323,19 +401,15 @@ class AccessBackupManager:
     def _remove_legacy_provider_data(self, path: Path) -> None:
         """Keep access recovery records while removing cached datasets in old archives."""
         header, plaintext = self._decrypt(path)
-        if header.get("provider_data_excluded"):
+        if int(header.get("provider_exclusion_version") or 0) >= _PROVIDER_EXCLUSION_VERSION:
             return
-        with tempfile.NamedTemporaryFile(dir=self.backup_directory, suffix=".sqlite", delete=False) as handle:
-            temporary = Path(handle.name)
-            handle.write(plaintext)
-        try:
+        with _temp_sqlite(
+            self.backup_directory, ".relay-access-restrip-", data=plaintext
+        ) as temporary:
             conn = sqlite3.connect(temporary)
             try:
                 conn.execute("PRAGMA secure_delete=ON")
-                tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-                for table in ("schedule_snapshots", "provider_schedule_snapshots", "schedule_provider_cache", "mobile_standalone_cache"):
-                    if table in tables:
-                        conn.execute(f"DELETE FROM {table}")
+                _strip_provider_cache(conn)
                 conn.commit()
                 conn.execute("VACUUM")
             finally:
@@ -343,13 +417,13 @@ class AccessBackupManager:
             self._integrity_check(temporary)
             clean = temporary.read_bytes()
             nonce = os.urandom(12)
-            header.update(provider_data_excluded=True, database_sha256=hashlib.sha256(clean).hexdigest(),
+            header.update(provider_data_excluded=True,
+                          provider_exclusion_version=_PROVIDER_EXCLUSION_VERSION,
+                          database_sha256=hashlib.sha256(clean).hexdigest(),
                           plaintext_bytes=len(clean), nonce=base64.urlsafe_b64encode(nonce).decode("ascii").rstrip("="))
             encoded = json.dumps(header, sort_keys=True, separators=(",", ":")).encode()
             encrypted = AESGCM(self._keys[header["key_id"]]).encrypt(nonce, clean, _MAGIC + encoded)
             self._write_atomic(path, _MAGIC + _HEADER_SIZE.pack(len(encoded)) + encoded + encrypted)
-        finally:
-            temporary.unlink(missing_ok=True)
 
     def prune(self, *, now: datetime | None = None) -> list[Path]:
         current = (now or _utc_now()).astimezone(timezone.utc)
@@ -369,15 +443,15 @@ class AccessBackupManager:
             age = current - created
             if age < timedelta(0):
                 keep = True
-            elif age <= timedelta(days=7):
+            elif age <= _HOURLY_RETENTION:
                 bucket = ("hour", created.strftime("%Y-%m-%dT%H"))
                 keep = bucket not in retained_buckets
                 retained_buckets.add(bucket)
-            elif age <= timedelta(days=90):
+            elif age <= _DAILY_RETENTION:
                 bucket = ("day", created.strftime("%Y-%m-%d"))
                 keep = bucket not in retained_buckets
                 retained_buckets.add(bucket)
-            elif age <= timedelta(days=366):
+            elif age <= _MONTHLY_RETENTION:
                 bucket = ("month", created.strftime("%Y-%m"))
                 keep = bucket not in retained_buckets
                 retained_buckets.add(bucket)

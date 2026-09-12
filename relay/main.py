@@ -10,6 +10,7 @@ import math
 import os
 import re
 import secrets
+import shutil
 import smtplib
 import sqlite3
 import threading
@@ -63,7 +64,7 @@ from relay.access.adapters import (
     SmtpLicenseMailer,
     StripeAdapter,
 )
-from relay.access.backup import AccessBackupManager
+from relay.access.backup import AccessBackupManager, AccessBackupSpaceError
 from relay.access.email_templates import contact_email, valid_mailbox
 from relay.access.mobile_verifiers import (
     ApplePaidAppVerifier,
@@ -2029,7 +2030,16 @@ def _maybe_create_access_backup(*, force: bool = False) -> Dict[str, Any] | None
         manager = _access_backup_manager()
         if not force and not manager.backup_due():
             return None
-        inspection = manager.create_backup()
+        try:
+            inspection = manager.create_backup()
+        except AccessBackupSpaceError as exc:
+            # The lifespan calls this outside any handler, so raising here would
+            # refuse to boot over a full disk — the exact failure this guard
+            # exists to prevent. A skipped run still shows up as a stale backup
+            # in access readiness, and an operator-forced run still reports why.
+            if force:
+                raise
+            return {"skipped": "insufficient_disk_space", "detail": str(exc)}
         return {
             "created_at": inspection.created_at,
             "key_id": inspection.key_id,
@@ -10989,6 +10999,29 @@ def _degraded_data_providers() -> list[str]:
     return sorted(degraded)
 
 
+# Below this fraction of free space a backup run (which needs several copies of
+# the database side by side) can no longer complete, so it is reported before
+# the volume is actually full.
+_STORAGE_MIN_FREE_RATIO = 0.15
+
+
+def _storage_headroom() -> Dict[str, Any]:
+    """Free space on the volume holding the database.
+
+    Nothing reported this while the volume filled. The backup went stale hours
+    before the relay stopped serving, and the disk being the cause was visible
+    only by opening a shell on the machine.
+    """
+    usage = shutil.disk_usage(str(_db_path().parent))
+    free_ratio = (usage.free / usage.total) if usage.total else 0.0
+    return {
+        "ready": free_ratio >= _STORAGE_MIN_FREE_RATIO,
+        "free_bytes": usage.free,
+        "total_bytes": usage.total,
+        "free_ratio": round(free_ratio, 4),
+    }
+
+
 def _public_access_readiness() -> Dict[str, Any]:
     try:
         access_mode = _access_mode()
@@ -11034,6 +11067,10 @@ def _public_access_readiness() -> Dict[str, Any]:
     except Exception:
         backup_ready = False
     try:
+        storage = _storage_headroom()
+    except Exception:
+        storage = {"ready": False, "free_bytes": 0, "total_bytes": 0, "free_ratio": 0.0}
+    try:
         stripe_ready = bool(core_ready and _stripe_adapter().configured())
     except Exception:
         stripe_ready = False
@@ -11077,6 +11114,10 @@ def _public_access_readiness() -> Dict[str, Any]:
         "license_core_ready": core_ready,
         "smtp_ready": smtp_ready,
         "backup_ready": backup_ready,
+        # Free space on the database volume. A full volume stops backups first
+        # and only breaks the relay on the next restart, so this is the earliest
+        # honest warning available.
+        "storage": storage,
         "sales_ready": sales_ready,
         "providers": {
             "stripe": stripe_ready,
@@ -11924,6 +11965,11 @@ def _prune_schedule_data() -> None:
             conn.execute("DELETE FROM schedule_provider_cache WHERE expires_at<=?", (time.time(),))
         conn.execute("DELETE FROM mobile_standalone_cache WHERE last_seen<?", (_hours_ago(24),))
         conn.commit()
+        # DELETE only moves pages onto the freelist, so the file never shrinks
+        # and settles at its high-water mark: 93 MB holding 30 MB of rows, on a
+        # volume shared with the encrypted backups. Reclaiming it here keeps a
+        # transient provider-cache peak from becoming permanent capacity.
+        conn.execute("VACUUM")
     finally:
         conn.close()
 

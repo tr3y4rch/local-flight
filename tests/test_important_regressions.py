@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
+import shutil
+import sqlite3
 import struct
 import sys
+import tempfile
 import threading
 import types
 import xml.etree.ElementTree as ET
@@ -36,6 +40,12 @@ import localflight.ui.api as ui_api
 import localflight.ui.server as ui_server
 import localflight.core.resources as core_resources
 import relay.main as relay_main
+from relay.access.backup import (
+    _HOURLY_RETENTION,
+    _PROVIDER_CACHE_TABLES,
+    AccessBackupManager,
+    AccessBackupSpaceError,
+)
 from localflight.core.models import AirlineRef, AirportRef, Flight, FlightDirection, FlightPosition, FlightTime
 from localflight.companion_pairing import build_pairing_deep_link, pairing_gateway_payload
 from localflight.decode.metar import decorate_metar
@@ -7356,3 +7366,257 @@ def test_network_admin_client_accepts_relay_root_or_admin_url() -> None:
     assert _normalize_relay_base_url("https://relay.beacontools.cc") == "https://relay.beacontools.cc"
     assert _normalize_relay_base_url("https://relay.beacontools.cc/admin") == "https://relay.beacontools.cc"
     assert _normalize_relay_base_url("https://relay.beacontools.cc/admin/api") == "https://relay.beacontools.cc"
+
+
+def _backup_manager(tmp_path: Path) -> tuple[AccessBackupManager, Path]:
+    database = tmp_path / "relay.db"
+    conn = sqlite3.connect(database)
+    conn.execute("CREATE TABLE licenses (license_id TEXT PRIMARY KEY, owner TEXT)")
+    conn.executemany(
+        "INSERT INTO licenses VALUES (?, ?)",
+        [(f"lfr_{index:04d}", f"owner-{index}@example.test") for index in range(64)],
+    )
+    for table in ("schedule_snapshots", "airport_ground_snapshots", "airport_surface_snapshots"):
+        conn.execute(f"CREATE TABLE {table} (cache_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL)")
+        conn.executemany(
+            f"INSERT INTO {table} VALUES (?, ?)",
+            [(f"{table}-{index}", "x" * 20_000) for index in range(40)],
+        )
+    conn.commit()
+    conn.close()
+    manager = AccessBackupManager(
+        database_path=database,
+        backup_directory=tmp_path / "backups",
+        active_key_id="v1",
+        active_secret="regression-backup-secret-that-is-long-enough",
+    )
+    return manager, database
+
+
+def test_backups_exclude_the_ground_and_surface_caches_that_filled_the_relay_volume(
+    tmp_path: Path,
+) -> None:
+    # The exclusion list named the schedule caches but not the ground/surface
+    # ones, so 84% of every hourly artifact was OpenStreetMap-derived geometry
+    # the backup was explicitly designed to leave out. Forty hourly copies of it
+    # filled the relay's 1 GB volume and the relay would not restart.
+    assert "airport_ground_snapshots" in _PROVIDER_CACHE_TABLES
+    assert "airport_surface_snapshots" in _PROVIDER_CACHE_TABLES
+
+    manager, database = _backup_manager(tmp_path)
+    inspection = manager.create_backup()
+
+    # The artifact must be a small fraction of a database dominated by caches.
+    assert inspection.plaintext_bytes < database.stat().st_size // 4
+
+    restored = tmp_path / "restored.db"
+    manager.restore(inspection.path, restored)
+    conn = sqlite3.connect(restored)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM licenses").fetchone()[0] == 64
+        for table in _PROVIDER_CACHE_TABLES:
+            present = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone()
+            if present:
+                assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_a_full_disk_during_verification_leaves_no_temporary_file_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The cleanup used to start after the `with` block that did the write, so an
+    # ENOSPC inside the write escaped before anything could unlink the partial
+    # file. Fifteen truncated copies leaked 104 MB onto a volume already full.
+    manager, _ = _backup_manager(tmp_path)
+    inspection = manager.create_backup()
+    directory = manager.backup_directory
+    settled = sorted(item.name for item in directory.iterdir())
+
+    real_named_temporary_file = tempfile.NamedTemporaryFile
+
+    def out_of_space(*args, **kwargs):
+        handle = real_named_temporary_file(*args, **kwargs)
+
+        class Full:
+            name = handle.name
+
+            def write(self, _data):
+                raise OSError(errno.ENOSPC, "No space left on device")
+
+            def flush(self):
+                handle.flush()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc):
+                handle.close()
+                return False
+
+        return Full()
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", out_of_space)
+    with pytest.raises(OSError):
+        manager.inspect(inspection.path, verify_database=True)
+    monkeypatch.undo()
+
+    assert sorted(item.name for item in directory.iterdir()) == settled
+
+
+def test_a_failed_snapshot_leaves_no_orphaned_sqlite_journal(tmp_path: Path) -> None:
+    # _snapshot_bytes unlinked <temp>.sqlite but not the -journal/-wal/-shm
+    # sidecars VACUUM leaves behind, so every failed run orphaned a journal:
+    # 798 of them accumulated at one per minute.
+    manager, _ = _backup_manager(tmp_path)
+    directory = manager.backup_directory
+    directory.mkdir(parents=True, exist_ok=True)
+
+    from relay.access import backup as backup_module
+
+    with backup_module._temp_sqlite(directory, ".relay-access-snapshot-") as path:
+        conn = sqlite3.connect(path)
+        conn.execute("CREATE TABLE t (v TEXT)")
+        conn.commit()
+        conn.close()
+        for suffix in ("-journal", "-wal", "-shm"):
+            Path(str(path) + suffix).write_bytes(b"leftover")
+
+    assert list(directory.iterdir()) == []
+
+
+def test_a_backup_that_cannot_fit_is_refused_before_it_writes_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Attempting a backup that cannot fit is what filled the last of the volume.
+    # It must be refused up front rather than discovered mid-write.
+    manager, _ = _backup_manager(tmp_path)
+    manager.backup_directory.mkdir(parents=True, exist_ok=True)
+
+    usage = shutil.disk_usage(str(manager.backup_directory))
+    monkeypatch.setattr(
+        shutil, "disk_usage", lambda _path: type(usage)(usage.total, usage.total, 1024)
+    )
+    with pytest.raises(AccessBackupSpaceError):
+        manager.create_backup()
+    monkeypatch.undo()
+
+    assert list(manager.backup_directory.iterdir()) == []
+
+
+def test_a_scheduled_backup_skips_a_full_volume_while_a_forced_one_reports_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The lifespan calls _maybe_create_access_backup outside any handler, so
+    # letting the space guard propagate would refuse to boot on a full disk —
+    # the very outage it exists to prevent. An operator asking for a backup
+    # still has to be told why it did not happen.
+    monkeypatch.setenv("RELAY_ACCESS_BACKUP_ENABLED", "1")
+
+    class FullVolume:
+        def backup_due(self) -> bool:
+            return True
+
+        def create_backup(self):
+            raise AccessBackupSpaceError("needs 300 bytes free and 1024 are available")
+
+    monkeypatch.setattr(relay_main, "_access_backup_manager", lambda: FullVolume())
+
+    assert relay_main._maybe_create_access_backup() == {
+        "skipped": "insufficient_disk_space",
+        "detail": "needs 300 bytes free and 1024 are available",
+    }
+    with pytest.raises(AccessBackupSpaceError):
+        relay_main._maybe_create_access_backup(force=True)
+
+
+def test_access_readiness_reports_volume_headroom(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Free space was reported nowhere. The backup went stale hours before the
+    # relay stopped serving, and the disk being the cause was visible only by
+    # opening a shell on the machine.
+    healthy = relay_main._storage_headroom()
+    assert healthy["ready"] is True
+    assert healthy["total_bytes"] > 0
+
+    usage = shutil.disk_usage(".")
+    monkeypatch.setattr(
+        shutil, "disk_usage", lambda _path: type(usage)(1_000_000, 990_000, 10_000)
+    )
+    starved = relay_main._storage_headroom()
+    monkeypatch.undo()
+
+    assert starved["ready"] is False
+    assert starved["free_ratio"] == 0.01
+    assert "storage" in relay_main._public_access_readiness()
+
+
+def test_hourly_backups_are_retained_for_two_days_not_seven(tmp_path: Path) -> None:
+    # 168 hourly artifacts never fit the relay's 1 GB volume beside the database
+    # they back up. Two days of hourly recovery points is what actually fits;
+    # anything older falls back to one per day for a quarter.
+    assert _HOURLY_RETENTION == timedelta(hours=48)
+
+    manager, _ = _backup_manager(tmp_path)
+    now = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
+    made = {
+        label: manager.create_backup(now=now - offset).path
+        for label, offset in (
+            ("recent", timedelta(hours=1)),
+            ("earlier", timedelta(hours=2)),
+            ("inside_window", timedelta(hours=47)),
+            ("same_day_newer", timedelta(hours=49)),
+            ("same_day_older", timedelta(hours=55)),
+        )
+    }
+    manager.prune(now=now)
+
+    # Everything under 48 hours keeps its own hour.
+    assert made["recent"].exists()
+    assert made["earlier"].exists()
+    assert made["inside_window"].exists()
+    # Past 48 hours the tier collapses to one per calendar day. Under the old
+    # seven-day hourly tier both of these survived.
+    assert made["same_day_newer"].exists()
+    assert not made["same_day_older"].exists()
+
+
+def test_schedule_pruning_reclaims_the_file_instead_of_only_freeing_pages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # DELETE moves pages onto the freelist and leaves the file at its high-water
+    # mark. The relay's database sat at 93 MB holding 30 MB of rows, on the same
+    # volume as the backups, so a transient cache peak became permanent capacity.
+    database = tmp_path / "relay.db"
+    monkeypatch.setenv("DB_PATH", str(database))
+    relay_main._ensure_schema()
+
+    stale = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    conn = relay_main._connect()
+    try:
+        conn.executemany(
+            """
+            INSERT INTO schedule_snapshots (
+                cache_key, airport_iata, timezone, display_grace_minutes,
+                display_horizon_hours, planner_version, schema_version, provider,
+                generated_at, updated_at, meta_json, records_json
+            ) VALUES (?, 'LHR', 'Europe/London', 30, 12, 'v1', 'v1', 'aerodatabox', ?, ?, '{}', ?)
+            """,
+            [(f"key-{index}", stale, stale, "x" * 40_000) for index in range(200)],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    grown = database.stat().st_size
+    relay_main._prune_schedule_data()
+    reclaimed = database.stat().st_size
+
+    conn = relay_main._connect()
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM schedule_snapshots").fetchone()[0] == 0
+        assert conn.execute("PRAGMA freelist_count").fetchone()[0] == 0
+    finally:
+        conn.close()
+    assert reclaimed < grown // 2
